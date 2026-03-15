@@ -1,0 +1,31 @@
+# Dependències del Motor de Traducció Automàtica Neuronal castellà→valencià
+# Servei de Llengües i Política Lingüística - Universitat de València
+# Actualitzat: 2026-03-14
+
+# Models i entrenament
+transformers
+datasets
+torch
+sentencepiece
+ctranslate2
+sacremoses
+
+# Avaluació
+sacrebleu
+evaluate
+unbabel-comet
+
+# Corpus i eines lingüístiques
+opustools
+
+# API i interfície web
+fastapi
+uvicorn
+streamlit
+
+# Processament de documents
+python-docx
+python-pptx
+
+# Configuració
+pyyaml

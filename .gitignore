@@ -1,0 +1,42 @@
+# Entorns virtuals Python
+.venv/
+venv/
+env/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs i eixides
+logs/
+outputs/
+
+# Corpus i models (massa pesats per a git)
+corpus/
+models/
+portatil/aina-model-original/
+portatil/aina-translator-es-ca/
+
+# ngrok executable
+ngrok.exe
+
+# Variables d'entorn
+.env
+.env.*
+
+# Fitxers de sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Fitxers de còpia de seguretat
+*.bak
+*.orig
+
+# Node modules
+node_modules/
+
+# ngrok zip
+ngrok.zip

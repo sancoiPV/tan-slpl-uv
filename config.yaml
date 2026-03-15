@@ -1,0 +1,91 @@
+# Configuració del Motor de Traducció Automàtica Neuronal castellà→valencià
+# Servei de Llengües i Política Lingüística - Universitat de València
+# Actualitzat: 2026-03-14
+
+projecte:
+  nom: TANEU
+  versio: "0.1.0"
+  institucio: "Universitat de València"
+  servei: "Servei de Llengües i Política Lingüística"
+  seccio: "Assessorament Lingüístic"
+
+model:
+  # Model base per a l'adaptació (fine-tuning)
+  model_base: "Helsinki-NLP/opus-mt-es-ca"
+  # Directori on es desen els models entrenats
+  directori_models: "./models"
+  # Dispositiu de còmput (cpu / cuda / mps)
+  dispositiu: "cpu"
+  # Mida màxima de seqüència en tokens
+  longitud_maxima: 512
+  # Nombre de seqüències en el feix de cerca
+  num_beams: 4
+
+entrenament:
+  # Nombre d'èpoques d'entrenament
+  epochs: 3
+  # Mida del lot d'entrenament
+  batch_size: 16
+  # Taxa d'aprenentatge
+  learning_rate: 5.0e-5
+  # Directori de corpus net per a l'entrenament
+  corpus_entrenament: "./corpus/clean"
+  # Directori de postedicions per al fine-tuning
+  corpus_postedicions: "./corpus/postedicions"
+  # Proporció de dades per a validació (0.0–1.0)
+  proporcio_validacio: 0.1
+  # Freqüència de desament de punts de control (en passos)
+  save_steps: 500
+  # Nombre màxim de punts de control desats
+  save_total_limit: 3
+
+avaluacio:
+  # Mètriques d'avaluació actives
+  metriques:
+    - bleu
+    - comet
+  # Model COMET per a l'avaluació
+  model_comet: "Unbabel/wmt22-comet-da"
+  # Directori de resultats d'avaluació
+  directori_resultats: "./logs"
+
+corpus:
+  # Directori de corpus originals
+  raw: "./corpus/raw"
+  # Directori de corpus netejats
+  clean: "./corpus/clean"
+  # Directori de postedicions
+  postedicions: "./corpus/postedicions"
+  # Longitud mínima d'un segment (en caràcters)
+  longitud_minima: 10
+  # Longitud màxima d'un segment (en caràcters)
+  longitud_maxima: 2000
+  # Ràtio màxim de longitud entre segments paral·lels
+  ratio_longitud_maxim: 3.0
+
+webapp:
+  # Amfitrió de l'API FastAPI
+  api_host: "0.0.0.0"
+  # Port de l'API FastAPI
+  api_port: 8000
+  # Port de la interfície Streamlit
+  streamlit_port: 8501
+  # Nombre màxim de caràcters per traducció en la web
+  max_caracters: 5000
+
+outputs:
+  # Directori de documents traduïts
+  directori: "./outputs"
+  # Formats de document admesos
+  formats_admesos:
+    - txt
+    - docx
+    - pptx
+
+logging:
+  # Nivell de registre (DEBUG / INFO / WARNING / ERROR)
+  nivell: "INFO"
+  # Directori de fitxers de registre
+  directori: "./logs"
+  # Nom del fitxer de registre principal
+  fitxer: "taneu.log"

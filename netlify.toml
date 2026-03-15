@@ -1,0 +1,9 @@
+[build]
+  publish = "frontend"
+  command = ""
+[build.environment]
+  NODE_VERSION = "22"
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"

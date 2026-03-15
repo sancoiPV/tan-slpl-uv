@@ -1,0 +1,415 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Sora:wght@300;400;600;700&display=swap');
+
+/* ─── CANVI 1 · Paleta corporativa UV ─────────────────────────────────────── */
+:root {
+  --uv-taronja: #F5A800;
+  --uv-nav:     #1B2A4A;
+  --uv-blau:    #0070AB;
+  --uv-blanc:   #FFFFFF;
+  --uv-gris:    #F5F5F5;
+  --uv-gris-m:  #666666;
+  --uv-brd:     #E0E0E0;
+  --uv-txt:     #1A1A1A;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'Sora', sans-serif;
+}
+
+/* ─── Reset ────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt); min-height: 100vh; }
+
+/* ─── CANVI 2 · Capçalera redissenyada ─────────────────────────────────────── */
+.header { background: var(--uv-nav); }
+
+.header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px;
+  background: var(--uv-nav);
+}
+.header-servei {
+  font-size: 15px;
+  font-weight: 300;
+  color: #fff;
+  flex: 1;
+}
+.header-uv {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--uv-taronja);
+  text-align: center;
+  flex: 1;
+}
+.header-seccio {
+  font-size: 15px;
+  font-weight: 300;
+  color: #fff;
+  text-align: right;
+  flex: 1;
+}
+
+/* ─── CANVI 4 · Navegació amb 5 pestanyes ──────────────────────────────────── */
+.nav {
+  background: #243352;
+  display: flex;
+  padding: 0 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nav::-webkit-scrollbar { display: none; }
+
+.nav-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.75);
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 3px solid transparent;
+  font-family: var(--sans);
+  transition: all .2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.nav-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+.nav-btn.act {
+  background: var(--uv-taronja);
+  color: var(--uv-txt);
+  border-bottom-color: var(--uv-taronja);
+  font-weight: 600;
+}
+
+/* ─── Barra d'estat global (sota la nav) ──────────────────────────────────── */
+.status-bar {
+  background: var(--uv-blanc);
+  border-bottom: 1px solid var(--uv-brd);
+  padding: 5px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #aaa;
+  transition: background .3s;
+}
+/* CANVI 1 · Indicador actiu: taronja UV */
+.dot.ok  { background: var(--uv-taronja); }
+.dot.err { background: #f44336; }
+.status-txt { font-size: 12px; color: var(--uv-gris-m); }
+
+/* ─── Seccions ─────────────────────────────────────────────────────────────── */
+.seccio { max-width: 1080px; margin: 24px auto; padding: 0 16px; display: none; }
+.seccio.vis { display: block; }
+
+/* ─── CANVI 3 · Subtítol descriptiu ───────────────────────────────────────── */
+.subtitol {
+  background: var(--uv-blanc);
+  border: 1px solid var(--uv-brd);
+  border-radius: 8px 8px 0 0;
+  padding: 9px 16px;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+.subtitol p {
+  font-size: 12px;
+  color: var(--uv-gris-m);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* ─── Panells laterals ─────────────────────────────────────────────────────── */
+.panells {
+  display: grid;
+  grid-template-columns: 1fr 140px 1fr;
+  background: var(--uv-blanc);
+  border: 1px solid var(--uv-brd);
+  border-radius: 0 0 10px 10px;
+  overflow: hidden;
+  min-height: 340px;
+}
+/* Si hi ha subtítol adjunt, elimina radius superior */
+.subtitol + .panells { border-top-left-radius: 0; border-top-right-radius: 0; }
+
+.panell-cap {
+  padding: 11px 15px;
+  border-bottom: 1px solid var(--uv-brd);
+  background: #fafafa;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.idioma { font-size: 13px; font-weight: 600; }
+.temps  { font-size: 11px; color: var(--uv-gris-m); }
+
+.textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  padding: 15px;
+  font-size: 15px;
+  line-height: 1.65;
+  resize: none;
+  font-family: var(--sans);
+  color: var(--uv-txt);
+  min-height: 220px;
+  flex: 1;
+}
+.textarea.traduit { background: #fafafa; }
+.panell-esquerre, .panell-dret { display: flex; flex-direction: column; }
+
+/* CANVI 3 · Avís criteris lingüístics */
+.avis-criteri {
+  font-size: 11px;
+  color: var(--uv-gris-m);
+  padding: 6px 15px;
+  background: #FFFBF0;
+  border-top: 1px solid var(--uv-brd);
+  line-height: 1.4;
+}
+
+/* CANVI 5A · Comptadors de paraules */
+.comp-bar {
+  background: #F9F9F9;
+  border-top: 1px solid var(--uv-brd);
+  padding: 5px 15px;
+  display: flex;
+  justify-content: flex-end;
+  font-size: 11px;
+  color: var(--uv-gris-m);
+}
+
+/* CANVI 6 · Columna central horitzontal */
+.central {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 140px;
+  border-left: 1px solid var(--uv-brd);
+  border-right: 1px solid var(--uv-brd);
+  background: #FAFAFA;
+  padding: 0 10px;
+}
+
+/* CANVI 6 · Botó Tradueix/Corregeix horitzontal, taronja UV */
+.btn-tradueix {
+  background: var(--uv-taronja);
+  color: var(--uv-txt);
+  border: none;
+  border-radius: 6px;
+  padding: 10px 28px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 120px;
+  font-family: var(--sans);
+  transition: opacity .2s;
+  /* Layout horitzontal — no s'usa text vertical */
+}
+.btn-tradueix:hover    { opacity: .85; }
+.btn-tradueix:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Barra d'accions */
+.accions {
+  padding: 8px 15px;
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--uv-brd);
+}
+.btn-sec {
+  padding: 5px 13px;
+  border: 1px solid var(--uv-brd);
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--uv-gris-m);
+  font-family: var(--sans);
+  transition: background .15s;
+}
+.btn-sec:hover { background: var(--uv-gris); }
+.btn-desa {
+  padding: 5px 15px;
+  background: #0F6E56;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--sans);
+}
+
+/* ─── CANVI 5B · Zona càrrega documents ────────────────────────────────────── */
+.upload-area {
+  background: var(--uv-blanc);
+  border: 1px solid var(--uv-brd);
+  border-radius: 10px;
+  padding: 40px 32px 32px;
+  text-align: center;
+  transition: border-color .2s;
+}
+.upload-area.drag-over { border-color: var(--uv-taronja); background: #FFFBF0; }
+
+.upload-top { margin-bottom: 20px; }
+
+.btn-apujar {
+  background: var(--uv-taronja);
+  color: var(--uv-txt);
+  font-weight: 600;
+  padding: 12px 32px;
+  border-radius: 6px;
+  font-size: 15px;
+  cursor: pointer;
+  border: none;
+  font-family: var(--sans);
+  transition: opacity .2s;
+}
+.btn-apujar:hover { opacity: .85; }
+
+.drag-hint  { font-size: 13px; color: var(--uv-gris-m); margin-top: 10px; }
+.formats-txt { font-size: 11px; color: var(--uv-gris-m); margin-top: 5px; }
+
+/* Informació del fitxer carregat */
+.fitxer-info {
+  display: none;
+  background: #F9F9F9;
+  border: 1px solid var(--uv-brd);
+  border-radius: 8px;
+  padding: 14px 18px;
+  text-align: left;
+  gap: 12px;
+  align-items: center;
+  margin-top: 18px;
+}
+.fitxer-icona { font-size: 32px; flex-shrink: 0; }
+.fitxer-detalls { flex: 1; }
+.fitxer-nom  { font-size: 14px; font-weight: 600; }
+.fitxer-meta { font-size: 12px; color: var(--uv-gris-m); margin-top: 3px; }
+.btn-tradueix-doc {
+  background: var(--uv-taronja);
+  color: var(--uv-txt);
+  border: none;
+  border-radius: 6px;
+  padding: 10px 22px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: var(--sans);
+  transition: opacity .2s;
+  flex-shrink: 0;
+}
+.btn-tradueix-doc:hover { opacity: .9; }
+
+/* ─── CANVI 8 · Barra de progrés ───────────────────────────────────────────── */
+.progres-cont { margin-top: 16px; display: none; }
+.progres-lbl  { font-size: 12px; color: var(--uv-gris-m); margin-bottom: 7px; }
+.progres-bar  {
+  background: #F0F0F0;
+  border-radius: 8px;
+  height: 10px;
+  overflow: hidden;
+}
+.progres-fill {
+  height: 100%;
+  background: var(--uv-taronja);
+  animation: progressAnim 1.8s ease-in-out infinite;
+}
+@keyframes progressAnim {
+  0%   { width: 0; }
+  50%  { width: 75%; }
+  100% { width: 95%; }
+}
+
+/* Targeta de resultat */
+.resultat-card {
+  background: var(--uv-blanc);
+  border: 1px solid var(--uv-brd);
+  border-radius: 10px;
+  padding: 18px 22px;
+  display: none;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+}
+.res-icona { font-size: 34px; }
+.res-info  { flex: 1; }
+.res-nom   { font-size: 14px; font-weight: 600; }
+.res-det   { font-size: 11px; color: var(--uv-gris-m); margin-top: 2px; }
+.btn-descarrega {
+  background: var(--uv-blau);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--sans);
+}
+.btn-descarrega:hover { opacity: .9; }
+
+/* ─── CANVI 7 · Secció imatges ─────────────────────────────────────────────── */
+.imatge-area {
+  background: var(--uv-blanc);
+  border: 1px solid var(--uv-brd);
+  border-radius: 10px;
+  padding: 40px 32px;
+}
+.imatge-upload { text-align: center; margin-bottom: 24px; }
+.imatge-preview { display: none; margin-top: 16px; }
+.imatge-preview img {
+  max-height: 300px;
+  border-radius: 8px;
+  border: 1px solid var(--uv-brd);
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+}
+.imatge-meta {
+  font-size: 12px;
+  color: var(--uv-gris-m);
+  margin-top: 8px;
+  text-align: center;
+}
+.imatge-accio { text-align: center; margin-top: 14px; }
+.imatge-resultat {
+  background: #F9F9F9;
+  border: 1px solid var(--uv-brd);
+  border-radius: 8px;
+  padding: 18px;
+  margin-top: 18px;
+  font-size: 14px;
+  color: var(--uv-gris-m);
+  font-style: italic;
+  display: none;
+  text-align: center;
+}
+
+/* ─── Responsive ───────────────────────────────────────────────────────────── */
+@media (max-width: 780px) {
+  .header-top { flex-direction: column; gap: 4px; text-align: center; padding: 10px 16px; }
+  .header-servei, .header-seccio { text-align: center; }
+  .panells { grid-template-columns: 1fr; }
+  .central {
+    border: none;
+    border-top: 1px solid var(--uv-brd);
+    border-bottom: 1px solid var(--uv-brd);
+    padding: 12px 10px;
+    min-width: auto;
+  }
+  .btn-tradueix { width: 100%; }
+  .nav-btn { font-size: 12px; padding: 9px 10px; }
+  .upload-area { padding: 28px 16px; }
+}

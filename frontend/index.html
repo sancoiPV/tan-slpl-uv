@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TAN · SLPL · Universitat de València</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+</head>
+<body>
+
+<!-- ═══ CANVI 2 · Capçalera redissenyada ═══════════════════════════════════ -->
+<header class="header">
+  <!-- Fila superior: tres blocs -->
+  <div class="header-top">
+    <span class="header-servei">Servei de Llengües i Política Lingüística</span>
+    <span class="header-uv">UNIVERSITAT DE VALÈNCIA</span>
+    <span class="header-seccio">Assessorament Lingüístic</span>
+  </div>
+  <!-- CANVI 4 · 5 pestanyes -->
+  <nav class="nav">
+    <button class="nav-btn act" onclick="mostra('traduccio-text',this)">Traducció de text</button>
+    <button class="nav-btn" onclick="mostra('traduccio-docs',this)">Traducció de documents</button>
+    <button class="nav-btn" onclick="mostra('correccio-text',this)">Corrector de text en valencià</button>
+    <button class="nav-btn" onclick="mostra('correccio-docs',this)">Correcció/postedició de documents en valencià</button>
+    <button class="nav-btn" onclick="mostra('imatges',this)">Traducció d'imatges amb text</button>
+  </nav>
+</header>
+
+<!-- Barra d'estat global (sota nav) -->
+<div class="status-bar">
+  <div class="dot" id="dot"></div>
+  <span class="status-txt" id="statusTxt">Comprovant...</span>
+  <span id="server-status" style="display:inline-block; padding:3px 10px; border-radius:6px; font-size:12px; background:#E6F1FB; color:#0C447C; border:0.5px solid #B5D4F4; margin-left:10px;">Detectant servidor...</span>
+</div>
+
+<!-- ═══ SECCIÓ 1 · Traducció de text ═══════════════════════════════════════ -->
+<section class="seccio vis" id="s-traduccio-text">
+
+  <!-- CANVI 3 · Subtítol descriptiu -->
+  <div class="subtitol">
+    <p>Eina de traducció automàtica neuronal basada en el motor TAN desenvolupat pel LangTechLab del BSC-CNS en el marc del Projecte Aina.</p>
+  </div>
+
+  <div class="panells">
+    <!-- Panell esquerre: castellà -->
+    <div class="panell-esquerre">
+      <div class="panell-cap">
+        <span class="idioma">Castellà</span>
+      </div>
+      <textarea class="textarea" id="origen"
+        placeholder="Escriu o enganxa el text en castellà..."
+        oninput="actualComp()"></textarea>
+      <!-- CANVI 3 · Avís criteris lingüístics -->
+      <div class="avis-criteri">⚠ Traduccions fetes d'acord amb els criteris lingüístics per als usos institucionals de les universitats públiques valencianes.</div>
+      <!-- CANVI 5A · Comptador inferior -->
+      <div class="comp-bar"><span id="comp-orig">0 paraules</span></div>
+      <div class="accions">
+        <button class="btn-sec" onclick="neteja()">Neteja</button>
+      </div>
+    </div>
+
+    <!-- CANVI 6 · Columna central horitzontal -->
+    <div class="central">
+      <button class="btn-tradueix" id="btnT" onclick="tradueixText()">Tradueix</button>
+    </div>
+
+    <!-- Panell dret: valencià -->
+    <div class="panell-dret">
+      <div class="panell-cap">
+        <span class="idioma">Valencià UV</span>
+        <span class="temps" id="temps"></span>
+      </div>
+      <textarea class="textarea traduit" id="desti" readonly
+        placeholder="La traducció apareixerà ací..."></textarea>
+      <!-- CANVI 5A · Comptador inferior dret -->
+      <div class="comp-bar"><span id="comp-desti">0 paraules</span></div>
+      <div class="accions">
+        <button class="btn-sec" onclick="edita()">✏️ Edita</button>
+        <button class="btn-sec" onclick="copia()">📋 Copia</button>
+        <button class="btn-desa" id="btnDesa" style="display:none"
+          onclick="desaPost()">💾 Desa postedició</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SECCIÓ 2 · Traducció de documents ══════════════════════════════════ -->
+<section class="seccio" id="s-traduccio-docs">
+
+  <!-- CANVI 5B · Zona càrrega documents -->
+  <div class="upload-area" id="upload-area-td"
+    ondragover="event.preventDefault();this.classList.add('drag-over')"
+    ondragleave="this.classList.remove('drag-over')"
+    ondrop="onDropDocs(event,'traduccio')">
+    <div class="upload-top">
+      <button class="btn-apujar"
+        onclick="document.getElementById('inp-td').click()">Apujar document</button>
+      <input type="file" id="inp-td" accept=".docx,.pptx" style="display:none"
+        onchange="seleccionaFitxer(this.files[0],'traduccio')">
+      <div class="drag-hint">o arrossega el document ací</div>
+      <div class="formats-txt">.docx i .pptx · màx. 20 MB</div>
+    </div>
+    <!-- Informació del fitxer (apareix immediatament) -->
+    <div class="fitxer-info" id="fitxer-info-td">
+      <div class="fitxer-icona" id="fitxer-ico-td">📄</div>
+      <div class="fitxer-detalls">
+        <div class="fitxer-nom" id="fitxer-nom-td"></div>
+        <div class="fitxer-meta" id="fitxer-meta-td"></div>
+      </div>
+      <button class="btn-tradueix-doc"
+        onclick="processaFitxerActual('traduccio')">Tradueix</button>
+    </div>
+  </div>
+
+  <!-- CANVI 8 · Barra de progrés -->
+  <div class="progres-cont" id="progCont-td">
+    <div class="progres-lbl" id="progLbl-td">Analitzant el document...</div>
+    <div class="progres-bar"><div class="progres-fill"></div></div>
+  </div>
+
+  <!-- Targeta de resultat -->
+  <div class="resultat-card" id="resCard-td">
+    <div class="res-icona" id="resIco-td">📄</div>
+    <div class="res-info">
+      <div class="res-nom" id="resNom-td"></div>
+      <div class="res-det" id="resDet-td"></div>
+    </div>
+    <button class="btn-descarrega" id="btnDesc-td">⬇️ Descarrega</button>
+  </div>
+</section>
+
+<!-- ═══ SECCIÓ 3 · Corrector de text en valencià ════════════════════════════ -->
+<section class="seccio" id="s-correccio-text">
+
+  <div class="subtitol">
+    <p>Eina de traducció automàtica neuronal basada en el motor TAN desenvolupat pel LangTechLab del BSC-CNS en el marc del Projecte Aina.</p>
+  </div>
+
+  <div class="panells">
+    <div class="panell-esquerre">
+      <div class="panell-cap">
+        <span class="idioma">Text original en valencià</span>
+      </div>
+      <textarea class="textarea" id="origen-c"
+        placeholder="Escriu o enganxa el text en valencià per corregir..."
+        oninput="actualCompCorr()"></textarea>
+      <div class="avis-criteri">⚠ Traduccions fetes d'acord amb els criteris lingüístics per als usos institucionals de les universitats públiques valencianes.</div>
+      <div class="comp-bar"><span id="comp-orig-c">0 paraules</span></div>
+      <div class="accions">
+        <button class="btn-sec" onclick="netejaCorr()">Neteja</button>
+      </div>
+    </div>
+
+    <!-- CANVI 6 · Botó "Corregeix" (terminació incoativa -eix) -->
+    <div class="central">
+      <button class="btn-tradueix" id="btnC" onclick="corregeixText()">Corregeix</button>
+    </div>
+
+    <div class="panell-dret">
+      <div class="panell-cap">
+        <span class="idioma">Valencià UV corregit</span>
+        <span class="temps" id="temps-c"></span>
+      </div>
+      <textarea class="textarea traduit" id="desti-c" readonly
+        placeholder="El text corregit apareixerà ací..."></textarea>
+      <div class="comp-bar"><span id="comp-desti-c">0 paraules</span></div>
+      <div class="accions">
+        <button class="btn-sec" onclick="editaCorr()">✏️ Edita</button>
+        <button class="btn-sec" onclick="copiaCorr()">📋 Copia</button>
+        <button class="btn-desa" id="btnDesaC" style="display:none"
+          onclick="desaPostCorr()">💾 Desa postedició</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SECCIÓ 4 · Correcció/postedició de documents en valencià ════════════ -->
+<section class="seccio" id="s-correccio-docs">
+
+  <div class="upload-area" id="upload-area-cd"
+    ondragover="event.preventDefault();this.classList.add('drag-over')"
+    ondragleave="this.classList.remove('drag-over')"
+    ondrop="onDropDocs(event,'correccio')">
+    <div class="upload-top">
+      <button class="btn-apujar"
+        onclick="document.getElementById('inp-cd').click()">Apujar document</button>
+      <input type="file" id="inp-cd" accept=".docx,.pptx" style="display:none"
+        onchange="seleccionaFitxer(this.files[0],'correccio')">
+      <div class="drag-hint">o arrossega el document ací</div>
+      <div class="formats-txt">.docx i .pptx · màx. 20 MB</div>
+    </div>
+    <div class="fitxer-info" id="fitxer-info-cd">
+      <div class="fitxer-icona" id="fitxer-ico-cd">📄</div>
+      <div class="fitxer-detalls">
+        <div class="fitxer-nom" id="fitxer-nom-cd"></div>
+        <div class="fitxer-meta" id="fitxer-meta-cd"></div>
+      </div>
+      <button class="btn-tradueix-doc"
+        onclick="processaFitxerActual('correccio')">Corregeix</button>
+    </div>
+  </div>
+
+  <div class="progres-cont" id="progCont-cd">
+    <div class="progres-lbl" id="progLbl-cd">Analitzant el document...</div>
+    <div class="progres-bar"><div class="progres-fill"></div></div>
+  </div>
+
+  <div class="resultat-card" id="resCard-cd">
+    <div class="res-icona" id="resIco-cd">📄</div>
+    <div class="res-info">
+      <div class="res-nom" id="resNom-cd"></div>
+      <div class="res-det" id="resDet-cd"></div>
+    </div>
+    <button class="btn-descarrega" id="btnDesc-cd">⬇️ Descarrega</button>
+  </div>
+</section>
+
+<!-- ═══ CANVI 7 · Secció "Traducció d'imatges amb text" ══════════════════════ -->
+<section class="seccio" id="s-imatges">
+  <div class="imatge-area"
+    ondragover="event.preventDefault()"
+    ondrop="onDropImatge(event)">
+    <div class="imatge-upload">
+      <button class="btn-apujar"
+        onclick="document.getElementById('inp-img').click()">Apujar imatge</button>
+      <input type="file" id="inp-img" accept="image/*" style="display:none"
+        onchange="seleccionaImatge(this.files[0])">
+      <div class="drag-hint">o arrossega la imatge ací</div>
+      <div class="formats-txt">.png, .jpg, .jpeg, .gif, .webp, .bmp · màx. 10 MB</div>
+    </div>
+    <!-- Previsualització -->
+    <div class="imatge-preview" id="imatge-preview">
+      <img id="imatge-img" src="" alt="Previsualització de la imatge carregada">
+      <div class="imatge-meta" id="imatge-meta"></div>
+      <div class="imatge-accio">
+        <button class="btn-apujar" onclick="ocrITradueix()">Extraure i traduir text</button>
+      </div>
+    </div>
+    <!-- Resultat OCR (placeholder) -->
+    <div class="imatge-resultat" id="imatge-resultat">
+      Funcionalitat pendent d'integració OCR. Properament disponible.
+    </div>
+  </div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>
