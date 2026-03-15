@@ -1,19 +1,19 @@
 const ENDPOINTS = [
   {
-    name: 'Servidor UV (ngrok)',
-    url: 'https://floatiest-unfeudally-dilan.ngrok-free.dev',   // ← CANVIA per la URL de ngrok actual
-    health: '/health',
-    translate: '/translate',
-  },
-  {
-    name: 'Servidor UV (VPN)',
-    url: 'https://floatiest-unfeudally-dilan.ngrok-free.dev',   // ← CANVIA per la IP interna del servidor Ubuntu
-    health: '/health',
-    translate: '/translate',
-  },
-  {
-    name: 'Motor local (portàtil)',
+    name: 'Motor local optimitzat (CTranslate2)',
     url: 'http://127.0.0.1:5001',
+    health: '/health',
+    translate: '/translate',
+  },
+  {
+    name: 'Servidor local (uvicorn)',
+    url: 'http://127.0.0.1:8000',
+    health: '/health',
+    translate: '/translate',
+  },
+  {
+    name: 'Servidor UV (ngrok / remot)',
+    url: 'https://floatiest-unfeudally-dilan.ngrok-free.dev',
     health: '/health',
     translate: '/translate',
   },
