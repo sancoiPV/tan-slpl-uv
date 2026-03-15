@@ -19,9 +19,10 @@ import time
 import logging
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 # --- Configuració de rutes ---
-MODEL_DIR = r"C:\SLPL\TAN\aina-translator-es-ca"
+MODEL_DIR = r"C:\Users\santi\OneDrive\Documents\SLPL\taneu\aina-translator-es-ca"
 PORT      = 5001
 
 # --- Paràmetres CTranslate2 (optimitzats per i7-1255U, 10 nuclis) ---
@@ -201,6 +202,7 @@ def tradueix_text_llarg(text: str, max_car: int = 500) -> str:
 # ======================================================================
 
 app = Flask(__name__)
+CORS(app)
 
 
 @app.route("/health", methods=["GET"])

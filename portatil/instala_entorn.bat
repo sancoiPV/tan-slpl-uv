@@ -10,34 +10,58 @@ echo.
 
 :: ---- Comprova Python ----
 echo [COMPROVACIO] Cercant Python 3.10+...
-python --version > nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Python no trobat al PATH.
-    echo Descarrega Python 3.10+ des de https://www.python.org/downloads/
-    echo Assegura't de marcar "Add Python to PATH" durant la instal.lacio.
-    pause
-    exit /b 1
+SET PYTHON_CMD=
+WHERE python >/dev/null 2>&1 && SET PYTHON_CMD=python
+IF NOT DEFINED PYTHON_CMD (
+    IF EXIST "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" (
+        SET PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python313\python.exe
+    )
 )
-for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PYVER=%%v
-echo    Python detectat: %PYVER%
+IF NOT DEFINED PYTHON_CMD (
+    IF EXIST "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+        SET PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python312\python.exe
+    )
+)
+IF NOT DEFINED PYTHON_CMD (
+    IF EXIST "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+        SET PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python311\python.exe
+    )
+)
+IF NOT DEFINED PYTHON_CMD (
+    IF EXIST "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" (
+        SET PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python310\python.exe
+    )
+)
+IF NOT DEFINED PYTHON_CMD (
+    IF EXIST "C:\Python311\python.exe" SET PYTHON_CMD=C:\Python311\python.exe
+)
+IF NOT DEFINED PYTHON_CMD (
+    ECHO ERROR: Python no trobat.
+    ECHO Descarrega'l de https://www.python.org/downloads/
+    PAUSE
+    EXIT /B 1
+)
+FOR /f "tokens=2" %%v IN ('"%PYTHON_CMD%" --version 2^>^&1') DO SET PYVER=%%v
+ECHO    Python trobat: %PYTHON_CMD%
+ECHO    Versio: %PYVER%
 echo.
 
 :: ---- Crear directori base ----
 echo [PAS 1/5] Creant estructura de directoris...
-if not exist "C:\SLPL\TAN" (
-    mkdir "C:\SLPL\TAN"
-    echo    Creat: C:\SLPL\TAN
+if not exist "C:\Users\santi\OneDrive\Documents\SLPL\taneu" (
+    mkdir "C:\Users\santi\OneDrive\Documents\SLPL\taneu"
+    echo    Creat: C:\Users\santi\OneDrive\Documents\SLPL\taneu
 ) else (
-    echo    Ja existeix: C:\SLPL\TAN
+    echo    Ja existeix: C:\Users\santi\OneDrive\Documents\SLPL\taneu
 )
 echo.
 
-:: ---- Copiar fitxers d'aquest script al directori destí ----
+:: ---- Copiar fitxers d'aquest script al directori desti ----
 echo [PAS 2/5] Copiant fitxers de configuracio...
 set SCRIPT_DIR=%~dp0
 for %%f in ("%SCRIPT_DIR%descarrega_i_converteix.py" "%SCRIPT_DIR%server_portatil.py" "%SCRIPT_DIR%start_server_portatil.bat" "%SCRIPT_DIR%test_traduccio.py") do (
     if exist %%f (
-        copy /Y %%f "C:\SLPL\TAN\" > nul
+        copy /Y %%f "C:\Users\santi\OneDrive\Documents\SLPL\taneu\" > nul
         echo    Copiat: %%~nxf
     )
 )
@@ -45,21 +69,21 @@ echo.
 
 :: ---- Crear entorn virtual ----
 echo [PAS 3/5] Creant entorn virtual Python...
-if exist "C:\SLPL\TAN\venv_portatil\Scripts\activate.bat" (
+if exist "C:\Users\santi\OneDrive\Documents\SLPL\taneu\venv_portatil\Scripts\activate.bat" (
     echo    L'entorn virtual ja existeix, s'omiteix la creacio.
 ) else (
-    python -m venv C:\SLPL\TAN\venv_portatil
+    "%PYTHON_CMD%" -m venv C:\Users\santi\OneDrive\Documents\SLPL\taneu\venv_portatil
     if errorlevel 1 (
         echo ERROR: No s'ha pogut crear l'entorn virtual.
         pause
         exit /b 1
     )
-    echo    Entorn virtual creat a: C:\SLPL\TAN\venv_portatil
+    echo    Entorn virtual creat a: C:\Users\santi\OneDrive\Documents\SLPL\taneu\venv_portatil
 )
 echo.
 
 :: ---- Activar entorn virtual ----
-call C:\SLPL\TAN\venv_portatil\Scripts\activate.bat
+call C:\Users\santi\OneDrive\Documents\SLPL\taneu\venv_portatil\Scripts\activate.bat
 
 :: ---- Actualitzar pip ----
 echo [PAS 4/5] Actualitzant pip i instal.lant biblioteques...
@@ -83,6 +107,10 @@ echo    Instal.lant flask...
 pip install flask --quiet
 if errorlevel 1 ( echo    AVIS: Error instal.lant flask )
 
+echo    Instal.lant flask-cors...
+pip install flask-cors --quiet
+if errorlevel 1 ( echo    AVIS: Error instal.lant flask-cors )
+
 echo    Instal.lant requests...
 pip install requests --quiet
 if errorlevel 1 ( echo    AVIS: Error instal.lant requests )
@@ -90,15 +118,16 @@ if errorlevel 1 ( echo    AVIS: Error instal.lant requests )
 echo    Totes les biblioteques instal.lades.
 echo.
 
-:: ---- Descarregar i convertir model ----
-echo [PAS 5/5] Descarregant i convertint model AINA...
-echo    Pot trigar 5-15 minuts segons la connexio a internet.
-echo    Mida aproximada del model: ~300 MB
+:: ---- Preparar model AINA (ja en format CTranslate2 natiu) ----
+echo [PAS 5/5] Preparant model AINA...
+echo    El model ja es distribueix en format CTranslate2.
+echo    Nomes cal copiar els fitxers (si ja estan descarregats, triga uns segons).
+echo    Si el model NO s'ha descarregat encara, pot trigar 10-20 min (~1.8 GB).
 echo.
-python C:\SLPL\TAN\descarrega_i_converteix.py
+python C:\Users\santi\OneDrive\Documents\SLPL\taneu\descarrega_i_converteix.py
 if errorlevel 1 (
     echo.
-    echo ERROR durant la descarga/conversio del model.
+    echo ERROR durant la preparacio del model.
     echo Revisa la connexio a internet i torna a executar aquest script.
     pause
     exit /b 1
@@ -110,10 +139,10 @@ echo =====================================================
 echo   INSTAL.LACIO COMPLETADA!
 echo.
 echo   Per iniciar el servidor:
-echo     Fes doble clic a: C:\SLPL\TAN\start_server_portatil.bat
+echo     Fes doble clic a: C:\Users\santi\OneDrive\Documents\SLPL\taneu\start_server_portatil.bat
 echo.
 echo   Per provar la traduccio (amb el servidor en marcha):
-echo     python C:\SLPL\TAN\test_traduccio.py
+echo     python C:\Users\santi\OneDrive\Documents\SLPL\taneu\test_traduccio.py
 echo =====================================================
 echo.
 pause

@@ -258,6 +258,37 @@ async def health():
     return await salut()
 
 
+# ─── Endpoint: POST /translate (àlies per al frontend) ───────────────────────
+# Accepta el format del frontend: {"text": "...", "src": "es", "tgt": "ca"}
+# Retorna el format del frontend:  {"translation": "..."}
+
+@app.post("/translate", tags=["Traducció"],
+          summary="Àlies /tradueix compatible amb el frontend")
+async def translate(peticio: dict):
+    """
+    Àlies de /tradueix amb format compatible amb config.js:
+      Entrada: {"text": "...", "src": "es", "tgt": "ca"}
+      Eixida:  {"translation": "...", "temps_ms": ...}
+    """
+    text = (peticio.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400,
+                            detail="El camp 'text' és obligatori.")
+    _reinicia_stats_si_cal()
+    inici = time.perf_counter()
+    try:
+        resultat = _tradueix_text(text)
+    except Exception as exc:
+        log.exception("Error durant la traducció (/translate): %s", exc)
+        raise HTTPException(status_code=500,
+                            detail=f"Error intern: {exc}")
+    temps_ms = int((time.perf_counter() - inici) * 1000)
+    n_paraules = _compta_paraules(text)
+    _stats["paraules_avui"] += n_paraules
+    log.info("POST /translate — %d ms, %d paraules", temps_ms, n_paraules)
+    return {"translation": resultat, "temps_ms": temps_ms}
+
+
 # ─── Endpoint: POST /tradueix ─────────────────────────────────────────────────
 
 @app.post(
