@@ -19,6 +19,7 @@ Inici:
 import io
 import json
 import logging
+import re
 import sys
 import time
 import uuid
@@ -45,6 +46,28 @@ VERSIO          = "1.0"
 MODEL_ID        = "projecte-aina/aina-translator-es-ca"
 MAX_MIDA_FITXER = 20 * 1024 * 1024          # 20 MB en bytes
 EXTENSIONS_OK   = {".docx", ".pptx"}
+
+
+def genera_nom_traduit(nom_original: str) -> str:
+    """
+    Genera el nom del fitxer traduït afegint el sufix _VAL.
+
+    Si el nom conté _CAS (sense distingir majúscules/minúscules),
+    el substitueix per _VAL. En cas contrari, afegeix _VAL just
+    abans de l'extensió.
+
+    Exemples:
+      informe_CAS.docx     → informe_VAL.docx
+      text_cas.pptx        → text_VAL.pptx
+      document_Cas.docx    → document_VAL.docx
+      presentacio.pptx     → presentacio_VAL.pptx
+    """
+    p = Path(nom_original)
+    stem_nou, n_substitucions = re.subn(r'_cas', '_VAL', p.stem, flags=re.IGNORECASE)
+    if n_substitucions == 0:
+        stem_nou = p.stem + '_VAL'
+    return stem_nou + p.suffix
+
 
 # ─── Configuració del logging ─────────────────────────────────────────────────
 DIR_LOGS.mkdir(parents=True, exist_ok=True)
@@ -401,9 +424,10 @@ async def tradueix_document(
     _stats["paraules_avui"] += total_par
     _stats["fitxers_avui"]  += 1
 
+    nom_sortida = genera_nom_traduit(nom_original)
     log.info(
         "Document traduït en %d ms (%d paraules) → '%s'",
-        temps_ms, total_par, nom_original,
+        temps_ms, total_par, nom_sortida,
     )
 
     buffer_eixida.seek(0)
@@ -411,7 +435,7 @@ async def tradueix_document(
         buffer_eixida,
         media_type = mime_type,
         headers    = {
-            "Content-Disposition": f'attachment; filename="{nom_original}"',
+            "Content-Disposition": f'attachment; filename="{nom_sortida}"',
             "X-Paraules-Traduides": str(total_par),
             "X-Temps-Ms":          str(temps_ms),
         },
