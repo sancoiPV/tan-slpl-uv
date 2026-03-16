@@ -16,8 +16,13 @@ outputs/
 # Corpus i models (massa pesats per a git)
 corpus/
 models/
+aina-model-original/
+aina-translator-es-ca/
 portatil/aina-model-original/
 portatil/aina-translator-es-ca/
+
+# Entorn virtual portatil
+venv_portatil/
 
 # ngrok executable
 ngrok.exe

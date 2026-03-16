@@ -36,7 +36,7 @@ call C:\Users\santi\OneDrive\Documents\SLPL\taneu\venv_portatil\Scripts\activate
 echo Iniciant servidor...
 echo (El model triga uns segons a carregar-se la primera vegada)
 echo.
-python C:\Users\santi\OneDrive\Documents\SLPL\taneu\server_portatil.py
+python C:\Users\santi\OneDrive\Documents\SLPL\taneu\portatil\server_portatil.py
 
 :: Si el servidor s'atura (Ctrl+C o error), mostra un missatge
 echo.
