@@ -202,12 +202,19 @@ app = FastAPI(
 )
 
 # CORS: permet accés des de Netlify i qualsevol origen
+# expose_headers és IMPRESCINDIBLE perquè el navegador puga llegir
+# Content-Disposition (nom del fitxer) en respostes fetch() cross-origin.
 app.add_middleware(
     CORSMiddleware,
     allow_origins     = ["*"],
-    allow_credentials = True,
+    allow_credentials = False,          # ha de ser False quan allow_origins=["*"]
     allow_methods     = ["*"],
     allow_headers     = ["*"],
+    expose_headers    = [               # capçaleres llegibles per JavaScript
+        "Content-Disposition",
+        "X-Paraules-Traduides",
+        "X-Temps-Ms",
+    ],
 )
 
 
