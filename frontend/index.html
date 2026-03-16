@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- CSP: permet connexions als motors locals (CT2 :5001, uvicorn :8000)
+       a més de https: per a Netlify/ngrok. Necessari per a ús local i remot. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:; connect-src 'self' https: http://localhost:5001 http://localhost:8000 http://localhost:3000 http://127.0.0.1:5001 http://127.0.0.1:8000;">
   <title>TAN · SLPL · Universitat de València</title>
   <link rel="stylesheet" href="style.css">
   <script src="config.js"></script>
