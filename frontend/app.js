@@ -244,6 +244,14 @@ async function seleccionaFitxer(fitxer, mode) {
   }
 }
 
+// ─── Extreu el nom del fitxer de la capçalera Content-Disposition ─────────────
+function extrauNomFitxer(contentDisposition, nomFallback) {
+  // Content-Disposition: attachment; filename="document_VAL.docx"
+  if (!contentDisposition) return nomFallback;
+  const match = contentDisposition.match(/filename="?([^";\n]+)"?/i);
+  return match ? match[1].trim() : nomFallback;
+}
+
 // ─── CANVI 8 · Barra de progrés amb missatges canviants ──────────────────────
 async function processaFitxerActual(mode) {
   const fitxer = mode === 'traduccio' ? fitxerActualTd : fitxerActualCd;
@@ -283,6 +291,10 @@ async function processaFitxerActual(mode) {
     });
     if (!r.ok) throw new Error(await r.text());
 
+    // Llegeix la capçalera ABANS de consumir el cos (r.blob())
+    const contentDisposition = r.headers.get('Content-Disposition');
+    const nomDescarrega = extrauNomFitxer(contentDisposition, fitxer.name);
+
     clearInterval(interval);
     const blob = await r.blob();
     pc.style.display = 'none';
@@ -291,7 +303,7 @@ async function processaFitxerActual(mode) {
     const card = document.getElementById('resCard-' + s);
     card.style.display = 'flex';
     document.getElementById('resIco-'  + s).textContent = ext === 'pptx' ? '📊' : '📄';
-    document.getElementById('resNom-'  + s).textContent = fitxer.name;
+    document.getElementById('resNom-'  + s).textContent = nomDescarrega;   // ← _VAL
     document.getElementById('resDet-'  + s).textContent =
       (blob.size / 1024).toFixed(0) + ' KB · ' + ext.toUpperCase() +
       ' · ' + (mode === 'traduccio' ? 'Traducció ES→CA' : 'Correcció en valencià');
@@ -299,7 +311,7 @@ async function processaFitxerActual(mode) {
     document.getElementById('btnDesc-' + s).onclick = () => {
       const url = URL.createObjectURL(blob);
       const a   = document.createElement('a');
-      a.href = url; a.download = fitxer.name; a.click();
+      a.href = url; a.download = nomDescarrega; a.click();   // ← _VAL
       URL.revokeObjectURL(url);
     };
 

@@ -83,6 +83,12 @@ logging.basicConfig(
 )
 log = logging.getLogger("taneu.api")
 
+# Logger DEBUG temporal per diagnosticar artefactes de neteja_traduccio.
+# Mostra el text BRUT del model i el text NET després de la neteja.
+# Per desactivar: canvia setLevel(logging.DEBUG) per setLevel(logging.WARNING)
+logging.getLogger("scripts.preserva_docx").setLevel(logging.DEBUG)
+logging.getLogger("scripts.preserva_pptx").setLevel(logging.DEBUG)
+
 # ─── Imports de les classes preservadores de format ───────────────────────────
 # Afegim l'arrel del projecte al path perquè 'scripts' siga trobable tant
 # quan s'executa des de webapp/ com des de l'arrel (uvicorn webapp.api:app)

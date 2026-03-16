@@ -5,15 +5,16 @@ preserva_docx.py
 Tradueix documents .docx preservant el format original run a run.
 
 Correccions aplicades:
-  - neteja_traduccio(): versió robusta que cobreix Markdown imbricat,
-    capçaleres #, guions no inicials i caràcters Unicode espuris.
-  - substitueix_text_paragraf(): nova estratègia que BUIDA el text de
-    tots els runs (sense eliminar-los del XML) i restaura el format
-    explícitament, evitant la corrupció d'estils vinculats.
-  - _estableix_llengua_catalana(): marca ca-ES al w:lang de cada run.
+  - obte_runs_complets(): inclou runs dins d'hipervincles (w:hyperlink).
+  - substitueix_text_paragraf(): nova estratègia que buida tots els runs
+    (inclosos els d'hipervincles), restaura el format de forma condicional
+    (només si el valor és explícit, no None) i estableix la llengua ca-ES.
+  - neteja_traduccio(): versió robusta (Markdown complet + Unicode espuri).
+  - Logging DEBUG per diagnosticar text brut vs. text net del model.
 """
 
 import io
+import logging
 import re
 import unicodedata
 
@@ -21,6 +22,9 @@ from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph as DocxPara
+from docx.text.run import Run
+
+log = logging.getLogger(__name__)
 
 
 # ── Helpers globals ────────────────────────────────────────────────────────────
@@ -64,7 +68,7 @@ def neteja_traduccio(text: str) -> str:
 
 def _estableix_llengua_catalana(run) -> None:
     """
-    Afegeix o actualitza l'atribut w:lang amb valor ca-ES al run de Word.
+    Afegeix o actualitza l'atribut w:lang ca-ES al run de Word.
     Substitueix qualsevol element w:lang existent per evitar duplicats.
     """
     rPr = run._r.get_or_add_rPr()
@@ -75,56 +79,77 @@ def _estableix_llengua_catalana(run) -> None:
     rPr.append(lang_elem)
 
 
+def obte_runs_complets(para) -> list:
+    """
+    Retorna tots els runs del paràgraf, inclosos els dins d'hipervincles
+    (w:hyperlink), que python-docx no inclou a para.runs per defecte.
+    """
+    runs = list(para.runs)
+    for hipervinc in para._p.findall('.//' + qn('w:hyperlink')):
+        for r_elem in hipervinc.findall(qn('w:r')):
+            runs.append(Run(r_elem, para))
+    return runs
+
+
 def substitueix_text_paragraf(para, text_traduit: str) -> None:
     """
-    Substitueix el text del paràgraf preservant el format de cada run.
+    Substitueix el text del paràgraf preservant el format del primer run.
 
-    Estratègia: usa el primer run com a plantilla de format,
-    esborra el contingut de tots els runs (sense eliminar-los del XML,
-    per evitar corrupció d'estils), i posa tot el text traduït al primer
-    run amb el seu format original restaurat explícitament.
+    Estratègia:
+      1. Obté TOTS els runs (inclosos els d'hipervincles).
+      2. Captura el format del primer run.
+      3. Buida el text de tots els runs (sense eliminar-los del XML).
+      4. Posa el text traduït al primer run.
+      5. Restaura el format explícitament (NOMÉS si el valor era explícit,
+         no None, per evitar crear elements rPr on no n'hi havia).
+      6. Estableix la llengua ca-ES.
     """
-    if not para.runs:
+    runs_tots = obte_runs_complets(para)
+    if not runs_tots:
         return
 
-    # Guarda el format del primer run com a plantilla
-    run_plantilla = para.runs[0]
-    format_guardat = {
-        'bold':      run_plantilla.bold,
-        'italic':    run_plantilla.italic,
-        'underline': run_plantilla.underline,
-        'font_name': run_plantilla.font.name,
-        'font_size': run_plantilla.font.size,
+    # ── Captura el format del primer run ──────────────────────────────────────
+    run0 = runs_tots[0]
+    fmt = {
+        'bold':      run0.bold,
+        'italic':    run0.italic,
+        'underline': run0.underline,
+        'font_name': run0.font.name,
+        'font_size': run0.font.size,
     }
-    # Intenta guardar el color si és explícit (no heretat del tema)
     try:
-        format_guardat['color'] = run_plantilla.font.color.rgb
+        fmt['color'] = run0.font.color.rgb
     except Exception:
-        format_guardat['color'] = None
+        fmt['color'] = None
 
-    # Esborra el text de TOTS els runs (sense modificar l'estructura XML)
-    for run in para.runs:
+    # ── Buida el text de TOTS els runs (preserva l'estructura XML) ────────────
+    for run in runs_tots:
         run.text = ''
 
-    # Posa tot el text traduït al primer run
-    run_plantilla.text = text_traduit
+    # ── Posa el text traduït al primer run ────────────────────────────────────
+    run0.text = text_traduit
 
-    # Restaura el format explícitament
-    run_plantilla.bold      = format_guardat['bold']
-    run_plantilla.italic    = format_guardat['italic']
-    run_plantilla.underline = format_guardat['underline']
-    if format_guardat['font_name']:
-        run_plantilla.font.name = format_guardat['font_name']
-    if format_guardat['font_size']:
-        run_plantilla.font.size = format_guardat['font_size']
-    if format_guardat['color']:
+    # ── Restaura el format CONDICIONALMENT (no escriu None explícit) ──────────
+    # Escriure run.bold = None sobre un run que ja no tenia <w:b> crea
+    # elements <w:rPr/> buits innecessaris. Només restaurem valors explícits.
+    if fmt['bold'] is not None:
+        run0.bold = fmt['bold']
+    if fmt['italic'] is not None:
+        run0.italic = fmt['italic']
+    if fmt['underline'] is not None:
+        run0.underline = fmt['underline']
+    if fmt['font_name']:
+        run0.font.name = fmt['font_name']
+    if fmt['font_size']:
+        run0.font.size = fmt['font_size']
+    if fmt['color']:
         try:
-            run_plantilla.font.color.rgb = format_guardat['color']
+            run0.font.color.rgb = fmt['color']
         except Exception:
             pass
 
-    # Estableix la llengua catalana al run resultant
-    _estableix_llengua_catalana(run_plantilla)
+    # ── Estableix la llengua catalana ─────────────────────────────────────────
+    _estableix_llengua_catalana(run0)
 
 
 # ── Classe principal ───────────────────────────────────────────────────────────
@@ -137,20 +162,27 @@ class PreservadorDocx:
         """
         Tradueix el text d'un paràgraf delegant a substitueix_text_paragraf.
 
-        Protegeix camps especials (taula de continguts, camps calculats, etc.)
-        que no s'han de traduir mai.
+        Usa obte_runs_complets() per detectar text en hipervincles que
+        para.runs no retorna. Protegeix camps especials (TOC, camps calculats).
         """
         text = para.text.strip()
-        if not text or not para.runs:
+        runs_tots = obte_runs_complets(para)
+        if not text or not runs_tots:
             return
+
         # Protegeix camps especials (TOC, camps calculats, etc.)
-        for run in para.runs:
+        for run in runs_tots:
             if run._r.find(qn('w:fldChar')) is not None:
                 return
             if run._r.find(qn('w:instrText')) is not None:
                 return
 
-        traduit = neteja_traduccio(self.traductor(text))
+        # Traducció + neteja amb logging DEBUG per diagnosticar artefactes
+        traduit_raw = self.traductor(text)
+        log.debug("NETEJA IN:  %r", traduit_raw[:120])
+        traduit = neteja_traduccio(traduit_raw)
+        log.debug("NETEJA OUT: %r", traduit[:120])
+
         substitueix_text_paragraf(para, traduit)
 
     def tradueix_taula(self, taula):
