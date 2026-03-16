@@ -37,11 +37,15 @@ URL_PATTERN = re.compile(
 
 
 def protegeix_urls(text: str) -> tuple[str, dict]:
-    """Substitueix les URLs per marcadors i retorna el text modificat i el mapa."""
+    """Substitueix les URLs per marcadors i retorna el text modificat i el mapa.
+
+    Usa el format URLTOKEN{n}XEND per evitar que el model el processe com
+    a paraula normal (els guions baixos i els dobles guions sí que els modifica).
+    """
     urls: dict = {}
 
     def reemplaca(m):
-        key = f'__URL{len(urls)}__'
+        key = f'URLTOKEN{len(urls)}XEND'
         urls[key] = m.group(0)
         return key
 
@@ -54,6 +58,84 @@ def restaura_urls(text: str, urls: dict) -> str:
     for key, url in urls.items():
         text = text.replace(key, url)
     return text
+
+
+def te_format_explicit(fmt: dict) -> bool:
+    """Retorna True si el run tenia almenys un atribut de format definit explícitament."""
+    return any([
+        fmt['bold'] is not None,
+        fmt['italic'] is not None,
+        fmt['underline'] is not None,
+        fmt['font_name'] is not None,
+        fmt['font_size'] is not None,
+        fmt['color'] is not None,
+    ])
+
+
+def distribueix_text_entre_runs(paraules: list, formats: list) -> list:
+    """
+    Distribueix les paraules proporcionalment entre els runs assegurant
+    que no es perden espais entre paraules per arrodoniment.
+    """
+    total_original = sum(f['text_len'] for f in formats)
+    total_paraules = len(paraules)
+    fragments = []
+    paraula_idx = 0
+
+    for i, fmt in enumerate(formats):
+        if i == len(formats) - 1:
+            fragment = ' '.join(paraules[paraula_idx:])
+        else:
+            if total_original > 0:
+                proporcio = fmt['text_len'] / total_original
+                n_paraules = max(1, round(total_paraules * proporcio))
+            else:
+                n_paraules = 1
+            fragment = ' '.join(paraules[paraula_idx:paraula_idx + n_paraules])
+            paraula_idx = min(paraula_idx + n_paraules, total_paraules)
+        fragments.append(fragment)
+
+    return fragments
+
+
+def corregeix_paraules_enganxades(text: str) -> str:
+    """
+    Detecta paraules enganxades (minúscula seguida directament de majúscula
+    o lletres seguides de números sense espai) i afegeix l'espai que falta.
+    Aplica NOMÉS als casos clars per evitar falsos positius.
+    """
+    # Cas: lletra minúscula enganxada amb majúscula (ex: "serveiEl" → "servei El")
+    text = re.sub(r'([a-záéíóúàèìòùïüç])([A-ZÁÉÍÓÚÀÈÌÒÙÏÜÇ])', r'\1 \2', text)
+    # Cas: número enganxat amb lletra (ex: "2023la" → "2023 la")
+    text = re.sub(r'(\d)([A-ZÁÉÍÓÚÀÈÌÒÙÏÜÇa-záéíóúàèìòùïüç])', r'\1 \2', text)
+    # Cas: lletra enganxada amb número (ex: "any2023" → "any 2023")
+    # EXCEPCIÓ: no se separen URLs ni codis tècnics (ja protegits amb marcadors)
+    text = re.sub(r'([a-záéíóúàèìòùïüç])(\d)', r'\1 \2', text)
+    return text
+
+
+def corregeix_apostrofacions(text: str) -> str:
+    """
+    Corregeix els espais incorrectes en apostrofacions catalanes/valencianes.
+    Casos: l' , d' , m' , t' , s' , n' , c' , j' , qu'
+    Exemples: "d' exemple" → "d'exemple", "l' ús" → "l'ús"
+    """
+    # Elimina espai entre apòstrof i paraula següent
+    text = re.sub(r"([dlmtsncjq]u?)'(\s+)([^\s])", r"\1'\3", text, flags=re.IGNORECASE)
+
+    # "de " + vocal/h → "d'" (prepositional elision)
+    # NOTA: pot produir falsos positius en noms propis; descomenta si cal
+    text = re.sub(
+        r'\bde\s+([aeiouàèéíïòóúüh])',
+        lambda m: "d'" + m.group(1),
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # Normalitza espais múltiples que puguen haver quedat
+    text = re.sub(r' {2,}', ' ', text)
+
+    return text.strip()
 
 
 def neteja_traduccio(text: str) -> str:
@@ -151,9 +233,9 @@ def substitueix_text_paragraf(para, text_traduit: str) -> None:
 
     Estratègia:
       1. Captura el format de TOTS els runs (inclosos els d'hipervincles).
-      2. Distribueix el text traduït proporcionalment (per longitud de text original).
-      3. Al run amb format explícit dominant (negreta/subratllat/cursiva)
-         aplica el seu format; a la resta aplica el seu format individual.
+      2. Distribueix el text traduït amb distribueix_text_entre_runs().
+      3. Aplica _aplica_format() NOMÉS als runs que tenien format explícit
+         (te_format_explicit) per evitar afegir negreta/cursiva fantasma.
       4. Estableix la llengua ca-ES a tots els runs modificats.
     """
     runs_tots = obte_runs_complets(para)
@@ -182,7 +264,8 @@ def substitueix_text_paragraf(para, text_traduit: str) -> None:
     # ── Cas simple: un sol run o tots els runs buits ───────────────────────────
     if total_original == 0 or len(runs_tots) == 1:
         runs_tots[0].text = text_traduit
-        _aplica_format(runs_tots[0], formats[0])
+        if te_format_explicit(formats[0]):
+            _aplica_format(runs_tots[0], formats[0])
         _estableix_llengua_catalana(runs_tots[0])
         return
 
@@ -190,23 +273,14 @@ def substitueix_text_paragraf(para, text_traduit: str) -> None:
     for run in runs_tots:
         run.text = ''
 
-    # ── Distribueix el text traduït proporcionalment ───────────────────────────
+    # ── Distribueix i aplica ───────────────────────────────────────────────────
     paraules = text_traduit.split()
-    total_paraules = len(paraules)
-    paraula_idx = 0
+    fragments = distribueix_text_entre_runs(paraules, formats)
 
-    for i, (run, fmt) in enumerate(zip(runs_tots, formats)):
-        if i == len(runs_tots) - 1:
-            # Últim run: posa la resta de paraules (evita pèrdua per arrodoniment)
-            fragment = ' '.join(paraules[paraula_idx:])
-        else:
-            proporcio = fmt['text_len'] / total_original
-            n_paraules = max(1, round(total_paraules * proporcio))
-            fragment = ' '.join(paraules[paraula_idx:paraula_idx + n_paraules])
-            paraula_idx += n_paraules
-
+    for run, fmt, fragment in zip(runs_tots, formats, fragments):
         run.text = fragment
-        _aplica_format(run, fmt)
+        if te_format_explicit(fmt):
+            _aplica_format(run, fmt)
         _estableix_llengua_catalana(run)
 
 
@@ -216,12 +290,41 @@ class PreservadorDocx:
     def __init__(self, traductor):
         self.traductor = traductor
 
+    def tradueix_segment(self, text: str) -> str:
+        """
+        Tradueix un segment de text aplicant tota la canonada de processament:
+          1. Retorna sense canvis si el text és buit o és únicament una URL.
+          2. Protegeix les URLs amb marcadors URLTOKEN{n}XEND.
+          3. Tradueix amb el model.
+          4. Neteja artefactes Markdown (neteja_traduccio).
+          5. Restaura les URLs originals.
+          6. Corregeix paraules enganxades (corregeix_paraules_enganxades).
+          7. Corregeix apostrofacions incorrectes (corregeix_apostrofacions).
+        """
+        text = text.strip()
+        if not text:
+            return text
+        # Si el segment és únicament una URL, no el tradueixis
+        if URL_PATTERN.fullmatch(text):
+            return text
+        # Protegeix les URLs dins del text
+        text_protegit, urls = protegeix_urls(text)
+        # Traducció + neteja amb logging DEBUG per diagnosticar artefactes
+        traduit_raw = self.traductor(text_protegit)
+        log.debug("NETEJA IN:  %r", traduit_raw[:120])
+        traduit = neteja_traduccio(traduit_raw)
+        log.debug("NETEJA OUT: %r", traduit[:120])
+        # Restaura les URLs originals
+        traduit = restaura_urls(traduit, urls)
+        # Postprocessament
+        traduit = corregeix_paraules_enganxades(traduit)
+        traduit = corregeix_apostrofacions(traduit)
+        return traduit
+
     def tradueix_paragraf(self, para):
         """
-        Tradueix el text d'un paràgraf delegant a substitueix_text_paragraf.
-
-        Usa obte_runs_complets() per detectar text en hipervincles que
-        para.runs no retorna. Protegeix camps especials (TOC, camps calculats).
+        Tradueix el text d'un paràgraf delegant a tradueix_segment i
+        substitueix_text_paragraf. Protegeix camps especials (TOC, etc.).
         """
         text = para.text.strip()
         runs_tots = obte_runs_complets(para)
@@ -235,18 +338,7 @@ class PreservadorDocx:
             if run._r.find(qn('w:instrText')) is not None:
                 return
 
-        # Protegeix URLs perquè el model no les trenque
-        text_protegit, urls = protegeix_urls(text)
-
-        # Traducció + neteja amb logging DEBUG per diagnosticar artefactes
-        traduit_raw = self.traductor(text_protegit)
-        log.debug("NETEJA IN:  %r", traduit_raw[:120])
-        traduit = neteja_traduccio(traduit_raw)
-        log.debug("NETEJA OUT: %r", traduit[:120])
-
-        # Restaura les URLs originals
-        traduit = restaura_urls(traduit, urls)
-
+        traduit = self.tradueix_segment(text)
         substitueix_text_paragraf(para, traduit)
 
     def tradueix_taula(self, taula):
