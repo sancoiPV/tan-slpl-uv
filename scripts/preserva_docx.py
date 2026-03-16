@@ -5,10 +5,12 @@ preserva_docx.py
 Tradueix documents .docx preservant el format original run a run.
 
 Correccions aplicades:
-  - obte_runs_complets(): inclou runs dins d'hipervincles (w:hyperlink).
-  - substitueix_text_paragraf(): nova estratègia que buida tots els runs
-    (inclosos els d'hipervincles), restaura el format de forma condicional
-    (només si el valor és explícit, no None) i estableix la llengua ca-ES.
+  - substitueix_text_paragraf_runs(): estratègia "tot al primer run".
+    Tot el text traduït va al primer run; la resta es buiden.
+    El format dominant és el del run amb més text original (text_len).
+  - tradueix_paragraf(): extreu text EXCLOENT w:r dins de w:hyperlink.
+    Tradueix únicament els runs normals (para.runs); els hipervincles
+    no es toquen i mantenen la clicabilitat.
   - neteja_traduccio(): versió robusta (Markdown complet + Unicode espuri).
   - Logging DEBUG per diagnosticar text brut vs. text net del model.
 """
@@ -70,32 +72,6 @@ def te_format_explicit(fmt: dict) -> bool:
         fmt['font_size'] is not None,
         fmt['color'] is not None,
     ])
-
-
-def distribueix_text_entre_runs(paraules: list, formats: list) -> list:
-    """
-    Distribueix les paraules proporcionalment entre els runs assegurant
-    que no es perden espais entre paraules per arrodoniment.
-    """
-    total_original = sum(f['text_len'] for f in formats)
-    total_paraules = len(paraules)
-    fragments = []
-    paraula_idx = 0
-
-    for i, fmt in enumerate(formats):
-        if i == len(formats) - 1:
-            fragment = ' '.join(paraules[paraula_idx:])
-        else:
-            if total_original > 0:
-                proporcio = fmt['text_len'] / total_original
-                n_paraules = max(1, round(total_paraules * proporcio))
-            else:
-                n_paraules = 1
-            fragment = ' '.join(paraules[paraula_idx:paraula_idx + n_paraules])
-            paraula_idx = min(paraula_idx + n_paraules, total_paraules)
-        fragments.append(fragment)
-
-    return fragments
 
 
 def corregeix_paraules_enganxades(text: str) -> str:
@@ -226,25 +202,24 @@ def _aplica_format(run, fmt: dict) -> None:
             pass
 
 
-def substitueix_text_paragraf(para, text_traduit: str) -> None:
+def substitueix_text_paragraf_runs(runs: list, text_traduit: str) -> None:
     """
-    Substitueix el text del paràgraf distribuint el text traduït
-    proporcionalment entre els runs originals i preservant el format de cada un.
+    Substitueix el text d'una llista de runs posant tot el text al primer run
+    i buidant la resta. Usa el format del run amb més text (format dominant).
 
     Estratègia:
-      1. Captura el format de TOTS els runs (inclosos els d'hipervincles).
-      2. Distribueix el text traduït amb distribueix_text_entre_runs().
-      3. Aplica _aplica_format() NOMÉS als runs que tenien format explícit
-         (te_format_explicit) per evitar afegir negreta/cursiva fantasma.
-      4. Estableix la llengua ca-ES a tots els runs modificats.
+      1. Captura el format i la longitud de text de tots els runs.
+      2. Determina el format dominant (run amb més text original).
+      3. Posa tot el text traduït al primer run amb el format dominant.
+      4. Buida els runs restants.
+      5. Estableix la llengua ca-ES al primer run.
     """
-    runs_tots = obte_runs_complets(para)
-    if not runs_tots:
+    if not runs:
         return
 
     # ── Captura el format de TOTS els runs ────────────────────────────────────
     formats = []
-    for run in runs_tots:
+    for run in runs:
         fmt = {
             'bold':      run.bold,
             'italic':    run.italic,
@@ -259,29 +234,18 @@ def substitueix_text_paragraf(para, text_traduit: str) -> None:
         fmt['text_len'] = len(run.text)
         formats.append(fmt)
 
-    total_original = sum(f['text_len'] for f in formats)
+    # ── Format dominant: el run amb més text original ─────────────────────────
+    fmt_dominant = max(formats, key=lambda f: f.get('text_len', 0))
 
-    # ── Cas simple: un sol run o tots els runs buits ───────────────────────────
-    if total_original == 0 or len(runs_tots) == 1:
-        runs_tots[0].text = text_traduit
-        if te_format_explicit(formats[0]):
-            _aplica_format(runs_tots[0], formats[0])
-        _estableix_llengua_catalana(runs_tots[0])
-        return
-
-    # ── Buida el text de TOTS els runs (preserva l'estructura XML) ────────────
-    for run in runs_tots:
+    # ── Buida els runs secundaris (preserva l'estructura XML) ─────────────────
+    for run in runs[1:]:
         run.text = ''
 
-    # ── Distribueix i aplica ───────────────────────────────────────────────────
-    paraules = text_traduit.split()
-    fragments = distribueix_text_entre_runs(paraules, formats)
-
-    for run, fmt, fragment in zip(runs_tots, formats, fragments):
-        run.text = fragment
-        if te_format_explicit(fmt):
-            _aplica_format(run, fmt)
-        _estableix_llengua_catalana(run)
+    # ── Tot el text al primer run amb el format dominant ──────────────────────
+    runs[0].text = text_traduit
+    if te_format_explicit(fmt_dominant):
+        _aplica_format(runs[0], fmt_dominant)
+    _estableix_llengua_catalana(runs[0])
 
 
 # ── Classe principal ───────────────────────────────────────────────────────────
@@ -324,22 +288,37 @@ class PreservadorDocx:
     def tradueix_paragraf(self, para):
         """
         Tradueix el text d'un paràgraf delegant a tradueix_segment i
-        substitueix_text_paragraf. Protegeix camps especials (TOC, etc.).
+        substitueix_text_paragraf_runs. Protegeix camps especials (TOC, etc.)
+        i deixa els hipervincles (w:hyperlink) intactes.
+
+        Estratègia:
+          - Extreu el text NOMÉS dels w:r fills directes del paràgraf
+            (exclou els w:r dins de w:hyperlink per preservar-los).
+          - Tradueix únicament els runs normals (para.runs).
+          - Els hipervincles no es toquen.
         """
-        text = para.text.strip()
-        runs_tots = obte_runs_complets(para)
-        if not text or not runs_tots:
+        # ── Extreu text EXCLOENT els w:r dins de w:hyperlink ──────────────────
+        text_sense_links = ''
+        for child in para._p:
+            if child.tag == qn('w:r'):
+                for t in child.findall(qn('w:t')):
+                    text_sense_links += t.text or ''
+
+        text = text_sense_links.strip()
+        runs_normals = list(para.runs)
+
+        if not text or not runs_normals:
             return
 
-        # Protegeix camps especials (TOC, camps calculats, etc.)
-        for run in runs_tots:
+        # ── Protegeix camps especials (TOC, camps calculats, etc.) ─────────────
+        for run in runs_normals:
             if run._r.find(qn('w:fldChar')) is not None:
                 return
             if run._r.find(qn('w:instrText')) is not None:
                 return
 
         traduit = self.tradueix_segment(text)
-        substitueix_text_paragraf(para, traduit)
+        substitueix_text_paragraf_runs(runs_normals, traduit)
 
     def tradueix_taula(self, taula):
         for fila in taula.rows:

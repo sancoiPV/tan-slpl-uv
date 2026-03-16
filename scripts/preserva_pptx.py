@@ -5,10 +5,10 @@ preserva_pptx.py
 Tradueix presentacions .pptx preservant el format original run a run.
 
 Correccions aplicades:
+  - substitueix_text_para_pptx(): estratègia "tot al primer run".
+    Tot el text traduït va al primer run; la resta es buiden.
+    El format dominant és el del run amb més text original (text_len).
   - neteja_traduccio(): versió robusta (equivalent a preserva_docx.py).
-  - substitueix_text_para_pptx(): nova estratègia que BUIDA el text de
-    tots els runs (sense eliminar-los del XML) i restaura el format
-    explícitament.
   - _estableix_llengua_catalana_pptx(): marca lang="ca-ES" al a:rPr.
 """
 
@@ -65,30 +65,6 @@ def te_format_explicit(fmt: dict) -> bool:
     ])
 
 
-def distribueix_text_entre_runs(paraules: list, formats: list) -> list:
-    """
-    Distribueix les paraules proporcionalment entre els runs assegurant
-    que no es perden espais entre paraules per arrodoniment.
-    """
-    total_original = sum(f['text_len'] for f in formats)
-    total_paraules = len(paraules)
-    fragments = []
-    paraula_idx = 0
-
-    for i, fmt in enumerate(formats):
-        if i == len(formats) - 1:
-            fragment = ' '.join(paraules[paraula_idx:])
-        else:
-            if total_original > 0:
-                proporcio = fmt['text_len'] / total_original
-                n_paraules = max(1, round(total_paraules * proporcio))
-            else:
-                n_paraules = 1
-            fragment = ' '.join(paraules[paraula_idx:paraula_idx + n_paraules])
-            paraula_idx = min(paraula_idx + n_paraules, total_paraules)
-        fragments.append(fragment)
-
-    return fragments
 
 
 def corregeix_paraules_enganxades(text: str) -> str:
@@ -208,15 +184,15 @@ def _aplica_format_pptx(run, fmt: dict) -> None:
 
 def substitueix_text_para_pptx(para, text_traduit: str) -> None:
     """
-    Substitueix el text del paràgraf PPTX distribuint el text traduït
-    proporcionalment entre els runs originals i preservant el format de cada un.
+    Substitueix el text del paràgraf PPTX posant tot el text traduït al primer
+    run i buidant la resta. Usa el format del run amb més text (format dominant).
 
     Estratègia:
-      1. Captura el format de TOTS els runs.
-      2. Distribueix el text traduït amb distribueix_text_entre_runs().
-      3. Aplica _aplica_format_pptx() NOMÉS als runs que tenien format explícit
-         (te_format_explicit) per evitar afegir negreta/cursiva fantasma.
-      4. Estableix la llengua ca-ES a tots els runs modificats.
+      1. Captura el format i la longitud de text de tots els runs.
+      2. Determina el format dominant (run amb més text original).
+      3. Posa tot el text traduït al primer run amb el format dominant.
+      4. Buida els runs restants.
+      5. Estableix la llengua ca-ES al primer run.
     """
     if not para.runs:
         return
@@ -238,29 +214,18 @@ def substitueix_text_para_pptx(para, text_traduit: str) -> None:
         fmt['text_len'] = len(run.text)
         formats.append(fmt)
 
-    total_original = sum(f['text_len'] for f in formats)
+    # ── Format dominant: el run amb més text original ─────────────────────────
+    fmt_dominant = max(formats, key=lambda f: f.get('text_len', 0))
 
-    # ── Cas simple: un sol run o tots els runs buits ───────────────────────────
-    if total_original == 0 or len(para.runs) == 1:
-        para.runs[0].text = text_traduit
-        if te_format_explicit(formats[0]):
-            _aplica_format_pptx(para.runs[0], formats[0])
-        _estableix_llengua_catalana_pptx(para.runs[0])
-        return
-
-    # ── Buida el text de TOTS els runs (preserva l'estructura XML) ────────────
-    for run in para.runs:
+    # ── Buida els runs secundaris (preserva l'estructura XML) ─────────────────
+    for run in para.runs[1:]:
         run.text = ''
 
-    # ── Distribueix i aplica ───────────────────────────────────────────────────
-    paraules = text_traduit.split()
-    fragments = distribueix_text_entre_runs(paraules, formats)
-
-    for run, fmt, fragment in zip(para.runs, formats, fragments):
-        run.text = fragment
-        if te_format_explicit(fmt):
-            _aplica_format_pptx(run, fmt)
-        _estableix_llengua_catalana_pptx(run)
+    # ── Tot el text al primer run amb el format dominant ──────────────────────
+    para.runs[0].text = text_traduit
+    if te_format_explicit(fmt_dominant):
+        _aplica_format_pptx(para.runs[0], fmt_dominant)
+    _estableix_llengua_catalana_pptx(para.runs[0])
 
 
 # ── Classe principal ───────────────────────────────────────────────────────────
