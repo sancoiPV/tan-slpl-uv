@@ -22,36 +22,66 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 # ── Helpers globals ────────────────────────────────────────────────────────────
 
+# Detecta URLs per protegir-les abans de traduir (el model les trenca afegint espais)
+URL_PATTERN = re.compile(
+    r'https?://[^\s<>"\']+|www\.[^\s<>"\']+',
+    re.IGNORECASE
+)
+
+
+def protegeix_urls(text: str) -> tuple[str, dict]:
+    """Substitueix les URLs per marcadors i retorna el text modificat i el mapa."""
+    urls: dict = {}
+
+    def reemplaca(m):
+        key = f'__URL{len(urls)}__'
+        urls[key] = m.group(0)
+        return key
+
+    text_protegit = URL_PATTERN.sub(reemplaca, text)
+    return text_protegit, urls
+
+
+def restaura_urls(text: str, urls: dict) -> str:
+    """Restaura les URLs originals als marcadors."""
+    for key, url in urls.items():
+        text = text.replace(key, url)
+    return text
+
+
 def neteja_traduccio(text: str) -> str:
     """Elimina tots els artefactes Markdown i caràcters espuris del model."""
     if not text:
         return text
 
     # Elimina negreta i cursiva Markdown (**text**, *text*, __text__)
-    text = re.sub(r'\*{1,3}(.*?)\*{1,3}', r'\1', text)
-    text = re.sub(r'_{1,2}(.*?)_{1,2}', r'\1', text)
+    text = re.sub(r'\*{1,3}(.*?)\*{1,3}', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'_{1,2}(.*?)_{1,2}', r'\1', text, flags=re.DOTALL)
 
-    # Elimina capçaleres Markdown (# Títol, ## Subtítol)
+    # Elimina capçaleres Markdown
     text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
 
     # Elimina guions de llista al principi de línia
     text = re.sub(r'^[\-\–\—\•]\s+', '', text, flags=re.MULTILINE)
 
-    # Elimina numeració al principi de línia (1. text, 1) text, 1- text)
+    # Elimina numeració al principi de línia AMB puntuació (1. text, 1) text)
     text = re.sub(r'^\d+[\.\)\-]\s+', '', text, flags=re.MULTILINE)
 
-    # Elimina numeració solta (el número "1" sol al principi o final)
-    text = re.sub(r'^\d+\s*$', '', text, flags=re.MULTILINE)
+    # Elimina número sol al principi de línia SENSE puntuació (el cas "1 Segons")
+    text = re.sub(r'^\d+\s+(?=[A-ZÁÉÍÓÚÀÈÌÒÙÏÜÇ·])', '', text, flags=re.MULTILINE)
+
+    # Elimina número sol al principi de text (sense salts de línia)
+    text = re.sub(r'^\d+\s+', '', text)
 
     # Elimina asteriscos solts que hagin quedat
     text = re.sub(r'\*+', '', text)
 
-    # Normalitza espais (elimina espais múltiples i espais de no-ruptura)
+    # Normalitza espais de no-ruptura i caràcters de control Unicode
     text = re.sub(r'[\u00a0\u200b\u200c\u200d\ufeff]', ' ', text)
     text = re.sub(r' {2,}', ' ', text)
 
     # Elimina espais davant de puntuació
-    text = re.sub(r' ([.,;:!?»\)])', r'\1', text)
+    text = re.sub(r' ([.,;:!?»\)\]])', r'\1', text)
 
     # Elimina línies buides múltiples
     text = re.sub(r'\n{3,}', '\n\n', text)
@@ -71,55 +101,90 @@ def _estableix_llengua_catalana_pptx(run) -> None:
         pass
 
 
+def _aplica_format_pptx(run, fmt: dict) -> None:
+    """
+    Aplica el format guardat a un run PPTX.
+    Escriu NOMÉS els valors explícits (no None) per evitar sobreescriure
+    format heretat del tema o del marcador de posició.
+    """
+    if fmt['bold'] is not None:
+        run.font.bold = fmt['bold']
+    if fmt['italic'] is not None:
+        run.font.italic = fmt['italic']
+    if fmt['underline'] is not None:
+        run.font.underline = fmt['underline']
+    if fmt['font_name']:
+        run.font.name = fmt['font_name']
+    if fmt['font_size']:
+        run.font.size = fmt['font_size']
+    if fmt['color']:
+        try:
+            run.font.color.rgb = fmt['color']
+        except Exception:
+            pass
+
+
 def substitueix_text_para_pptx(para, text_traduit: str) -> None:
     """
-    Substitueix el text del paràgraf PPTX preservant el format del primer run.
+    Substitueix el text del paràgraf PPTX distribuint el text traduït
+    proporcionalment entre els runs originals i preservant el format de cada un.
 
-    Estratègia: usa el primer run com a plantilla de format,
-    esborra el contingut de tots els runs (sense eliminar-los del XML),
-    i posa tot el text traduït al primer run amb el seu format restaurat.
+    Estratègia:
+      1. Captura el format de TOTS els runs.
+      2. Distribueix el text traduït proporcionalment (per longitud de text original).
+      3. Aplica el format individual a cada run i marca la llengua ca-ES.
     """
     if not para.runs:
         return
 
-    # Guarda el format del primer run com a plantilla
-    run_plantilla = para.runs[0]
-    format_guardat = {
-        'bold':      run_plantilla.font.bold,
-        'italic':    run_plantilla.font.italic,
-        'underline': run_plantilla.font.underline,
-        'font_name': run_plantilla.font.name,
-        'font_size': run_plantilla.font.size,
-    }
-    # Intenta guardar el color si és explícit (no heretat del tema)
-    try:
-        format_guardat['color'] = run_plantilla.font.color.rgb
-    except Exception:
-        format_guardat['color'] = None
+    # ── Captura el format de TOTS els runs ────────────────────────────────────
+    formats = []
+    for run in para.runs:
+        fmt = {
+            'bold':      run.font.bold,
+            'italic':    run.font.italic,
+            'underline': run.font.underline,
+            'font_name': run.font.name,
+            'font_size': run.font.size,
+        }
+        try:
+            fmt['color'] = run.font.color.rgb
+        except Exception:
+            fmt['color'] = None
+        fmt['text_len'] = len(run.text)
+        formats.append(fmt)
 
-    # Esborra el text de TOTS els runs (sense modificar l'estructura XML)
+    total_original = sum(f['text_len'] for f in formats)
+
+    # ── Cas simple: un sol run o tots els runs buits ───────────────────────────
+    if total_original == 0 or len(para.runs) == 1:
+        para.runs[0].text = text_traduit
+        _aplica_format_pptx(para.runs[0], formats[0])
+        _estableix_llengua_catalana_pptx(para.runs[0])
+        return
+
+    # ── Buida el text de TOTS els runs (preserva l'estructura XML) ────────────
     for run in para.runs:
         run.text = ''
 
-    # Posa tot el text traduït al primer run
-    run_plantilla.text = text_traduit
+    # ── Distribueix el text traduït proporcionalment ───────────────────────────
+    paraules = text_traduit.split()
+    total_paraules = len(paraules)
+    paraula_idx = 0
 
-    # Restaura el format explícitament
-    run_plantilla.font.bold      = format_guardat['bold']
-    run_plantilla.font.italic    = format_guardat['italic']
-    run_plantilla.font.underline = format_guardat['underline']
-    if format_guardat['font_name']:
-        run_plantilla.font.name = format_guardat['font_name']
-    if format_guardat['font_size']:
-        run_plantilla.font.size = format_guardat['font_size']
-    if format_guardat['color']:
-        try:
-            run_plantilla.font.color.rgb = format_guardat['color']
-        except Exception:
-            pass
+    for i, (run, fmt) in enumerate(zip(para.runs, formats)):
+        if i == len(para.runs) - 1:
+            # Últim run: posa la resta de paraules (evita pèrdua per arrodoniment)
+            fragment = ' '.join(paraules[paraula_idx:])
+        else:
+            proporcio = fmt['text_len'] / total_original
+            n_paraules = max(1, round(total_paraules * proporcio))
+            fragment = ' '.join(paraules[paraula_idx:paraula_idx + n_paraules])
+            paraula_idx += n_paraules
 
-    # Estableix la llengua catalana al run resultant
-    _estableix_llengua_catalana_pptx(run_plantilla)
+        run.text = fragment
+        _aplica_format_pptx(run, fmt)
+        _estableix_llengua_catalana_pptx(run)
 
 
 # ── Classe principal ───────────────────────────────────────────────────────────
@@ -136,7 +201,12 @@ class PreservadorPptx:
             text = para.text.strip()
             if not text or not para.runs:
                 continue
-            traduit = neteja_traduccio(self.traductor(text))
+            # Protegeix URLs perquè el model no les trenque
+            text_protegit, urls = protegeix_urls(text)
+            traduit_raw = self.traductor(text_protegit)
+            traduit = neteja_traduccio(traduit_raw)
+            # Restaura les URLs originals
+            traduit = restaura_urls(traduit, urls)
             substitueix_text_para_pptx(para, traduit)
 
     def tradueix_shape(self, shape):
