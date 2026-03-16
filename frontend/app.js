@@ -167,7 +167,10 @@ async function desaPost() {
     });
     btn.textContent = '✓ Desat al corpus';
     setTimeout(() => { btn.textContent = '💾 Desa postedició'; }, 2500);
-  } catch (e) { alert('Error en desar: ' + e.message); }
+  } catch (e) {
+    if (window.TAN) window.TAN.resetEndpointAvancat();
+    alert('Error en desar: ' + e.message);
+  }
 }
 
 async function desaPostCorr() {
@@ -185,7 +188,10 @@ async function desaPostCorr() {
     });
     btn.textContent = '✓ Desat al corpus';
     setTimeout(() => { btn.textContent = '💾 Desa postedició'; }, 2500);
-  } catch (e) { alert('Error en desar: ' + e.message); }
+  } catch (e) {
+    if (window.TAN) window.TAN.resetEndpointAvancat();
+    alert('Error en desar: ' + e.message);
+  }
 }
 
 // ─── CANVI 5B · Documents: selecció i recompte immediat ──────────────────────
@@ -239,6 +245,7 @@ async function seleccionaFitxer(fitxer, mode) {
         (fitxer.size / 1024).toFixed(0) + ' KB';
     }
   } catch {
+    if (window.TAN) window.TAN.resetEndpointAvancat();
     document.getElementById('fitxer-meta-' + s).textContent =
       (fitxer.size / 1024).toFixed(0) + ' KB';
   }
@@ -319,6 +326,7 @@ async function processaFitxerActual(mode) {
     document.getElementById('fitxer-info-' + s).style.display = 'flex';
 
   } catch (e) {
+    if (window.TAN) window.TAN.resetEndpointAvancat();
     clearInterval(interval);
     pc.style.display = 'none';
     document.getElementById('fitxer-info-' + s).style.display = 'flex';

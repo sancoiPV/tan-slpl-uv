@@ -20,6 +20,7 @@ const ENDPOINTS = [
 ];
 
 const TIMEOUT_MS = 2000;
+const TIMEOUT_AVANCAT_MS = 5000; // uvicorn/ngrok: pot trigar a carregar el model
 let activeEndpoint = null;
 
 // Endpoints avançats: uvicorn (port 8000) o ngrok.
@@ -40,22 +41,32 @@ const ENDPOINTS_AVANCATS = [
 
 let activeEndpointAvancat = null;
 
+// Comprova que el servidor és realment l'API TANEU (retorna JSON amb camp d'estat).
+// Evita falsos positius de ngrok (que retorna HTML 200 quan el túnel no està actiu).
+async function comprova_health(url, health, timeout) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    const response = await fetch(url + health, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!response.ok) return false;
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return false;
+    const data = await response.json();
+    return data.estat !== undefined || data.status !== undefined || data.backend !== undefined;
+  } catch {
+    return false;
+  }
+}
+
 async function detectEndpointAvancat() {
   for (const endpoint of ENDPOINTS_AVANCATS) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      const response = await fetch(endpoint.url + endpoint.health, {
-        method: 'GET',
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (response.ok) {
-        activeEndpointAvancat = endpoint;
-        return endpoint;
-      }
-    } catch {
-      // prova el següent
+    if (await comprova_health(endpoint.url, endpoint.health, TIMEOUT_AVANCAT_MS)) {
+      activeEndpointAvancat = endpoint;
+      return endpoint;
     }
   }
   activeEndpointAvancat = null;
@@ -64,32 +75,21 @@ async function detectEndpointAvancat() {
 
 async function getUrlAvancada() {
   if (!activeEndpointAvancat) {
-    await detectEndpointAvancat();
-  }
-  if (!activeEndpointAvancat) {
-    throw new Error('Cap servidor avançat disponible (uvicorn o ngrok). ' +
-      'Comprova que uvicorn està en marxa al port 8000.');
+    const detected = await detectEndpointAvancat();
+    if (!detected) {
+      throw new Error('Cap servidor avançat disponible (uvicorn o ngrok). ' +
+        'Comprova que uvicorn està en marxa al port 8000.');
+    }
   }
   return activeEndpointAvancat.url;
 }
 
 async function detectActiveEndpoint() {
   for (const endpoint of ENDPOINTS) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      const response = await fetch(endpoint.url + endpoint.health, {
-        method: 'GET',
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (response.ok) {
-        activeEndpoint = endpoint;
-        showServerStatus(endpoint.name, 'ok');
-        return endpoint;
-      }
-    } catch {
-      // Aquest endpoint no respon, prova el següent
+    if (await comprova_health(endpoint.url, endpoint.health, TIMEOUT_MS)) {
+      activeEndpoint = endpoint;
+      showServerStatus(endpoint.name, 'ok');
+      return endpoint;
     }
   }
   activeEndpoint = null;
@@ -152,4 +152,9 @@ function getUrl() {
   return activeEndpoint ? activeEndpoint.url : '';
 }
 
-window.TAN = { translate, detectActiveEndpoint, showServerStatus, getUrl, getUrlAvancada };
+// Reset manual de l'endpoint avançat (cridat des d'app.js quan l'endpoint falla)
+function resetEndpointAvancat() {
+  activeEndpointAvancat = null;
+}
+
+window.TAN = { translate, detectActiveEndpoint, showServerStatus, getUrl, getUrlAvancada, resetEndpointAvancat };
