@@ -155,7 +155,7 @@ function copiaCorr() {
 async function desaPost() {
   const btn = document.getElementById('btnDesa');
   try {
-    await fetch(TAN.getUrl() + '/desa-postedicio', {
+    await fetch(await TAN.getUrlAvancada() + '/desa-postedicio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -173,7 +173,7 @@ async function desaPost() {
 async function desaPostCorr() {
   const btn = document.getElementById('btnDesaC');
   try {
-    await fetch(TAN.getUrl() + '/desa-postedicio', {
+    await fetch(await TAN.getUrlAvancada() + '/desa-postedicio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -226,7 +226,7 @@ async function seleccionaFitxer(fitxer, mode) {
   try {
     const form = new FormData();
     form.append('fitxer', fitxer);
-    const r = await fetch(TAN.getUrl() + '/recompte-paraules', {
+    const r = await fetch(await TAN.getUrlAvancada() + '/recompte-paraules', {
       method: 'POST', body: form
     });
     if (r.ok) {
@@ -286,7 +286,7 @@ async function processaFitxerActual(mode) {
   form.append('mode', mode);
 
   try {
-    const r = await fetch(TAN.getUrl() + '/tradueix-document', {
+    const r = await fetch(await TAN.getUrlAvancada() + '/tradueix-document', {
       method: 'POST', body: form
     });
     if (!r.ok) throw new Error(await r.text());

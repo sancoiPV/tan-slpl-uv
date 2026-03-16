@@ -22,6 +22,57 @@ const ENDPOINTS = [
 const TIMEOUT_MS = 2000;
 let activeEndpoint = null;
 
+// Endpoints avançats: uvicorn (port 8000) o ngrok.
+// S'usen exclusivament per a /tradueix-document, /desa-postedicio, /recompte-paraules.
+// Mai s'usa localhost:5001 (CTranslate2) per a operacions amb documents.
+const ENDPOINTS_AVANCATS = [
+  {
+    name: 'Servidor local uvicorn',
+    url: 'http://127.0.0.1:8000',
+    health: '/health',
+  },
+  {
+    name: 'Servidor UV (ngrok)',
+    url: 'https://floatiest-unfeudally-dilan.ngrok-free.dev',
+    health: '/health',
+  },
+];
+
+let activeEndpointAvancat = null;
+
+async function detectEndpointAvancat() {
+  for (const endpoint of ENDPOINTS_AVANCATS) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      const response = await fetch(endpoint.url + endpoint.health, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (response.ok) {
+        activeEndpointAvancat = endpoint;
+        return endpoint;
+      }
+    } catch {
+      // prova el següent
+    }
+  }
+  activeEndpointAvancat = null;
+  return null;
+}
+
+async function getUrlAvancada() {
+  if (!activeEndpointAvancat) {
+    await detectEndpointAvancat();
+  }
+  if (!activeEndpointAvancat) {
+    throw new Error('Cap servidor avançat disponible (uvicorn o ngrok). ' +
+      'Comprova que uvicorn està en marxa al port 8000.');
+  }
+  return activeEndpointAvancat.url;
+}
+
 async function detectActiveEndpoint() {
   for (const endpoint of ENDPOINTS) {
     try {
@@ -101,4 +152,4 @@ function getUrl() {
   return activeEndpoint ? activeEndpoint.url : '';
 }
 
-window.TAN = { translate, detectActiveEndpoint, showServerStatus, getUrl };
+window.TAN = { translate, detectActiveEndpoint, showServerStatus, getUrl, getUrlAvancada };
