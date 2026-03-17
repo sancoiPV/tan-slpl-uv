@@ -127,7 +127,7 @@ def segmenta_frases(text: str, llengua: str = 'spanish') -> list[str]:
 # Neteja i validació de parells
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def es_valid(src: str, tgt: str, min_tok: int = 3, max_tok: int = 120) -> bool:
+def es_valid(src: str, tgt: str, min_tok: int = 3, max_tok: int = 200) -> bool:
     """
     Comprova si un parell és vàlid per al corpus.
     Filtra frases massa curtes, massa llargues, idèntiques o poc alfabètiques.
@@ -152,10 +152,10 @@ def es_valid(src: str, tgt: str, min_tok: int = 3, max_tok: int = 120) -> bool:
 # Processament de parells de fitxers
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def extrau_text_slide(slide) -> str:
+def extrau_paragrafs_slide(slide) -> list[str]:
     """
-    Extreu tot el text d'una diapositiva com un sol bloc de text.
-    Concatena tots els elements de text (formes + taules) separats per espai.
+    Extreu els paràgrafs de text d'una diapositiva com una llista.
+    Recorre totes les formes de text i les taules.
     """
     fragments = []
     for shape in slide.shapes:
@@ -170,7 +170,7 @@ def extrau_text_slide(slide) -> str:
                     text = cell.text.strip()
                     if text:
                         fragments.append(text)
-    return ' '.join(fragments)
+    return fragments
 
 
 def processa_parell_docx(
@@ -244,11 +244,17 @@ def processa_parell_pptx(
     max_delta: int = 999,
 ) -> list[tuple[str, str]]:
     """
-    Processa un parell de fitxers PPTX alineant diapositiva a diapositiva.
-    El text complet de la diapositiva N del _CAS s'alinea amb el text complet
-    de la diapositiva N del _VAL, independentment del nombre d'elements de text.
-    Això elimina els falsos desalineaments causats per diferències en el nombre
-    de formes/paràgrafs entre les versions CAS i VAL de cada diapositiva.
+    Processa un parell de fitxers PPTX amb estratègia paràgraf per paràgraf
+    dins de cada diapositiva (estratègia 3):
+
+    Per a cada parell de diapositives N:
+      - Si el nombre de paràgrafs és igual → alinea paràgraf a paràgraf.
+      - Si el nombre de paràgrafs és diferent → fallback: un sol parell
+        concatenant tot el text de la diapositiva (evita pèrdua de dades
+        però genera un parell més llarg).
+
+    Això combina la precisió de l'alineació per paràgrafs amb la robustesa
+    de la concatenació quan les diapositives no estan perfectament balancejades.
     """
     try:
         prs_cas = Presentation(path_cas)
@@ -268,7 +274,7 @@ def processa_parell_pptx(
             'paras_cas':       n_slides_cas,
             'paras_val':       n_slides_val,
             'delta':           delta,
-            'parells_extrets': min(n_slides_cas, n_slides_val),
+            'parells_extrets': 0,
             'exclòs':          delta > max_delta,
         })
         if delta > max_delta:
@@ -281,13 +287,28 @@ def processa_parell_pptx(
             n_slides_cas, n_slides_val, path_cas.name, min(n_slides_cas, n_slides_val),
         )
 
-    n_slides = min(n_slides_cas, n_slides_val)
     parells = []
+    n_slides = min(n_slides_cas, n_slides_val)
+
     for i in range(n_slides):
-        text_cas = extrau_text_slide(prs_cas.slides[i]).strip()
-        text_val = extrau_text_slide(prs_val.slides[i]).strip()
-        if text_cas and text_val:
-            parells.append((text_cas, text_val))
+        paras_cas = extrau_paragrafs_slide(prs_cas.slides[i])
+        paras_val = extrau_paragrafs_slide(prs_val.slides[i])
+
+        if not paras_cas or not paras_val:
+            continue
+
+        if len(paras_cas) == len(paras_val):
+            # Alineació paràgraf a paràgraf dins la diapositiva
+            for s, t in zip(paras_cas, paras_val):
+                s, t = s.strip(), t.strip()
+                if s and t:
+                    parells.append((s, t))
+        else:
+            # Fallback: un sol parell amb tot el text de la diapositiva
+            text_cas = ' '.join(paras_cas).strip()
+            text_val = ' '.join(paras_val).strip()
+            if text_cas and text_val:
+                parells.append((text_cas, text_val))
 
     return parells
 
