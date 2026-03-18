@@ -127,10 +127,39 @@ def segmenta_frases(text: str, llengua: str = 'spanish') -> list[str]:
 # Neteja i validació de parells
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def es_valid(src: str, tgt: str, min_tok: int = 3, max_tok: int = 200) -> bool:
+def similitud_bigrames(text1: str, text2: str) -> float:
+    """
+    Calcula la similitud entre dos textos basada en bigrames de caràcters.
+    Retorna un valor entre 0 (cap similitud) i 1 (idèntics).
+    Útil per detectar parells ES/CA mal alineats: una traducció real
+    compartirà noms propis, números, sigles i paraules comunes.
+    """
+    def bigrames(text):
+        text = text.lower().strip()
+        return set(text[i:i+2] for i in range(len(text) - 1))
+
+    bg1 = bigrames(text1)
+    bg2 = bigrames(text2)
+
+    if not bg1 or not bg2:
+        return 0.0
+
+    interseccio = len(bg1 & bg2)
+    unio = len(bg1 | bg2)
+    return interseccio / unio if unio > 0 else 0.0
+
+
+def es_valid(
+    src: str,
+    tgt: str,
+    min_tok: int = 3,
+    max_tok: int = 200,
+    min_similitud: float = 0.08,
+) -> bool:
     """
     Comprova si un parell és vàlid per al corpus.
-    Filtra frases massa curtes, massa llargues, idèntiques o poc alfabètiques.
+    Filtra frases massa curtes, massa llargues, idèntiques, poc alfabètiques
+    o amb baixa similitud de bigrames (probable mal alineament ES/CA).
     """
     s_tok = src.split()
     t_tok = tgt.split()
@@ -138,12 +167,17 @@ def es_valid(src: str, tgt: str, min_tok: int = 3, max_tok: int = 200) -> bool:
         return False
     if not (min_tok <= len(t_tok) <= max_tok):
         return False
-    if src.lower() == tgt.lower():
+    if src.strip() == tgt.strip():
         return False
     # Mínim 40% de caràcters alfabètics (filtra taules de números, codis, etc.)
     if sum(c.isalpha() for c in src) / max(len(src), 1) < 0.4:
         return False
     if sum(c.isalpha() for c in tgt) / max(len(tgt), 1) < 0.4:
+        return False
+    # Filtre de similitud: descarta parells probablement mal alineats.
+    # Una traducció ES→CA real sempre compartirà almenys un 8% de bigrames
+    # (noms propis, números, sigles, paraules cognades).
+    if similitud_bigrames(src, tgt) < min_similitud:
         return False
     return True
 
@@ -337,6 +371,12 @@ def main():
         help='Exclou parells de documents amb diferència de paràgrafs superior '
              'a aquest valor (defecte: 999, sense límit pràctic)',
     )
+    parser.add_argument(
+        '--min-similitud', type=float, default=0.08,
+        dest='min_similitud',
+        help='Similitud mínima de bigrames de caràcters entre ES i CA '
+             '(defecte: 0.08). Valors entre 0.0 (desactivat) i 1.0.',
+    )
     args = parser.parse_args()
 
     input_dir  = Path(args.input)
@@ -350,6 +390,7 @@ def main():
     log.info('Carpeta entrada:  %s', input_dir)
     log.info('Carpeta sortida:  %s', output_dir)
     log.info('Max delta:        %d', max_delta)
+    log.info('Min similitud:    %.2f', args.min_similitud)
 
     # ── Cerca tots els fitxers _CAS ────────────────────────────────────────────
     fitxers_cas_docx = sorted(input_dir.glob('**/*_CAS.docx'))
@@ -429,9 +470,17 @@ def main():
     # ── Neteja i deduplicació ──────────────────────────────────────────────────
     clean_pairs = []
     seen = set()
+    eliminats_similitud = 0
     for src, tgt in all_pairs:
         src, tgt = src.strip(), tgt.strip()
-        if not es_valid(src, tgt):
+        # Comptabilitza específicament els eliminats pel filtre de similitud:
+        # passa tots els altres filtres però falla el de bigrames.
+        if (
+            es_valid(src, tgt, min_similitud=0.0)
+            and similitud_bigrames(src, tgt) < args.min_similitud
+        ):
+            eliminats_similitud += 1
+        if not es_valid(src, tgt, min_similitud=args.min_similitud):
             total_eliminats += 1
             continue
         clau = f'{src.lower()}|||{tgt.lower()}'
@@ -537,6 +586,7 @@ def main():
         f'  Carpeta entrada:  {input_dir}',
         f'  Carpeta sortida:  {output_dir}',
         f'  Max delta:        {max_delta}',
+        f'  Min similitud:    {args.min_similitud:.2f}',
         '',
         '  FITXERS PROCESSATS:',
     ]
@@ -551,6 +601,7 @@ def main():
         f'    Documents exclosos:  {total_exclosos}',
         f'    Parells extrets:     {total_extrets}',
         f'    Parells eliminats:   {total_eliminats}',
+        f'      (baixa similitud): {eliminats_similitud}',
         f'    Parells vàlids:      {total_valid}',
         f'    Parells train (90%): {len(train_pairs)}',
         f'    Parells val   (10%): {len(val_pairs)}',
