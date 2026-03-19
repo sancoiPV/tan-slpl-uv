@@ -119,6 +119,9 @@ def neteja_traduccio_xml(text: str) -> str:
     # Elimina espais davant de puntuació final
     text = re.sub(r' ([.,;:!?»\)\]])', r'\1', text)
 
+    # Apostrofacions i ela geminada (crida a la funció especialitzada)
+    text = corregeix_apostrofacions_run(text)
+
     return text.strip()
 
 
@@ -128,13 +131,14 @@ def neteja_traduccio_xml(text: str) -> str:
 
 def corregeix_apostrofacions_run(text: str) -> str:
     """
-    Corregeix els espais incorrectes en apostrofacions catalanes/valencianes
-    i en l'ela geminada dins d'un run individual.
-
-    S'aplica DESPRÉS de neteja_traduccio_xml() sobre el text de cada run.
+    Corregeix tots els espais incorrectes en apostrofacions catalanes/valencianes.
+    Gestiona tant l'apòstrof recte (') com el tipogràfic (\u2019/\u2018).
 
     Casos coberts:
       l' aigua       → l'aigua
+      l\u2019 aigua  → l'aigua   (apòstrof tipogràfic)
+      d ' Enginyeria → d'Enginyeria
+      de Enginyeria  → d'Enginyeria
       d' Enginyeria  → d'Enginyeria
       m' ho          → m'ho
       al · lucinar   → al·lucinar
@@ -144,26 +148,45 @@ def corregeix_apostrofacions_run(text: str) -> str:
     if not text:
         return text
 
-    # Cas 1: lletra + apòstrof + espai(s) + caràcter → lletra + apòstrof + caràcter
-    # Cobreix: "l' aigua", "d' ell", "m' ho", "d' Enginyeria"
+    # Normalitza apòstrofs tipogràfics (\u2018, \u2019) a rectes
+    text = text.replace('\u2019', "'").replace('\u2018', "'")
+
+    # Elimina espais a BANDA I BANDA de l'apòstrof (cas: "d ' Enginyeria" → "d'Enginyeria")
+    # Ha d'anar PRIMER per evitar que els patrons posteriors el deixen a mitges
+    text = re.sub(r"(\S)\s+'\s+(\S)", r"\1'\2", text)
+
+    # Elimina espais DESPRÉS de l'apòstrof: l' aigua → l'aigua
     text = re.sub(
-        r"([a-z\u00e0-\u00f6\u00f8-\u017eA-Z\u00c0-\u00d6\u00d8-\u00f6])'(\s+)([^\s])",
-        r"\1'\3", text
-    )
-    # Cas 2: paraula + espai(s) + apòstrof + lletra minúscula
-    text = re.sub(
-        r"([^\s])(\s+)'([a-z\u00e0-\u00f6\u00f8-\u017e])",
+        r"([a-zA-Z\u00e0-\u00f6\u00f8-\u00ff\u00c0-\u00d6\u00d8-\u00de])'(\s+)(\S)",
         r"\1'\3", text
     )
 
-    # Ela geminada amb espais al voltant del punt volat: al · lucinar → al·lucinar
+    # Elimina espais ABANS de l'apòstrof: paraula 'altra → paraula'altra
+    text = re.sub(
+        r"(\S)(\s+)'([a-zA-Z\u00e0-\u00f6\u00f8-\u00ff])",
+        r"\1'\3", text
+    )
+
+    # "de " + vocal/h inicial de mot → "d'" (ex: "de Enginyeria" → "d'Enginyeria")
+    text = re.sub(
+        r'\bde\s+([aeiouàèéíïòóúüh])',
+        lambda m: "d'" + m.group(1),
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # ── Ela geminada ──────────────────────────────────────────────────────────
+    # "al · lucinar" → "al·lucinar"
     text = re.sub(r'\s*·\s*', '·', text)
-    # Ela geminada amb punt normal i espais: l . l → l·l
+    # "l . l" → "l·l"
     text = re.sub(r'([lL])\s*\.\s*([lL])', r'\1·\2', text)
-    # Ela geminada amb punt normal sense espais: l.l → l·l
+    # "l.l" → "l·l"
     text = re.sub(r'([lL])\.([lL])', r'\1·\2', text)
 
-    return text
+    # Normalitza espais múltiples generats per les substitucions anteriors
+    text = re.sub(r' {2,}', ' ', text)
+
+    return text.strip()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -207,20 +230,61 @@ def obte_text_paragraf(p_node: etree._Element, ns_t: str) -> str:
 
 def tots_runs_mateix_format(runs: list, tag_rpr: str) -> bool:
     """
-    Comprova si tots els runs d'un paràgraf tenen exactament el mateix format.
-    Si és així, pot posar-se tota la traducció al primer run sense perdre format.
+    Retorna True ÚNICAMENT en dos casos:
+    a) Tots els runs no tenen cap format especial (tots normals/sans format).
+    b) Tots els runs tenen exactament el mateix conjunt de formats especials.
+
+    És molt conservador: si hi ha qualsevol barreja (algun cursiu i algun
+    normal, per exemple), retorna False per garantir la distribució proporcional
+    i evitar que tot el paràgraf herete el format del primer run.
+
+    Tags de format especial reconeguts: i, b, u, strike, vertAlign, color,
+    sz, szCs, rFonts, highlight, shd, caps, smallCaps, emboss, imprint, shadow.
     """
     if len(runs) <= 1:
         return True
 
-    def format_run(run):
+    # Tags que indiquen format especial (nom local, sense namespace)
+    _TAGS_FORMAT = frozenset({
+        'i', 'b', 'u', 'strike', 'vertAlign', 'color',
+        'sz', 'szCs', 'rFonts', 'highlight', 'shd',
+        'caps', 'smallCaps', 'emboss', 'imprint', 'shadow',
+    })
+
+    def te_format_especial(run: etree._Element) -> bool:
+        rpr = run.find(tag_rpr)
+        if rpr is None:
+            return False
+        for child in rpr:
+            nom = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+            if nom in _TAGS_FORMAT:
+                return True
+        return False
+
+    formats_especials = [te_format_especial(r) for r in runs]
+
+    # Cas a: cap run amb format especial → tots normals → es pot usar el primer run
+    if not any(formats_especials):
+        return True
+
+    # Cas mixt: alguns amb format especial i altres no → conservador → False
+    if not all(formats_especials):
+        return False
+
+    # Cas b: tots amb format especial → comprova que siguen idèntics (tag + val)
+    _NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+
+    def empremta_format(run: etree._Element) -> frozenset:
         rpr = run.find(tag_rpr)
         if rpr is None:
             return frozenset()
-        return frozenset(child.tag for child in rpr)
+        return frozenset(
+            (child.tag, child.get(f'{{{_NS_W}}}val', ''))
+            for child in rpr
+        )
 
-    primer_format = format_run(runs[0])
-    return all(format_run(r) == primer_format for r in runs[1:])
+    primer = empremta_format(runs[0])
+    return all(empremta_format(r) == primer for r in runs[1:])
 
 
 def distribueix_paraules_a_runs(
@@ -233,6 +297,10 @@ def distribueix_paraules_a_runs(
     """
     Distribueix les paraules de la traducció entre els runs proporcionalment
     a la longitud original de cada run. Preserva el <w:rPr> de cada run.
+
+    Millores respecte a la versió anterior:
+    - idx mai sobrepassa total_paraules (guarda min)
+    - SubElement només es crea si el fragment té contingut real
     """
     total_original = sum(longituds_originals)
     total_paraules = len(paraules)
@@ -243,12 +311,15 @@ def distribueix_paraules_a_runs(
         if i == n_runs - 1:
             fragment = ' '.join(paraules[idx:])
         else:
-            proporcio = long_orig / total_original if total_original > 0 else 1 / n_runs
-            n = max(1, round(total_paraules * proporcio))
-            n = min(n, total_paraules - idx - (n_runs - i - 1))
-            n = max(n, 1)
+            if total_original > 0:
+                proporcio = long_orig / total_original
+                n = max(1, round(total_paraules * proporcio))
+                n = min(n, total_paraules - idx - (n_runs - i - 1))
+                n = max(n, 1)
+            else:
+                n = 1
             fragment = ' '.join(paraules[idx:idx + n])
-            idx += n
+            idx = min(idx + n, total_paraules)
 
         # Espai de separació entre runs adjacents
         if i < n_runs - 1 and fragment and not fragment.endswith(' '):
@@ -261,9 +332,10 @@ def distribueix_paraules_a_runs(
             for t in t_nodes[1:]:
                 t.text = ''
         else:
-            nou_t = etree.SubElement(run, tag_t)
-            nou_t.text = fragment
-            nou_t.set(xml_space, 'preserve')
+            if fragment.strip():
+                nou_t = etree.SubElement(run, tag_t)
+                nou_t.text = fragment
+                nou_t.set(xml_space, 'preserve')
 
 
 def tradueix_i_preserva_format(
