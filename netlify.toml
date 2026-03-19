@@ -1,3 +1,7 @@
+# NOTA: El frontend ha sigut migrat a GitHub Pages (carpeta docs/, branch main).
+# URL pública nova: https://sancoipv.github.io/tan-slpl-uv/
+# Aquest fitxer es manté per compatibilitat però Netlify ja no és el desplegament actiu.
+
 [build]
   publish = "frontend"
   command = ""
