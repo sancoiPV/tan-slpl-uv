@@ -6,22 +6,22 @@ Traducció de documents .docx i .pptx amb preservació perfecta del format.
 
 Estratègia: manipulació directa de l'XML intern del fitxer ZIP.
 - NO usa python-docx ni python-pptx per a modificar el document
-- Extreu paràgrafs XML complets amb tot el format intern intacte
-- Tradueix únicament el text dins dels tags XML
-- Reinjecta el XML traduït substituint l'original exactament
-- El format (negreta, cursiva, color, mida, fonts, imatges, taules...)
-  queda preservat per definició perquè les etiquetes XML no es toquen
+- Parseja els XMLs interns amb lxml
+- Tradueix CADA RUN (<w:r>/<a:r>) de forma independent
+- El <w:rPr>/<a:rPr> (format: negreta, cursiva, color, mida...) NO es toca mai
+- El format queda preservat per definició: cada run conserva el seu propi format
 
-Correccions definitives (v3):
-  C1 — neteja_traduccio_xml(): captura guions sense dígit (—Relé)
-  C2 — substitueix_text_paragraf(): distribueix text proporcionalment
-       entre runs existents (preserva el format de CADA run)
-  C3 — divideix_per_oracions() + tradueix_text_llarg(): divideix sempre
-       per oracions i aplica neteja internament
-  C4 — regex PPTX definides dins de tradueix_document() per poder
-       dependre de tradueix_notes; elimina paràmetre tradueix_plantilles
-  C5 — TAGS_IMATGE ampliada amb NS_PIC, NS_WPD, NS_CHART
-  C6 — Bucle principal: filtre len<2, f-string a warning
+Estratègia run per run (v4):
+  La versió anterior (v3) extraia el text complet del paràgraf, el traduïa
+  com un bloc i redistribuïa el text proporcionalment entre els runs. Açò és
+  estructuralment incorrecte: la traducció canvia l'ordre de les paraules i la
+  redistribució desplaça els límits del format.
+
+  La versió actual (v4) tradueix cada run individualment:
+  - Cada <w:r> porta el seu propi <w:rPr> → format perfectament preservat
+  - No cal redistribució ni heurístiques proporcionals
+  - La qualitat és lleugerament inferior per a runs molt curts (el model
+    perd context), però el format és perfecte per definició.
 
 Autors: SLPL · Universitat de València · 2025
 """
@@ -38,12 +38,12 @@ log = logging.getLogger(__name__)
 
 # ── Namespaces XML de Word i PowerPoint ─────────────────────────────────────
 
-NS_W    = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
-NS_A    = 'http://schemas.openxmlformats.org/drawingml/2006/main'
-NS_R    = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
-NS_P    = 'http://schemas.openxmlformats.org/presentationml/2006/main'
-NS_PIC  = 'http://schemas.openxmlformats.org/drawingml/2006/picture'
-NS_WPD  = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing'
+NS_W     = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+NS_A     = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+NS_R     = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+NS_P     = 'http://schemas.openxmlformats.org/presentationml/2006/main'
+NS_PIC   = 'http://schemas.openxmlformats.org/drawingml/2006/picture'
+NS_WPD   = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing'
 NS_CHART = 'http://schemas.openxmlformats.org/drawingml/2006/chart'
 
 NSMAP = {
@@ -56,14 +56,15 @@ NSMAP = {
     'chart': NS_CHART,
 }
 
-# ── Regex per a fitxers XML interns (DOCX sempre; PPTX es decideix dins de
-#    tradueix_document() depenent de tradueix_notes) ──────────────────────────
+# ── Regex per a fitxers XML interns ─────────────────────────────────────────
+# DOCX és constant; PPTX es decideix dins de tradueix_document() (depèn de
+# tradueix_notes), per la qual cosa PPTX_REGEX NO s'exporta com a constant.
 
 DOCX_REGEX = re.compile(
     r'^word/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$'
 )
 
-# ── C5 — Tags d'imatge i gràfic ampliats ────────────────────────────────────
+# ── Tags d'imatge i gràfic ───────────────────────────────────────────────────
 
 TAGS_IMATGE = frozenset({
     f'{{{NS_WPD}}}inline',
@@ -74,9 +75,15 @@ TAGS_IMATGE = frozenset({
     f'{{{NS_PIC}}}nvPicPr',
 })
 
+# ── Regex per a detectar contingut no traduïble ──────────────────────────────
+# Runs que contenen únicament números, símbols, espais o codis curts
+_RE_NO_TRADUIR = re.compile(
+    r'^[\d\s\.\,\:\;\!\?\(\)\[\]\{\}\-\_\+\=\*\/\\<>@#%&|~^`\'\"]+$'
+)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# C1/C2 — Neteja d'artefactes del motor de traducció (versió definitiva)
+# Neteja d'artefactes del motor de traducció
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def neteja_traduccio_xml(text: str) -> str:
@@ -88,8 +95,6 @@ def neteja_traduccio_xml(text: str) -> str:
     - Guions al principi (amb o sense dígit, amb o sense espai)
     - Números sols al principi seguits de majúscula
     - Markdown (**negreta**, *cursiva*, # Títol)
-    - Apostrofacions: l' aigua → l'aigua, d' ell → d'ell
-    - Ela geminada: al · lucinar → al·lucinar, l . l → l·l
     - Espais davant de puntuació: "text ." → "text."
     """
     if not text:
@@ -109,27 +114,6 @@ def neteja_traduccio_xml(text: str) -> str:
     text = re.sub(r'\*{1,3}(.*?)\*{1,3}', r'\1', text, flags=re.DOTALL)
     text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
 
-    # ── Apostrofacions ────────────────────────────────────────────────────────
-    # Cas 1: lletra + apòstrof + espais + paraula  →  lletra + apòstrof + paraula
-    # ex: "l' aigua" → "l'aigua",  "d' ell" → "d'ell",  "m' ho" → "m'ho"
-    text = re.sub(
-        r"([a-z\u00e0-\u00f6\u00f8-\u017eA-Z\u00c0-\u00d6\u00d8-\u00f6])'(\s+)([^\s])",
-        r"\1'\3", text
-    )
-    # Cas 2: paraula + espais + apòstrof + lletra  →  paraula + apòstrof + lletra
-    text = re.sub(
-        r"([^\s])(\s+)'([a-z\u00e0-\u00f6\u00f8-\u017e])",
-        r"\1'\3", text
-    )
-
-    # ── Ela geminada ──────────────────────────────────────────────────────────
-    # "al · lucinar" → "al·lucinar"  /  "col · legi" → "col·legi"
-    text = re.sub(r'\s*·\s*', '·', text)
-    # "l . l" → "l·l"  (punt volat escrit com a punt normal amb espais)
-    text = re.sub(r'([lL])\s*\.\s*([lL])', r'\1·\2', text)
-    # "l.l" → "l·l"  (punt normal sense espais)
-    text = re.sub(r'([lL])\.([lL])', r'\1·\2', text)
-
     # ── Espais ────────────────────────────────────────────────────────────────
     text = re.sub(r' {2,}', ' ', text)
     # Elimina espais davant de puntuació final
@@ -139,106 +123,58 @@ def neteja_traduccio_xml(text: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Correcció de paraules enganxades (C-PEng)
+# Postprocessament d'apostrofacions i ela geminada per run
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def corregeix_paraules_enganxades(text: str) -> str:
+def corregeix_apostrofacions_run(text: str) -> str:
     """
-    Detecta i corregeix paraules enganxades (sense espai entre elles).
-    S'aplica al text final de cada paràgraf traduït, després de la neteja.
+    Corregeix els espais incorrectes en apostrofacions catalanes/valencianes
+    i en l'ela geminada dins d'un run individual.
 
-    Causa: la distribució proporcional entre runs pot produir fragments
-    com "serveiEl" si la tokenització no és perfecta.
+    S'aplica DESPRÉS de neteja_traduccio_xml() sobre el text de cada run.
 
     Casos coberts:
-    - Minúscula seguida de majúscula: "serveiEl" → "servei El"
-    - Dígit seguit de lletra: "2023la" → "2023 la"
-    - Lletra minúscula seguida de dígit: "text2" → "text 2"
+      l' aigua       → l'aigua
+      d' Enginyeria  → d'Enginyeria
+      m' ho          → m'ho
+      al · lucinar   → al·lucinar
+      l . l          → l·l
+      l.l            → l·l
     """
     if not text:
         return text
 
-    # Minúscula (inclou accentuades) + Majúscula: serveiEl → servei El
-    # Usa \p no disponible, per tant fem servir classe explícita amb caràcters reals
-    _min = 'a-záéíóúàèìòùïüçl'
-    _maj = 'A-ZÁÉÍÓÚÀÈÌÒÙÏÜÇ'
-    text = re.sub(rf'([{_min}·])([{_maj}])', r'\1 \2', text)
+    # Cas 1: lletra + apòstrof + espai(s) + caràcter → lletra + apòstrof + caràcter
+    # Cobreix: "l' aigua", "d' ell", "m' ho", "d' Enginyeria"
+    text = re.sub(
+        r"([a-z\u00e0-\u00f6\u00f8-\u017eA-Z\u00c0-\u00d6\u00d8-\u00f6])'(\s+)([^\s])",
+        r"\1'\3", text
+    )
+    # Cas 2: paraula + espai(s) + apòstrof + lletra minúscula
+    text = re.sub(
+        r"([^\s])(\s+)'([a-z\u00e0-\u00f6\u00f8-\u017e])",
+        r"\1'\3", text
+    )
 
-    # Dígit + Lletra (majúscula o minúscula): 2023la → 2023 la
-    text = re.sub(rf'(\d)([{_maj}{_min}])(?!\d)', r'\1 \2', text)
-
-    # Lletra minúscula + Dígit: text2 → text 2
-    text = re.sub(rf'([{_min}])(\d)', r'\1 \2', text)
+    # Ela geminada amb espais al voltant del punt volat: al · lucinar → al·lucinar
+    text = re.sub(r'\s*·\s*', '·', text)
+    # Ela geminada amb punt normal i espais: l . l → l·l
+    text = re.sub(r'([lL])\s*\.\s*([lL])', r'\1·\2', text)
+    # Ela geminada amb punt normal sense espais: l.l → l·l
+    text = re.sub(r'([lL])\.([lL])', r'\1·\2', text)
 
     return text
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# C3 — Segmentació per oracions i traducció de textos llargs
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def divideix_per_oracions(text: str) -> list:
-    """
-    Divideix el text en oracions individuals per a traducció independent.
-    Cada oració es tradueix per separat i es reuneix al final.
-
-    C3: substitueix divideix_en_segments(). Ara divideix SEMPRE per oracions
-    (no per nombre de caràcters), cosa que evita el truncament del model fins
-    i tot en textos moderadament llargs.
-    """
-    if not text or len(text) < 100:
-        return [text]
-    # Divideix per punt, exclamació o interrogació seguit d'espai i majúscula/cometa/parèntesi
-    oracions = re.split(
-        r'(?<=[.!?])\s+(?=[A-Z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u017e"\(\u00bf\u00a1])',
-        text,
-    )
-    return [o.strip() for o in oracions if o.strip()]
-
-
-def tradueix_text_llarg(text: str, funcio_traduccio: Callable[[str], str]) -> str:
-    """
-    Tradueix un text dividint-lo per oracions per evitar truncaments del model.
-    Aplica neteja_traduccio_xml() a cada segment traduït.
-
-    C3: integra la neteja internament (per segments), de manera que la
-    neteja s'aplica a cada oració traduïda per separat i de nou al resultat
-    final al bucle principal.
-    """
-    if not text:
-        return text
-
-    oracions = divideix_per_oracions(text)
-
-    if len(oracions) <= 1:
-        resultat = funcio_traduccio(text)
-        return neteja_traduccio_xml(resultat)
-
-    traduits = []
-    for oracio in oracions:
-        try:
-            traduit = funcio_traduccio(oracio)
-            traduit = neteja_traduccio_xml(traduit)
-            traduits.append(traduit)
-        except Exception as e:
-            log.warning(f'Error traduint oració: {e!r} — usa original')
-            traduits.append(oracio)
-
-    return ' '.join(traduits)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# C5 — Detecció de paràgrafs dins d'imatges o gràfics
+# Detecció de nodes dins d'imatges o gràfics
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def es_dins_imatge(node: etree._Element) -> bool:
     """
     Comprova si un node paràgraf és dins d'una imatge, gràfic o forma decorativa.
-    En aquest cas el paràgraf no s'ha de traduir (text alternatiu, títol de
-    gràfic, llegendes de sèries, etc.).
-
-    C5: TAGS_IMATGE ampliada amb NS_PIC i NS_WPD per cobrir imatges incrustades
-    i formes picture de PowerPoint.
+    En aquest cas el paràgraf no s'ha de traduir (text alternatiu, llegendes
+    de sèries, etc.).
     """
     parent = node.getparent()
     while parent is not None:
@@ -249,13 +185,14 @@ def es_dins_imatge(node: etree._Element) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Funcions d'extracció i substitució de text
+# Extracció de text per a filtratge
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def obte_text_paragraf(p_node: etree._Element, ns_t: str) -> str:
     """
     Extreu el text pla d'un node de paràgraf XML
     concatenant tots els elements <w:t> o <a:t>.
+    Usat per al filtratge ràpid de paràgrafs buits.
     """
     parts = []
     for t in p_node.iter(f'{{{ns_t}}}t'):
@@ -264,113 +201,87 @@ def obte_text_paragraf(p_node: etree._Element, ns_t: str) -> str:
     return ''.join(parts).strip()
 
 
-def substitueix_text_paragraf(
+# ═══════════════════════════════════════════════════════════════════════════════
+# Traducció run per run — estratègia v4
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def tradueix_paragraf_per_runs(
     p_node: etree._Element,
-    text_traduit: str,
     ns_para: str,
+    funcio_traduccio: Callable[[str], str],
 ) -> None:
     """
-    Distribueix el text traduït entre els runs existents de forma proporcional,
-    preservant exactament el format (<w:rPr>/<a:rPr>) de cada run original.
+    Tradueix cada run del paràgraf de forma independent, preservant
+    exactament el format (<w:rPr>/<a:rPr>) de cada run original.
 
-    C2 — Estratègia corregida (distribuir, no eliminar):
-      Versió anterior: posava tot el text al primer run i eliminava la resta.
-      Problema: tot el text heretava el format del primer run (ex. cursiva).
+    Estratègia (v4):
+    - Cada <w:r>/<a:r> es tradueix per separat
+    - El <w:rPr>/<a:rPr> de cada run NO es toca mai
+    - El text traduït es posa al <w:t>/<a:t> del mateix run
+    - Els runs buits, molt curts o purament numèrics/simbòlics es
+      preserven intactes (no s'envien al motor de traducció)
+    - Els runs dins d'hipervincles (<w:hyperlink>) NO es tradueixen
+      perquè solen contenir URLs o text d'ancoratge crític
 
-      Versió actual: distribueix les paraules proporcionalment entre TOTS
-      els runs existents, mantenint exactament el mateix nombre de runs.
-      Cada run conserva el seu <w:rPr> intacte, per tant el format de
-      cada fragment del text queda associat al run correcte.
-
-      Cas especial: hipervincles (<w:hyperlink>/<a:hlinkClick>) — els runs
-      dins d'hipervincles s'inclouen en el recompte de runs normals.
+    Paràmetres:
+        p_node:           node <w:p> o <a:p> del paràgraf
+        ns_para:          namespace (NS_W per a DOCX, NS_A per a PPTX)
+        funcio_traduccio: funció que rep text castellà i retorna text en valencià
     """
     tag_r         = f'{{{ns_para}}}r'
     tag_t         = f'{{{ns_para}}}t'
     tag_hyperlink = f'{{{ns_para}}}hyperlink'
     xml_space     = '{http://www.w3.org/XML/1998/namespace}space'
 
-    # Recull tots els runs (fills directes del paràgraf + dins d'hipervincles)
-    runs = []
-    for child in p_node:
-        if child.tag == tag_r:
-            runs.append(child)
-        elif child.tag == tag_hyperlink:
-            for subchild in child:
-                if subchild.tag == tag_r:
-                    runs.append(subchild)
+    # Recull únicament els runs fills directes del paràgraf.
+    # Els runs dins d'hipervincles (<w:hyperlink>) s'ometen deliberadament.
+    runs_directes = [child for child in p_node if child.tag == tag_r]
 
-    if not runs:
+    if not runs_directes:
         return
 
-    # ── Cas simple: un sol run ───────────────────────────────────────────────
-    if len(runs) == 1:
-        t_nodes = [c for c in runs[0] if c.tag == tag_t]
-        if t_nodes:
-            t_nodes[0].text = text_traduit
+    for run in runs_directes:
+        t_nodes = [child for child in run if child.tag == tag_t]
+        if not t_nodes:
+            continue
+
+        # Extreu el text complet del run (pot tenir múltiples <w:t>)
+        text_run = ''.join((t.text or '') for t in t_nodes)
+        text_net = text_run.strip()
+
+        # Ignora runs buits, d'un sol caràcter o purament numèrics/simbòlics
+        if not text_net or len(text_net) < 2:
+            continue
+        if _RE_NO_TRADUIR.match(text_net):
+            continue
+
+        try:
+            # Preserva els espais inicials i finals del run original
+            espai_inicial = text_run[: len(text_run) - len(text_run.lstrip())]
+            espai_final   = text_run[len(text_run.rstrip()):]
+
+            # Tradueix el contingut net (sense espais marginals)
+            text_traduit = funcio_traduccio(text_net)
+            text_traduit = neteja_traduccio_xml(text_traduit)
+            text_traduit = corregeix_apostrofacions_run(text_traduit)
+
+            # No substitueix si el resultat és buit o idèntic a l'original
+            if not text_traduit or text_traduit == text_net:
+                continue
+
+            # Reconstrueix amb espais originals
+            text_final = espai_inicial + text_traduit + espai_final
+
+            # Substitueix el text al primer <w:t>, buida els addicionals
+            t_nodes[0].text = text_final
             t_nodes[0].set(xml_space, 'preserve')
             for t in t_nodes[1:]:
                 t.text = ''
-        else:
-            nou_t = etree.SubElement(runs[0], tag_t)
-            nou_t.text = text_traduit
-            nou_t.set(xml_space, 'preserve')
-        return
 
-    # ── Cas múltiples runs: distribució proporcional ─────────────────────────
-    # Calcula la longitud original de text de cada run
-    longituds = []
-    for run in runs:
-        text_run = ''.join((c.text or '') for c in run if c.tag == tag_t)
-        longituds.append(max(len(text_run), 1))
-
-    total_long  = sum(longituds)
-    paraules    = text_traduit.split()
-    total_pars  = len(paraules)
-
-    if total_pars == 0:
-        # Text buit: buida tots els <w:t>
-        for run in runs:
-            for t in run:
-                if t.tag == tag_t:
-                    t.text = ''
-        return
-
-    # Distribueix paraules proporcionalment mantenint almenys 1 per run
-    # fins que s'esgotin les paraules
-    fragments = []
-    idx = 0
-    n_runs = len(runs)
-    for i, long_orig in enumerate(longituds):
-        if i == n_runs - 1:
-            # Últim run: totes les paraules restants
-            fragment = ' '.join(paraules[idx:])
-        else:
-            proporcio = long_orig / total_long
-            n = max(1, round(total_pars * proporcio))
-            # Assegura que queda almenys 1 paraula per a cada run restant
-            n = min(n, total_pars - idx - (n_runs - i - 1))
-            n = max(n, 1)
-            fragment = ' '.join(paraules[idx:idx + n])
-            idx += n
-        fragments.append(fragment)
-
-    # Assigna cada fragment al <w:t>/<a:t> del seu run, preservant <w:rPr>
-    # C4: assegura espai de separació al final de cada fragment intermedi
-    #     per evitar paraules enganxades quan Word concatena runs adjacents.
-    for i, (run, fragment) in enumerate(zip(runs, fragments)):
-        if i < len(runs) - 1 and fragment and not fragment.endswith(' '):
-            fragment = fragment + ' '
-        t_nodes = [c for c in run if c.tag == tag_t]
-        if t_nodes:
-            t_nodes[0].text = fragment
-            t_nodes[0].set(xml_space, 'preserve')
-            for t in t_nodes[1:]:
-                t.text = ''
-        else:
-            nou_t = etree.SubElement(run, tag_t)
-            nou_t.text = fragment
-            nou_t.set(xml_space, 'preserve')
+        except Exception as e:
+            log.warning(
+                f'Error traduint run {text_net[:40]!r}: {e!r} — manté original'
+            )
 
 
 # ── Forçar idioma ca-ES ──────────────────────────────────────────────────────
@@ -415,29 +326,27 @@ def tradueix_document(
     Retorna:
         contingut binari del fitxer traduït
 
-    Estratègia (v3):
+    Estratègia (v4 — run per run):
         1. Obre el ZIP en memòria (docx/pptx són ZIPs d'XMLs)
-        2. C4: la regex de fitxers PPTX es tria aquí, depenent de tradueix_notes
+        2. La regex de fitxers PPTX es tria aquí, depenent de tradueix_notes
         3. Per a cada XML de contingut:
            a. Parseja el XML amb lxml
            b. Per a cada paràgraf (<w:p> o <a:p>):
-              - C5: si és dins d'imatge/gràfic → IGNORA
-              - C6: si el text té menys de 2 caràcters → IGNORA
-              - C3: tradueix per oracions per evitar truncaments
-              - C1: aplica neteja d'artefactes
-              - C2: distribueix text proporcionalment entre runs
+              - Si és dins d'imatge/gràfic → IGNORA
+              - Si el text del paràgraf té menys de 2 caràcters → IGNORA
+              - Crida tradueix_paragraf_per_runs() per traduir run per run
            c. Serialitza l'XML modificat
            d. Força l'idioma ca-ES
         4. Escriu tots els fitxers al ZIP de sortida
     """
     extensio = extensio.lower().lstrip('.')
-    es_docx = extensio == 'docx'
-    es_pptx = extensio == 'pptx'
+    es_docx  = extensio == 'docx'
+    es_pptx  = extensio == 'pptx'
 
     if not es_docx and not es_pptx:
         raise ValueError(f'Format no suportat: {extensio!r}. Usa "docx" o "pptx".')
 
-    # C4 — La regex de fitxers es decideix aquí, dins de la funció
+    # La regex de fitxers PPTX es decideix aquí, depenent de tradueix_notes
     if es_docx:
         regex_fitxers = re.compile(
             r'^word/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$'
@@ -467,35 +376,28 @@ def tradueix_document(
                 try:
                     arbre = etree.fromstring(contingut)
 
-                    # C6 — Bucle principal unificat amb totes les correccions
+                    # ── Bucle principal: traducció run per run ───────────────
                     for p_node in arbre.iter(tag_para):
-                        # C5: ignora paràgrafs dins d'imatges o gràfics
+                        # Ignora paràgrafs dins d'imatges o gràfics
                         if es_dins_imatge(p_node):
                             continue
 
-                        text_original = obte_text_paragraf(p_node, ns_text)
-
-                        # C6: ignora paràgrafs buits o d'un sol caràcter
-                        if not text_original or len(text_original.strip()) < 2:
+                        # Filtratge ràpid: ignora paràgrafs buits o trivials
+                        text_complet = obte_text_paragraf(p_node, ns_text)
+                        if not text_complet or len(text_complet.strip()) < 2:
                             continue
 
+                        # Tradueix cada run del paràgraf preservant el format
                         try:
-                            # C3: traducció per oracions per evitar truncaments
-                            text_traduit = tradueix_text_llarg(
-                                text_original, funcio_traduccio
+                            tradueix_paragraf_per_runs(
+                                p_node,
+                                ns_text,
+                                funcio_traduccio,
                             )
-                            # C1/C2: neteja artefactes del model (segona passada)
-                            text_traduit = neteja_traduccio_xml(text_traduit)
-                            # C-PEng: corregeix paraules enganxades per la distribució
-                            text_traduit = corregeix_paraules_enganxades(text_traduit)
-
-                            if text_traduit and text_traduit.strip() != text_original.strip():
-                                # C2: distribueix proporcionalment, preserva format
-                                substitueix_text_paragraf(
-                                    p_node, text_traduit, ns_text
-                                )
                         except Exception as e:
-                            log.warning(f'Error traduint: {e!r} — manté original')
+                            log.warning(
+                                f'Error processant paràgraf: {e!r} — manté original'
+                            )
 
                     # Serialitza l'XML modificat
                     contingut_modificat = etree.tostring(
