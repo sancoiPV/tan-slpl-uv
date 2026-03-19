@@ -202,86 +202,160 @@ def obte_text_paragraf(p_node: etree._Element, ns_t: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Traducció run per run — estratègia v4
+# Estratègia híbrida v5 — traducció per paràgraf complet + distribució per runs
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def tradueix_paragraf_per_runs(
+def tots_runs_mateix_format(runs: list, tag_rpr: str) -> bool:
+    """
+    Comprova si tots els runs d'un paràgraf tenen exactament el mateix format.
+    Si és així, pot posar-se tota la traducció al primer run sense perdre format.
+    """
+    if len(runs) <= 1:
+        return True
+
+    def format_run(run):
+        rpr = run.find(tag_rpr)
+        if rpr is None:
+            return frozenset()
+        return frozenset(child.tag for child in rpr)
+
+    primer_format = format_run(runs[0])
+    return all(format_run(r) == primer_format for r in runs[1:])
+
+
+def distribueix_paraules_a_runs(
+    paraules: list,
+    runs: list,
+    longituds_originals: list,
+    tag_t: str,
+    xml_space: str,
+) -> None:
+    """
+    Distribueix les paraules de la traducció entre els runs proporcionalment
+    a la longitud original de cada run. Preserva el <w:rPr> de cada run.
+    """
+    total_original = sum(longituds_originals)
+    total_paraules = len(paraules)
+    idx    = 0
+    n_runs = len(runs)
+
+    for i, (run, long_orig) in enumerate(zip(runs, longituds_originals)):
+        if i == n_runs - 1:
+            fragment = ' '.join(paraules[idx:])
+        else:
+            proporcio = long_orig / total_original if total_original > 0 else 1 / n_runs
+            n = max(1, round(total_paraules * proporcio))
+            n = min(n, total_paraules - idx - (n_runs - i - 1))
+            n = max(n, 1)
+            fragment = ' '.join(paraules[idx:idx + n])
+            idx += n
+
+        # Espai de separació entre runs adjacents
+        if i < n_runs - 1 and fragment and not fragment.endswith(' '):
+            fragment += ' '
+
+        t_nodes = [c for c in run if c.tag == tag_t]
+        if t_nodes:
+            t_nodes[0].text = fragment
+            t_nodes[0].set(xml_space, 'preserve')
+            for t in t_nodes[1:]:
+                t.text = ''
+        else:
+            nou_t = etree.SubElement(run, tag_t)
+            nou_t.text = fragment
+            nou_t.set(xml_space, 'preserve')
+
+
+def tradueix_i_preserva_format(
     p_node: etree._Element,
     ns_para: str,
     funcio_traduccio: Callable[[str], str],
 ) -> None:
     """
-    Tradueix cada run del paràgraf de forma independent, preservant
-    exactament el format (<w:rPr>/<a:rPr>) de cada run original.
+    Estratègia híbrida (v5): traducció del paràgraf complet (qualitat màxima)
+    + distribució del resultat entre runs originals (format perfecte).
 
-    Estratègia (v4):
-    - Cada <w:r>/<a:r> es tradueix per separat
-    - El <w:rPr>/<a:rPr> de cada run NO es toca mai
-    - El text traduït es posa al <w:t>/<a:t> del mateix run
-    - Els runs buits, molt curts o purament numèrics/simbòlics es
-      preserven intactes (no s'envien al motor de traducció)
-    - Els runs dins d'hipervincles (<w:hyperlink>) NO es tradueixen
-      perquè solen contenir URLs o text d'ancoratge crític
-
-    Paràmetres:
-        p_node:           node <w:p> o <a:p> del paràgraf
-        ns_para:          namespace (NS_W per a DOCX, NS_A per a PPTX)
-        funcio_traduccio: funció que rep text castellà i retorna text en valencià
+    Flux:
+    1. Extreu el text complet del paràgraf (tots els runs concatenats)
+    2. Tradueix el text complet d'una sola vegada → màxim context al model
+    3a. Tots els runs amb el mateix format (o run únic):
+        → tot el text al primer run, buida la resta (sense perdre <w:rPr>)
+    3b. Formats mixtos (cursiva + normal + negreta...):
+        → distribució proporcional entre runs originals
+    Els runs dins d'hipervincles (<w:hyperlink>) s'ometen (no es tradueixen).
     """
     tag_r         = f'{{{ns_para}}}r'
     tag_t         = f'{{{ns_para}}}t'
+    tag_rpr       = f'{{{ns_para}}}rPr'
     tag_hyperlink = f'{{{ns_para}}}hyperlink'
     xml_space     = '{http://www.w3.org/XML/1998/namespace}space'
 
-    # Recull únicament els runs fills directes del paràgraf.
-    # Els runs dins d'hipervincles (<w:hyperlink>) s'ometen deliberadament.
-    runs_directes = [child for child in p_node if child.tag == tag_r]
-
-    if not runs_directes:
+    # Runs fills directes del paràgraf (no els dins d'hipervincles)
+    runs = [child for child in p_node if child.tag == tag_r]
+    if not runs:
         return
 
-    for run in runs_directes:
-        t_nodes = [child for child in run if child.tag == tag_t]
-        if not t_nodes:
-            continue
+    # Extreu text complet i longitud de cada run per a la distribució proporcional
+    text_complet        = ''
+    longituds_originals = []
+    for run in runs:
+        text_run = ''.join((c.text or '') for c in run if c.tag == tag_t)
+        text_complet += text_run
+        longituds_originals.append(max(len(text_run), 1))
 
-        # Extreu el text complet del run (pot tenir múltiples <w:t>)
-        text_run = ''.join((t.text or '') for t in t_nodes)
-        text_net = text_run.strip()
+    text_net = text_complet.strip()
+    if not text_net or len(text_net) < 3:
+        return
+    if _RE_NO_TRADUIR.match(text_net):
+        return
 
-        # Ignora runs buits, d'un sol caràcter o purament numèrics/simbòlics
-        if not text_net or len(text_net) < 2:
-            continue
-        if _RE_NO_TRADUIR.match(text_net):
-            continue
+    try:
+        # Traducció del paràgraf complet → context màxim, qualitat màxima
+        text_traduit = funcio_traduccio(text_net)
+        text_traduit = neteja_traduccio_xml(text_traduit)
+        text_traduit = corregeix_apostrofacions_run(text_traduit)
 
-        try:
-            # Preserva els espais inicials i finals del run original
-            espai_inicial = text_run[: len(text_run) - len(text_run.lstrip())]
-            espai_final   = text_run[len(text_run.rstrip()):]
+        if not text_traduit or text_traduit.strip() == text_net:
+            return
 
-            # Tradueix el contingut net (sense espais marginals)
-            text_traduit = funcio_traduccio(text_net)
-            text_traduit = neteja_traduccio_xml(text_traduit)
-            text_traduit = corregeix_apostrofacions_run(text_traduit)
+        paraules = text_traduit.split()
+        if not paraules:
+            return
 
-            # No substitueix si el resultat és buit o idèntic a l'original
-            if not text_traduit or text_traduit == text_net:
-                continue
+        # CAS 1: un sol run o tots els runs amb el mateix format
+        if len(runs) == 1 or tots_runs_mateix_format(runs, tag_rpr):
+            espai_inicial = text_complet[
+                : len(text_complet) - len(text_complet.lstrip())
+            ]
+            text_final = espai_inicial + text_traduit
 
-            # Reconstrueix amb espais originals
-            text_final = espai_inicial + text_traduit + espai_final
+            t_nodes = [c for c in runs[0] if c.tag == tag_t]
+            if t_nodes:
+                t_nodes[0].text = text_final
+                t_nodes[0].set(xml_space, 'preserve')
+                for t in t_nodes[1:]:
+                    t.text = ''
+            else:
+                nou_t = etree.SubElement(runs[0], tag_t)
+                nou_t.text = text_final
+                nou_t.set(xml_space, 'preserve')
 
-            # Substitueix el text al primer <w:t>, buida els addicionals
-            t_nodes[0].text = text_final
-            t_nodes[0].set(xml_space, 'preserve')
-            for t in t_nodes[1:]:
-                t.text = ''
+            # Buida els runs addicionals (conserva <w:rPr>, esborra <w:t>)
+            for run in runs[1:]:
+                for t in run:
+                    if t.tag == tag_t:
+                        t.text = ''
 
-        except Exception as e:
-            log.warning(
-                f'Error traduint run {text_net[:40]!r}: {e!r} — manté original'
+        # CAS 2: formats mixtos → distribució proporcional
+        else:
+            distribueix_paraules_a_runs(
+                paraules, runs, longituds_originals, tag_t, xml_space
             )
+
+    except Exception as e:
+        log.warning(
+            f'Error traduint paràgraf {text_net[:50]!r}: {e!r} — manté original'
+        )
 
 
 # ── Forçar idioma ca-ES ──────────────────────────────────────────────────────
@@ -376,7 +450,7 @@ def tradueix_document(
                 try:
                     arbre = etree.fromstring(contingut)
 
-                    # ── Bucle principal: traducció run per run ───────────────
+                    # ── Bucle principal: estratègia híbrida v5 ──────────────
                     for p_node in arbre.iter(tag_para):
                         # Ignora paràgrafs dins d'imatges o gràfics
                         if es_dins_imatge(p_node):
@@ -384,12 +458,12 @@ def tradueix_document(
 
                         # Filtratge ràpid: ignora paràgrafs buits o trivials
                         text_complet = obte_text_paragraf(p_node, ns_text)
-                        if not text_complet or len(text_complet.strip()) < 2:
+                        if not text_complet or len(text_complet.strip()) < 3:
                             continue
 
-                        # Tradueix cada run del paràgraf preservant el format
+                        # Traducció per paràgraf complet + preservació de format
                         try:
-                            tradueix_paragraf_per_runs(
+                            tradueix_i_preserva_format(
                                 p_node,
                                 ns_text,
                                 funcio_traduccio,
