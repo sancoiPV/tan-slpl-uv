@@ -83,13 +83,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("taneu.api")
 
-# Logger DEBUG temporal per diagnosticar artefactes de neteja_traduccio.
-# Mostra el text BRUT del model i el text NET després de la neteja.
-# Per desactivar: canvia setLevel(logging.DEBUG) per setLevel(logging.WARNING)
-logging.getLogger("scripts.preserva_docx").setLevel(logging.DEBUG)
-logging.getLogger("scripts.preserva_pptx").setLevel(logging.DEBUG)
-
-# ─── Imports de les classes preservadores de format ───────────────────────────
+# ─── Import del mòdul de preservació de format (estratègia XML directa) ───────
 # Afegim l'arrel del projecte al path perquè 'scripts' siga trobable tant
 # quan s'executa des de webapp/ com des de l'arrel (uvicorn webapp.api:app)
 _arrel_sys = str(ARREL_PROJECTE)
@@ -97,13 +91,11 @@ if _arrel_sys not in sys.path:
     sys.path.insert(0, _arrel_sys)
 
 try:
-    from scripts.preserva_docx import PreservadorDocx
-    from scripts.preserva_pptx import PreservadorPptx
-    log.info("Classes preservadores de format carregades correctament.")
+    from scripts.preserva_xml import tradueix_document as _tradueix_document_xml
+    log.info("Mòdul preserva_xml carregat correctament.")
 except ImportError as _err_import:
-    PreservadorDocx = None  # type: ignore[assignment,misc]
-    PreservadorPptx = None  # type: ignore[assignment,misc]
-    log.warning("No s'han pogut importar les classes preservadores: %s", _err_import)
+    _tradueix_document_xml = None  # type: ignore[assignment]
+    log.warning("No s'ha pogut importar preserva_xml: %s", _err_import)
 
 # ─── Estat global de l'aplicació ──────────────────────────────────────────────
 _tokenizer  = None
@@ -189,11 +181,6 @@ def _compta_paraules(text: str) -> int:
     """Retorna el nombre de paraules d'un text."""
     return len(text.split())
 
-
-# ─── Instàncies de les classes preservadores ──────────────────────────────────
-# S'inicialitzen ací, after _tradueix_text, perquè el callable ja existeix.
-_preservador_docx = PreservadorDocx(_tradueix_text) if PreservadorDocx else None
-_preservador_pptx = PreservadorPptx(_tradueix_text) if PreservadorPptx else None
 
 # ─── Creació de l'aplicació FastAPI ───────────────────────────────────────────
 app = FastAPI(
@@ -417,13 +404,14 @@ async def tradueix_document(
     total_par   = 0
     buffer_eixida = io.BytesIO()
 
+    mime_types = {
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    }
+    mime_type = mime_types[extensio]
+
     try:
-        if extensio == ".docx":
-            total_par = _tradueix_docx(contingut, buffer_eixida)
-            mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        else:  # .pptx
-            total_par = _tradueix_pptx(contingut, buffer_eixida)
-            mime_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        total_par = _tradueix_fitxer_xml(contingut, extensio.lstrip('.'), buffer_eixida)
     except HTTPException:
         raise
     except Exception as exc:
@@ -455,73 +443,48 @@ async def tradueix_document(
     )
 
 
-def _tradueix_docx(contingut: bytes, eixida: io.BytesIO) -> int:
+def _tradueix_fitxer_xml(contingut: bytes, extensio: str, eixida: io.BytesIO) -> int:
     """
-    Tradueix un .docx usant PreservadorDocx (capçaleres, peus, quadres de text,
-    camps especials protegits). Retorna el nombre de paraules de l'original.
+    Tradueix un .docx o .pptx usant manipulació directa de l'XML intern
+    (scripts/preserva_xml.py). Retorna el nombre de paraules de l'original.
+
+    El recompte de paraules es fa llegint el ZIP directament amb lxml,
+    sense necessitat de python-docx ni python-pptx.
     """
-    if _preservador_docx is None:
+    if _tradueix_document_xml is None:
         raise HTTPException(
             status_code=503,
-            detail="La classe PreservadorDocx no està disponible. "
-                   "Comprova que scripts/preserva_docx.py existeix i que "
-                   "python-docx està instal·lat.",
-        )
-    try:
-        from docx import Document
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="El paquet 'python-docx' no està instal·lat.",
+            detail="El mòdul preserva_xml no està disponible. "
+                   "Comprova que scripts/preserva_xml.py existeix i que "
+                   "lxml està instal·lat (pip install lxml).",
         )
 
-    # Compta paraules de l'original abans de traduir
-    doc_original = Document(io.BytesIO(contingut))
-    total_par = sum(
-        _compta_paraules(p.text)
-        for p in doc_original.paragraphs
-        if p.text.strip()
-    )
+    # ── Recompte de paraules de l'original via lxml ──────────────────────────
+    import zipfile as _zf
+    from lxml import etree as _et
 
-    # Traducció preservant format (retorna bytes)
-    resultat = _preservador_docx.tradueix_document(contingut)
-    eixida.write(resultat)
-    eixida.seek(0)
-    return total_par
+    _NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    _NS_A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    from scripts.preserva_xml import DOCX_REGEX, PPTX_REGEX
 
+    regex  = DOCX_REGEX if extensio == 'docx' else PPTX_REGEX
+    ns_t   = _NS_W      if extensio == 'docx' else _NS_A
+    tag_t  = f'{{{ns_t}}}t'
 
-def _tradueix_pptx(contingut: bytes, eixida: io.BytesIO) -> int:
-    """
-    Tradueix un .pptx usant PreservadorPptx (grups, taules, notes del presentador).
-    Retorna el nombre de paraules de l'original.
-    """
-    if _preservador_pptx is None:
-        raise HTTPException(
-            status_code=503,
-            detail="La classe PreservadorPptx no està disponible. "
-                   "Comprova que scripts/preserva_pptx.py existeix i que "
-                   "python-pptx està instal·lat.",
-        )
-    try:
-        from pptx import Presentation
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="El paquet 'python-pptx' no està instal·lat.",
-        )
-
-    # Compta paraules de l'original abans de traduir
-    prs_original = Presentation(io.BytesIO(contingut))
     total_par = 0
-    for diapositiva in prs_original.slides:
-        for forma in diapositiva.shapes:
-            if forma.has_text_frame:
-                for para in forma.text_frame.paragraphs:
-                    text = "".join(r.text for r in para.runs)
-                    total_par += _compta_paraules(text)
+    with _zf.ZipFile(io.BytesIO(contingut)) as z:
+        for nom in z.namelist():
+            if regex.match(nom):
+                try:
+                    arbre = _et.fromstring(z.read(nom))
+                    for t in arbre.iter(tag_t):
+                        if t.text:
+                            total_par += _compta_paraules(t.text)
+                except Exception:
+                    pass
 
-    # Traducció preservant format (retorna bytes)
-    resultat = _preservador_pptx.tradueix_document(contingut)
+    # ── Traducció preservant format ──────────────────────────────────────────
+    resultat = _tradueix_document_xml(contingut, extensio, _tradueix_text)
     eixida.write(resultat)
     eixida.seek(0)
     return total_par

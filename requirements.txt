@@ -26,6 +26,7 @@ streamlit
 # Processament de documents
 python-docx
 python-pptx
+lxml
 
 # Configuració
 pyyaml
