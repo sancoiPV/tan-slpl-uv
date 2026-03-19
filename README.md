@@ -7,7 +7,7 @@ Universitat de València — Secció d'Assessorament Lingüístic
 
 ## Descripció
 
-TANEU és un sistema de traducció automàtica neuronal (TAN) especialitzat en la parella de llengües **castellà → valencià** en l'àmbit universitari. El model s'ha adaptat per produir traduccions en **valencià normatiu universitari**, d'acord amb els *Criteris lingüístics de les universitats valencianes*.
+TANEU és un sistema de traducció automàtica neuronal (TAN) especialitzat en la parella de llengües **castellà → valencià** en l'àmbit universitari. El model s'ha entrenat a partir del motor TAN aina-translator-es-ca desenvolupat pel Language Technologies Lab del BSC-CNS dins el Projecte Aina, per a produir traduccions en **valencià normatiu universitari**, d'acord amb els *Criteris per als usos lingüístics de les universitats valencianes*.
 
 ---
 
