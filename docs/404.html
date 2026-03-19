@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+  <meta charset="UTF-8">
+  <title>TAN · SLPL · Universitat de València</title>
+  <!-- Redirecció SPA per a GitHub Pages.
+       Quan GitHub Pages rep una URL directa (p. ex. /tan-slpl-uv/traduccio-docs),
+       retorna aquest 404.html. El script redirigeix a l'arrel del repositori
+       afegint el path com a paràmetre de consulta perquè app.js el puga restaurar.
+       Tècnica estàndard per a SPAs en GitHub Pages (Rafael Pedicini). -->
+  <script>
+    // Guarda el path complet i redirigeix a /tan-slpl-uv/
+    var l = window.location;
+    l.replace(
+      l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+      '/tan-slpl-uv/' +
+      '?p=' + l.pathname.slice(1).replace(/&/g, '~and~') +
+      (l.search ? '&q=' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+      l.hash
+    );
+  </script>
+</head>
+<body>
+  <p>Redirigint a l'aplicació TAN...</p>
+</body>
+</html>
