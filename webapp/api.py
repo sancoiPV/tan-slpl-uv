@@ -465,9 +465,17 @@ def _tradueix_fitxer_xml(contingut: bytes, extensio: str, eixida: io.BytesIO) ->
 
     _NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
     _NS_A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
-    from scripts.preserva_xml import DOCX_REGEX, PPTX_REGEX
+    # DOCX_REGEX / PPTX_REGEX es van moure dins de tradueix_document() (C4, v3).
+    # Es defineixen localment aquí per al recompte de paraules.
+    import re as _re
+    _DOCX_REGEX = _re.compile(
+        r'^word/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$'
+    )
+    _PPTX_REGEX = _re.compile(
+        r'^ppt/(slides/slide\d+|notesSlides/notesSlide\d+)\.xml$'
+    )
 
-    regex  = DOCX_REGEX if extensio == 'docx' else PPTX_REGEX
+    regex  = _DOCX_REGEX if extensio == 'docx' else _PPTX_REGEX
     ns_t   = _NS_W      if extensio == 'docx' else _NS_A
     tag_t  = f'{{{ns_t}}}t'
 
