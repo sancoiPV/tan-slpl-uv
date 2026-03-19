@@ -76,34 +76,101 @@ TAGS_IMATGE = frozenset({
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# C1 — Neteja d'artefactes del motor de traducció
+# C1/C2 — Neteja d'artefactes del motor de traducció (versió definitiva)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def neteja_traduccio_xml(text: str) -> str:
     """
-    Elimina artefactes que el motor de traducció afegeix incorrectament.
+    Neteja els artefactes que el motor de traducció afegeix incorrectament.
     S'aplica DESPRÉS de traduir i ABANS de reinjectar al XML.
 
-    C1 respecte a la versió anterior: el patró de guió ara captura
-    tant "— 1 Text" com "—Relé" (guió directament enganxat a la paraula).
+    Correccions incloses:
+    - Guions al principi (amb o sense dígit, amb o sense espai)
+    - Números sols al principi seguits de majúscula
+    - Markdown (**negreta**, *cursiva*, # Títol)
+    - Apostrofacions: l' aigua → l'aigua, d' ell → d'ell
+    - Ela geminada: al · lucinar → al·lucinar, l . l → l·l
+    - Espais davant de puntuació: "text ." → "text."
     """
     if not text:
         return text
-    # Elimina guió llarg/mitjà/curt al principi (amb o sense dígit posterior)
-    # Cobreix: "— 1 Text", "–Text", "—Relé", "- 2 Objectiu"
+
+    # ── Artefactes del model ──────────────────────────────────────────────────
+
+    # Elimina guió llarg/mitjà/curt al principi (amb o sense espai o dígit)
     text = re.sub(r'^[\u2014\u2013\-]+\s*\d*\s*', '', text)
+
     # Elimina número sol al principi seguit de lletra majúscula o accentuada
-    text = re.sub(r'^\d+\s+(?=[A-Z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u017e\u00b7])', '', text)
-    # Elimina asteriscos de Markdown (**negreta**, *cursiva*, ***tots***)
+    text = re.sub(
+        r'^\d+\s+(?=[A-Z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u017e\u00b7])', '', text
+    )
+
+    # Elimina Markdown
     text = re.sub(r'\*{1,3}(.*?)\*{1,3}', r'\1', text, flags=re.DOTALL)
-    # Elimina capçaleres Markdown (# Títol, ## Subtítol, etc.)
     text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
-    # Normalitza espais múltiples
+
+    # ── Apostrofacions ────────────────────────────────────────────────────────
+    # Cas 1: lletra + apòstrof + espais + paraula  →  lletra + apòstrof + paraula
+    # ex: "l' aigua" → "l'aigua",  "d' ell" → "d'ell",  "m' ho" → "m'ho"
+    text = re.sub(
+        r"([a-z\u00e0-\u00f6\u00f8-\u017eA-Z\u00c0-\u00d6\u00d8-\u00f6])'(\s+)([^\s])",
+        r"\1'\3", text
+    )
+    # Cas 2: paraula + espais + apòstrof + lletra  →  paraula + apòstrof + lletra
+    text = re.sub(
+        r"([^\s])(\s+)'([a-z\u00e0-\u00f6\u00f8-\u017e])",
+        r"\1'\3", text
+    )
+
+    # ── Ela geminada ──────────────────────────────────────────────────────────
+    # "al · lucinar" → "al·lucinar"  /  "col · legi" → "col·legi"
+    text = re.sub(r'\s*·\s*', '·', text)
+    # "l . l" → "l·l"  (punt volat escrit com a punt normal amb espais)
+    text = re.sub(r'([lL])\s*\.\s*([lL])', r'\1·\2', text)
+    # "l.l" → "l·l"  (punt normal sense espais)
+    text = re.sub(r'([lL])\.([lL])', r'\1·\2', text)
+
+    # ── Espais ────────────────────────────────────────────────────────────────
     text = re.sub(r' {2,}', ' ', text)
-    # Corregeix espais erronis en apostrofacions catalanes
-    # ex: "l' empresa" → "l'empresa",  "d' un" → "d'un"
-    text = re.sub(r"([dlmtsncjDLMTSNC])'(\s+)", r"\1'", text)
+    # Elimina espais davant de puntuació final
+    text = re.sub(r' ([.,;:!?»\)\]])', r'\1', text)
+
     return text.strip()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Correcció de paraules enganxades (C-PEng)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def corregeix_paraules_enganxades(text: str) -> str:
+    """
+    Detecta i corregeix paraules enganxades (sense espai entre elles).
+    S'aplica al text final de cada paràgraf traduït, després de la neteja.
+
+    Causa: la distribució proporcional entre runs pot produir fragments
+    com "serveiEl" si la tokenització no és perfecta.
+
+    Casos coberts:
+    - Minúscula seguida de majúscula: "serveiEl" → "servei El"
+    - Dígit seguit de lletra: "2023la" → "2023 la"
+    - Lletra minúscula seguida de dígit: "text2" → "text 2"
+    """
+    if not text:
+        return text
+
+    # Minúscula (inclou accentuades) + Majúscula: serveiEl → servei El
+    # Usa \p no disponible, per tant fem servir classe explícita amb caràcters reals
+    _min = 'a-záéíóúàèìòùïüçl'
+    _maj = 'A-ZÁÉÍÓÚÀÈÌÒÙÏÜÇ'
+    text = re.sub(rf'([{_min}·])([{_maj}])', r'\1 \2', text)
+
+    # Dígit + Lletra (majúscula o minúscula): 2023la → 2023 la
+    text = re.sub(rf'(\d)([{_maj}{_min}])(?!\d)', r'\1 \2', text)
+
+    # Lletra minúscula + Dígit: text2 → text 2
+    text = re.sub(rf'([{_min}])(\d)', r'\1 \2', text)
+
+    return text
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -289,7 +356,11 @@ def substitueix_text_paragraf(
         fragments.append(fragment)
 
     # Assigna cada fragment al <w:t>/<a:t> del seu run, preservant <w:rPr>
-    for run, fragment in zip(runs, fragments):
+    # C4: assegura espai de separació al final de cada fragment intermedi
+    #     per evitar paraules enganxades quan Word concatena runs adjacents.
+    for i, (run, fragment) in enumerate(zip(runs, fragments)):
+        if i < len(runs) - 1 and fragment and not fragment.endswith(' '):
+            fragment = fragment + ' '
         t_nodes = [c for c in run if c.tag == tag_t]
         if t_nodes:
             t_nodes[0].text = fragment
@@ -413,8 +484,10 @@ def tradueix_document(
                             text_traduit = tradueix_text_llarg(
                                 text_original, funcio_traduccio
                             )
-                            # C1: neteja artefactes del model (segona passada)
+                            # C1/C2: neteja artefactes del model (segona passada)
                             text_traduit = neteja_traduccio_xml(text_traduit)
+                            # C-PEng: corregeix paraules enganxades per la distribució
+                            text_traduit = corregeix_paraules_enganxades(text_traduit)
 
                             if text_traduit and text_traduit.strip() != text_original.strip():
                                 # C2: distribueix proporcionalment, preserva format
