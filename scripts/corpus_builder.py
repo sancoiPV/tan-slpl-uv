@@ -23,7 +23,13 @@ Fitxers generats a --output:
   corpus_net.tsv  Tots els parells vàlids en format TSV per a revisió
   informe.txt     Resum del processament + secció de desalineaments
 
-Dependències: python-docx, python-pptx, nltk
+Dependències: python-docx, python-pptx, nltk, bertalign (opcional, recomanat)
+
+Alineació semàntica (Bertalign):
+  Quan el nombre de paràgrafs difereix entre _CAS i _VAL, s'usa Bertalign
+  (model LaBSE) per trobar la correspondència semàntica correcta.
+  Si Bertalign no és disponible, s'aplica fallback a truncació posicional.
+  Instal·lació: pip install bertalign
 """
 
 import argparse
@@ -124,6 +130,48 @@ def segmenta_frases(text: str, llengua: str = 'spanish') -> list[str]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Alineació semàntica amb Bertalign
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def alinea_amb_bertalign(text_cas: str, text_val: str) -> list[tuple[str, str]]:
+    """
+    Alinea dos textos paral·lels usant Bertalign (embeddings semàntics LaBSE).
+    Gestiona correctament fusió i divisió de frases entre CAS i VAL
+    (alineacions 1-a-molts, molts-a-1 i molts-a-molts).
+
+    Retorna una llista de parells (text_castellà, text_valencià) alineats.
+    Si Bertalign no està disponible o falla, retorna llista buida
+    perquè la funció cridadora aplique el fallback per posició.
+    """
+    try:
+        from bertalign import Bertalign  # type: ignore
+
+        aligner = Bertalign(text_cas, text_val, src_lang='es', tgt_lang='ca')
+        aligner.align_sents()
+
+        parells = []
+        for src_idx, tgt_idx in aligner.result:
+            src_sents = [aligner.src_sents[i] for i in src_idx]
+            tgt_sents = [aligner.tgt_sents[i] for i in tgt_idx]
+
+            src_text = ' '.join(src_sents).strip()
+            tgt_text = ' '.join(tgt_sents).strip()
+
+            if src_text and tgt_text:
+                parells.append((src_text, tgt_text))
+
+        log.debug('Bertalign: %d parells alineats', len(parells))
+        return parells
+
+    except ImportError:
+        log.warning('Bertalign no disponible — usa alineació per posició com a fallback')
+        return []
+    except Exception as e:
+        log.warning('Error amb Bertalign: %r — usa alineació per posició com a fallback', e)
+        return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Neteja i validació de parells
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -214,10 +262,14 @@ def processa_parell_docx(
     max_delta: int = 999,
 ) -> list[tuple[str, str]]:
     """
-    Processa un parell de fitxers DOCX alineant paràgraf a paràgraf.
-    Cada paràgraf del _CAS s'alinea amb el paràgraf corresponent del _VAL
-    sense segmentació addicional en frases (la segmentació era la causa
-    dels desalineaments quan el traductor havia fusionat o dividit frases).
+    Processa un parell de fitxers DOCX.
+
+    Estratègia d'alineació:
+    - Delta == 0 (paràgrafs iguals): alineació posicional directa (ràpida i precisa).
+    - Delta > 0  (paràgrafs desiguals): Bertalign (embeddings semàntics LaBSE)
+      per trobar la correspondència correcta fins i tot quan el traductor ha
+      fusionat o dividit paràgrafs. Si Bertalign no és disponible, fallback
+      a truncació posicional.
     """
     try:
         doc_cas = DocxDocument(path_cas)
@@ -263,12 +315,23 @@ def processa_parell_docx(
             )
             return []
         log.warning(
-            'Paràgrafs diferent (%d vs %d): %s — truncant a %d',
-            n_cas, n_val, path_cas.name, min(n_cas, n_val),
+            'Paràgrafs diferent (%d vs %d): %s — intentant Bertalign',
+            n_cas, n_val, path_cas.name,
         )
+        # Intenta alineació semàntica amb Bertalign
+        text_cas = '\n'.join(paras_cas)
+        text_val = '\n'.join(paras_val)
+        parells = alinea_amb_bertalign(text_cas, text_val)
+        if parells:
+            log.info('  Bertalign: %d parells alineats (Δ=%d)', len(parells), delta)
+            return parells
+        # Fallback: truncació posicional
+        log.warning('  Fallback posicional: truncant a %d', min(n_cas, n_val))
+        n = min(n_cas, n_val)
+        return list(zip(paras_cas[:n], paras_val[:n]))
 
-    n = min(n_cas, n_val)
-    return list(zip(paras_cas[:n], paras_val[:n]))
+    # Delta == 0: alineació posicional directa (cas habitual, ràpid)
+    return list(zip(paras_cas, paras_val))
 
 
 def processa_parell_pptx(
@@ -278,17 +341,13 @@ def processa_parell_pptx(
     max_delta: int = 999,
 ) -> list[tuple[str, str]]:
     """
-    Processa un parell de fitxers PPTX amb estratègia paràgraf per paràgraf
-    dins de cada diapositiva (estratègia 3):
+    Processa un parell de fitxers PPTX amb estratègia per diapositiva:
 
     Per a cada parell de diapositives N:
-      - Si el nombre de paràgrafs és igual → alinea paràgraf a paràgraf.
-      - Si el nombre de paràgrafs és diferent → fallback: un sol parell
-        concatenant tot el text de la diapositiva (evita pèrdua de dades
-        però genera un parell més llarg).
-
-    Això combina la precisió de l'alineació per paràgrafs amb la robustesa
-    de la concatenació quan les diapositives no estan perfectament balancejades.
+      - Paràgrafs iguals → alineació posicional directa (cas habitual).
+      - Paràgrafs desiguals → Bertalign (embeddings semàntics) per trobar
+        la correspondència correcta. Si Bertalign no és disponible, fallback
+        a un sol parell concatenant tot el text de la diapositiva.
     """
     try:
         prs_cas = Presentation(path_cas)
@@ -332,17 +391,24 @@ def processa_parell_pptx(
             continue
 
         if len(paras_cas) == len(paras_val):
-            # Alineació paràgraf a paràgraf dins la diapositiva
+            # Alineació posicional directa dins la diapositiva (cas habitual)
             for s, t in zip(paras_cas, paras_val):
                 s, t = s.strip(), t.strip()
                 if s and t:
                     parells.append((s, t))
         else:
-            # Fallback: un sol parell amb tot el text de la diapositiva
-            text_cas = ' '.join(paras_cas).strip()
-            text_val = ' '.join(paras_val).strip()
-            if text_cas and text_val:
-                parells.append((text_cas, text_val))
+            # Paràgrafs desequilibrats dins la diapositiva: prova Bertalign
+            text_cas = '\n'.join(paras_cas)
+            text_val = '\n'.join(paras_val)
+            slide_parells = alinea_amb_bertalign(text_cas, text_val)
+            if slide_parells:
+                parells.extend(slide_parells)
+            else:
+                # Fallback: un sol parell amb tot el text de la diapositiva
+                text_cas_complet = ' '.join(paras_cas).strip()
+                text_val_complet = ' '.join(paras_val).strip()
+                if text_cas_complet and text_val_complet:
+                    parells.append((text_cas_complet, text_val_complet))
 
     return parells
 
@@ -387,6 +453,15 @@ def main():
         sys.exit(f'[ERROR] La carpeta d\'entrada no existeix: {input_dir}')
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Comprova disponibilitat de Bertalign
+    try:
+        from bertalign import Bertalign as _bt  # type: ignore  # noqa: F401
+        _bertalign_ok = True
+        log.info('Bertalign:        disponible (alineació semàntica LaBSE)')
+    except ImportError:
+        _bertalign_ok = False
+        log.warning('Bertalign:        NO disponible — fallback posicional per a desalineaments')
+
     log.info('Carpeta entrada:  %s', input_dir)
     log.info('Carpeta sortida:  %s', output_dir)
     log.info('Max delta:        %d', max_delta)
@@ -587,6 +662,7 @@ def main():
         f'  Carpeta sortida:  {output_dir}',
         f'  Max delta:        {max_delta}',
         f'  Min similitud:    {args.min_similitud:.2f}',
+        f'  Bertalign:        {"disponible (LaBSE)" if _bertalign_ok else "NO disponible (fallback posicional)"}',
         '',
         '  FITXERS PROCESSATS:',
     ]

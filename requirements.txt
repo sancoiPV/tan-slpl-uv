@@ -17,6 +17,7 @@ unbabel-comet
 
 # Corpus i eines lingüístiques
 opustools
+bertalign  # alineació semàntica de corpus paral·lels (LaBSE)
 
 # API i interfície web
 fastapi
