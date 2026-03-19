@@ -107,10 +107,6 @@ echo    Instal.lant flask...
 pip install flask --quiet
 if errorlevel 1 ( echo    AVIS: Error instal.lant flask )
 
-echo    Instal.lant flask-cors...
-pip install flask-cors --quiet
-if errorlevel 1 ( echo    AVIS: Error instal.lant flask-cors )
-
 echo    Instal.lant requests...
 pip install requests --quiet
 if errorlevel 1 ( echo    AVIS: Error instal.lant requests )

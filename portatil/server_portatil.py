@@ -19,7 +19,6 @@ import time
 import logging
 
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 
 # --- Configuració de rutes ---
 MODEL_DIR = r"C:\Users\santi\OneDrive\Documents\SLPL\taneu\aina-translator-es-ca"
@@ -202,15 +201,31 @@ def tradueix_text_llarg(text: str, max_car: int = 500) -> str:
 # ======================================================================
 
 app = Flask(__name__)
-CORS(app)
 
 
-@app.route("/health", methods=["GET"])
+@app.after_request
+def afegeix_cors(response):
+    """
+    Afegeix les capçaleres CORS a TOTES les respostes (incloses les d'error).
+    Substitueix flask-cors per evitar inconsistències entre versions.
+    """
+    response.headers['Access-Control-Allow-Origin']  = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Expose-Headers'] = 'Content-Disposition, X-Temps-Ms'
+    return response
+
+
+@app.route("/health", methods=["GET", "OPTIONS"])
 def salut():
     """
     GET /health
     Retorna l'estat del servidor i informació bàsica.
+    OPTIONS /health — respon al preflight CORS del navegador.
     """
+    if request.method == "OPTIONS":
+        return '', 204
+
     if not _model_ok:
         return jsonify({"estat": "error", "missatge": "Model no carregat"}), 503
 
@@ -229,7 +244,7 @@ def salut():
     })
 
 
-@app.route("/translate", methods=["POST"])
+@app.route("/translate", methods=["POST", "OPTIONS"])
 def tradueix():
     """
     POST /translate
@@ -239,10 +254,15 @@ def tradueix():
     Resposta (JSON):
         {"translation": "El text traduït", "temps_ms": 123}
 
+    OPTIONS /translate — respon al preflight CORS del navegador.
+
     Errors:
         400 si falta el camp 'text'
         503 si el model no està carregat
     """
+    if request.method == "OPTIONS":
+        return '', 204
+
     if not _model_ok:
         return jsonify({
             "error": "El model no està carregat. Comprova l'inici del servidor."
