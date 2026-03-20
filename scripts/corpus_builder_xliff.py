@@ -6,9 +6,9 @@ Pipeline professional de preparació del corpus d'entrenament basat en XLIFF.
 
 Flux de treball:
 1. Per a cada parell _CAS/_VAL:
-   a. Usa Tikal per convertir _CAS.docx/_CAS.pptx → _CAS.xliff
-   b. Usa Tikal per convertir _VAL.docx/_VAL.pptx → _VAL.xliff
-   c. Extreu segments de _CAS.xliff (source) i _VAL.xliff (target)
+   a. Usa Tikal per convertir _CAS.docx/_CAS.pptx → _CAS.docx.xlf
+   b. Usa Tikal per convertir _VAL.docx/_VAL.pptx → _VAL.docx.xlf
+   c. Extreu segments de _CAS.xlf (source) i _VAL.xlf (target)
    d. Alinea per id de segment (alineació perfecta garantida)
 2. Neteja i deduplicació dels parells
 3. Divisió train/val i exportació
@@ -38,6 +38,7 @@ import argparse
 import csv
 import logging
 import random
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -62,24 +63,23 @@ ET.register_namespace('', XLIFF_NS)
 
 def converteix_a_xliff(
     path_document: Path,
-    path_xliff: Path,
+    path_xliff_desti: Path,
     tikal_cmd: str,
 ) -> bool:
     """
     Converteix un document DOCX o PPTX a XLIFF usant Tikal.
-    Retorna True si la conversió ha tingut èxit.
 
-    Tikal genera el fitxer XLIFF al directori indicat per -od,
-    amb el mateix nom del document original + extensió .xliff.
+    Comportament real de Tikal: desa el XLIFF al MATEIX directori que
+    el document original, amb el nom: document.docx.xlf
+    (no usa -od; el fitxer generat es copia a path_xliff_desti).
+
+    Retorna True si la conversió i la còpia han tingut èxit.
     """
     cmd = [
         tikal_cmd,
         '-x', str(path_document),
-        '-od', str(path_xliff.parent),
         '-sl', 'es',   # llengua font: castellà
         '-tl', 'ca',   # llengua destí: català/valencià
-        '-seg',        # segmentació automàtica en frases
-        '-nq',         # no queries (evita preguntes interactives)
     ]
 
     try:
@@ -89,22 +89,27 @@ def converteix_a_xliff(
             text=True,
             timeout=120,
         )
-        if result.returncode != 0:
+
+        # Tikal desa el XLIFF al directori del document original
+        # amb el nom: document.docx.xlf
+        xliff_generat = path_document.parent / (path_document.name + '.xlf')
+
+        if not xliff_generat.exists():
             log.warning(
-                'Tikal error per a %s: %s',
+                'Tikal no ha generat el XLIFF per a %s: %s',
                 path_document.name,
                 result.stderr[:300],
             )
             return False
-        # Tikal pot generar el XLIFF amb el nom exacte del document + .xliff
-        # o amb el nom del document sense extensió + .xliff — comprova ambdós
-        if path_xliff.exists():
-            return True
-        xliff_alt = path_xliff.parent / (path_document.name + '.xliff')
-        if xliff_alt.exists():
-            xliff_alt.rename(path_xliff)
-            return True
-        return False
+
+        # Copia el XLIFF al directori de treball temporal
+        shutil.copy2(xliff_generat, path_xliff_desti)
+
+        # Elimina el XLIFF original per no deixar fitxers al corpus
+        xliff_generat.unlink()
+
+        return True
+
     except subprocess.TimeoutExpired:
         log.warning('Tikal timeout per a %s', path_document.name)
         return False
@@ -351,9 +356,9 @@ def main() -> None:
         for i, (cas_path, val_path) in enumerate(parells_fitxers, 1):
             log.info('[%d/%d] %s', i, len(parells_fitxers), cas_path.name)
 
-            # Noms XLIFF temporals
-            xliff_cas = tmp_path / (cas_path.stem + '.xliff')
-            xliff_val = tmp_path / (val_path.stem + '.xliff')
+            # Noms XLIFF temporals (extensió .xlf, igual que Tikal genera)
+            xliff_cas = tmp_path / (cas_path.stem + '_CAS.xlf')
+            xliff_val = tmp_path / (val_path.stem + '_VAL.xlf')
 
             # Converteix CAS → XLIFF
             if not converteix_a_xliff(cas_path, xliff_cas, tikal_cmd):
