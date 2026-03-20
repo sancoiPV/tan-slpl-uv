@@ -38,6 +38,7 @@ import argparse
 import csv
 import logging
 import random
+import re
 import shutil
 import subprocess
 import tempfile
@@ -123,8 +124,32 @@ def converteix_a_xliff(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _text_net(element) -> str:
-    """Extreu el text d'un element XML ignorant tags en línia (g, x, bx, ex...)."""
-    return ''.join(element.itertext()).strip()
+    """
+    Extreu el text pla d'un element XML eliminant TOTES les etiquetes inline.
+    Gestiona etiquetes XLIFF inline: <g>, <x/>, <bx/>, <ex/>, <ph>, <it>,
+    i qualsevol altra etiqueta XML que Tikal puga generar (<run1>, <tags1/>, etc.)
+    """
+    # Serialitza l'element a text amb totes les etiquetes incloses
+    try:
+        raw = ET.tostring(element, encoding='unicode', method='xml')
+    except Exception:
+        return (element.text or '').strip()
+
+    # Elimina TOTES les etiquetes XML (obertes, tancades i autotancades)
+    text = re.sub(r'<[^>]+>', '', raw)
+
+    # Descodifica entitats HTML/XML residuals
+    text = text.replace('&amp;', '&')
+    text = text.replace('&lt;', '<')
+    text = text.replace('&gt;', '>')
+    text = text.replace('&quot;', '"')
+    text = text.replace('&apos;', "'")
+    text = text.replace('&#160;', ' ')
+
+    # Normalitza espais múltiples
+    text = re.sub(r'\s+', ' ', text)
+
+    return text.strip()
 
 
 def extrau_segments_xliff(path_xliff: Path) -> dict[str, str]:
@@ -136,12 +161,12 @@ def extrau_segments_xliff(path_xliff: Path) -> dict[str, str]:
     try:
         arbre = ET.parse(path_xliff)
         arrel = arbre.getroot()
-        ns = {'x': XLIFF_NS}
-        for tu in arrel.findall('.//x:trans-unit', ns):
-            seg_id = tu.get('id', '').strip()
+        ns = {'xliff': XLIFF_NS}
+        for trans_unit in arrel.findall('.//xliff:trans-unit', ns):
+            seg_id = trans_unit.get('id', '')
             if not seg_id:
                 continue
-            source = tu.find('x:source', ns)
+            source = trans_unit.find('xliff:source', ns)
             if source is not None:
                 text = _text_net(source)
                 if text:
@@ -161,23 +186,23 @@ def extrau_traduccions_xliff(path_xliff: Path) -> dict[str, str]:
     try:
         arbre = ET.parse(path_xliff)
         arrel = arbre.getroot()
-        ns = {'x': XLIFF_NS}
-        for tu in arrel.findall('.//x:trans-unit', ns):
-            seg_id = tu.get('id', '').strip()
+        ns = {'xliff': XLIFF_NS}
+        for trans_unit in arrel.findall('.//xliff:trans-unit', ns):
+            seg_id = trans_unit.get('id', '')
             if not seg_id:
                 continue
-            target = tu.find('x:target', ns)
+            target = trans_unit.find('xliff:target', ns)
             if target is not None:
                 text = _text_net(target)
                 if text:
                     segments[seg_id] = text
-                    continue
-            # Fallback: usa source si no hi ha target
-            source = tu.find('x:source', ns)
-            if source is not None:
-                text = _text_net(source)
-                if text:
-                    segments[seg_id] = text
+            else:
+                # Fallback: usa source si no hi ha target
+                source = trans_unit.find('xliff:source', ns)
+                if source is not None:
+                    text = _text_net(source)
+                    if text:
+                        segments[seg_id] = text
     except ET.ParseError as e:
         log.warning('Error parsejant %s: %r', path_xliff.name, e)
     return segments
