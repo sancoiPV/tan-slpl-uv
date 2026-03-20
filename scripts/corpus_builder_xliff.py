@@ -152,6 +152,28 @@ def _text_net(element) -> str:
     return text.strip()
 
 
+# Patró compilat per detectar/eliminar etiquetes XML residuals de Tikal
+# (<run1>, <run2>, <tags1/>, <g id="...">, etc.)
+_RE_TAGS = re.compile(r'<[^>]+/?>')
+
+
+def neteja_segment(text: str) -> str:
+    """
+    Neteja defensiva d'un segment ja extret per _text_net().
+    Elimina qualsevol etiqueta XML residual que haja escapat
+    al processament anterior, normalitza espais i puntuació.
+    """
+    if not text:
+        return text
+    # Elimina etiquetes XML residuals
+    text = _RE_TAGS.sub('', text)
+    # Normalitza espais múltiples
+    text = re.sub(r'\s+', ' ', text)
+    # Elimina espais davant de signes de puntuació
+    text = re.sub(r' ([.,;:!?»\)\]])', r'\1', text)
+    return text.strip()
+
+
 def extrau_segments_xliff(path_xliff: Path) -> dict[str, str]:
     """
     Extreu els segments source d'un fitxer XLIFF 1.2.
@@ -221,8 +243,10 @@ def alinea_xliffs(
 
     Retorna una llista de parells (text_castellà, text_valencià) alineats.
     """
+    # Tots dos fitxers s'extreuen com a source: el fitxer VAL conté
+    # els textos valencians al camp <source> del seu XLIFF propi.
     segments_cas = extrau_segments_xliff(path_xliff_cas)
-    segments_val = extrau_traduccions_xliff(path_xliff_val)
+    segments_val = extrau_segments_xliff(path_xliff_val)
 
     ids_comuns = set(segments_cas.keys()) & set(segments_val.keys())
     log.debug(
@@ -239,8 +263,8 @@ def alinea_xliffs(
 
     parells = []
     for seg_id in sorted(ids_comuns, key=clau_ordre):
-        src = segments_cas[seg_id]
-        tgt = segments_val[seg_id]
+        src = neteja_segment(segments_cas[seg_id])
+        tgt = neteja_segment(segments_val[seg_id])
         if src and tgt:
             parells.append((src, tgt))
 
@@ -281,6 +305,9 @@ def es_valid(
     Filtra segments massa curts, massa llargs, idèntics, poc alfabètics
     o amb baixa similitud de bigrames (probable mal alineament ES/CA).
     """
+    # Rebutja qualsevol segment que encara contingui etiquetes XML residuals
+    if _RE_TAGS.search(src) or _RE_TAGS.search(tgt):
+        return False
     s_tok = src.split()
     t_tok = tgt.split()
     if not (min_tok <= len(s_tok) <= max_tok):
