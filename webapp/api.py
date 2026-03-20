@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 
 # ─── Rutes del projecte ───────────────────────────────────────────────────────
 ARREL_PROJECTE  = Path(__file__).parent.parent
-DIR_MODELS      = ARREL_PROJECTE / "models" / "aina-es-ca"
+DIR_MODELS      = ARREL_PROJECTE / "model-afinar"
 DIR_LOGS        = ARREL_PROJECTE / "logs"
 DIR_POSTEDICIONS = ARREL_PROJECTE / "corpus" / "postedicions"
 FITXER_LOG      = DIR_LOGS / "api.log"
