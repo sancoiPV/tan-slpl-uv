@@ -1393,6 +1393,16 @@ async def corregeix(peticio: PeticioCorreccio) -> RespostaCorreccio:
 
             contingut_resposta = resposta.content[0].text
 
+            # Corregeix text UTF-8 mal interpretat com Latin-1 (Ã© → é, etc.)
+            def _neteja_enc(t: str) -> str:
+                try:
+                    return t.encode("latin-1").decode("utf-8")
+                except (UnicodeEncodeError, UnicodeDecodeError):
+                    return t
+
+            if "Ã" in contingut_resposta or "â€" in contingut_resposta:
+                contingut_resposta = _neteja_enc(contingut_resposta)
+
             # Extreu el text corregit
             m_text = re.search(
                 r'---TEXT CORREGIT---\s*(.*?)\s*---FI TEXT---',
@@ -1636,6 +1646,16 @@ async def _corregeix_segments_claude(
                 "[CORRECCIO] Lot %d resposta raw (primers 200 car.): %r",
                 num_lot, text_resp[:200],
             )
+
+            # Corregeix text UTF-8 mal interpretat com Latin-1 (Ã© → é, etc.)
+            def _neteja_encoding(t: str) -> str:
+                try:
+                    return t.encode("latin-1").decode("utf-8")
+                except (UnicodeEncodeError, UnicodeDecodeError):
+                    return t
+
+            if "Ã" in text_resp or "â€" in text_resp:
+                text_resp = _neteja_encoding(text_resp)
 
             # Neteja possible markdown ```json ... ```
             if text_resp.startswith("```"):
