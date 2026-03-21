@@ -60,6 +60,14 @@ _ENV_PATH.touch(exist_ok=True)  # Crea el fitxer si no existeix
 if _DOTENV_OK:
     load_dotenv(dotenv_path=str(_ENV_PATH), override=True)
 
+# Neteja preventiva: elimina cometes que python-dotenv pugui haver llegit del .env
+import os as _os_clean
+for _var_env in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY_CORRECCIO"):
+    _val_env = _os_clean.environ.get(_var_env, "")
+    _val_net = _val_env.strip().strip("'\"")
+    if _val_net != _val_env:
+        _os_clean.environ[_var_env] = _val_net
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 VERSIO          = "1.0"
 MODEL_ID        = "projecte-aina/aina-translator-es-ca"
@@ -918,9 +926,10 @@ async def configura_gemini(api_key: str = Body(..., embed=True)):
     if not api_key.startswith("AIza"):
         raise HTTPException(status_code=400,
                             detail="Clau API de Gemini no vàlida (ha de començar per 'AIza').")
-    os.environ["GEMINI_API_KEY"] = api_key
+    api_key_neta = api_key.strip().strip("'\"")
+    os.environ["GEMINI_API_KEY"] = api_key_neta
     if _DOTENV_OK:
-        _dotenv_set_key(str(_ENV_PATH), "GEMINI_API_KEY", api_key)
+        _dotenv_set_key(str(_ENV_PATH), "GEMINI_API_KEY", api_key_neta, quote_mode="never")
     log.info("Clau API de Gemini configurada (via endpoint antic).")
     return {"estat": "ok", "missatge": "Clau API configurada correctament."}
 
@@ -1157,11 +1166,12 @@ async def configura_anthropic(api_key: str = Body(..., embed=True)):
     if not api_key.startswith("sk-ant-"):
         raise HTTPException(status_code=400,
                             detail="Clau API d'Anthropic no vàlida (ha de començar per 'sk-ant-').")
-    os.environ["ANTHROPIC_API_KEY"] = api_key
-    os.environ["ANTHROPIC_API_KEY_CORRECCIO"] = api_key
-    ANTHROPIC_API_KEY_CORRECCIO = api_key
+    api_key_neta = api_key.strip().strip("'\"")
+    os.environ["ANTHROPIC_API_KEY"] = api_key_neta
+    os.environ["ANTHROPIC_API_KEY_CORRECCIO"] = api_key_neta
+    ANTHROPIC_API_KEY_CORRECCIO = api_key_neta
     if _DOTENV_OK:
-        _dotenv_set_key(str(_ENV_PATH), "ANTHROPIC_API_KEY_CORRECCIO", api_key)
+        _dotenv_set_key(str(_ENV_PATH), "ANTHROPIC_API_KEY_CORRECCIO", api_key_neta, quote_mode="never")
     log.info("Clau API d'Anthropic configurada (via endpoint antic).")
     return {"estat": "ok", "missatge": "Clau API d'Anthropic configurada correctament."}
 
@@ -1220,9 +1230,10 @@ async def desa_clau_api(peticio: PeticioClauAPI) -> RespostaClauAPI:
     else:
         raise HTTPException(status_code=400, detail=f"Servei desconegut: '{servei}'.")
 
-    # Persisteix al .env
+    # Persisteix al .env (quote_mode="never" evita que python-dotenv afegisca cometes)
     if _DOTENV_OK:
-        _dotenv_set_key(str(_ENV_PATH), nom_variable, clau)
+        clau_neta = clau.strip().strip("'\"")
+        _dotenv_set_key(str(_ENV_PATH), nom_variable, clau_neta, quote_mode="never")
         log.info("Clau '%s' desada al .env i a l'entorn.", nom_variable)
     else:
         log.warning(
