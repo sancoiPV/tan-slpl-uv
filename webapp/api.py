@@ -1818,6 +1818,26 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
     return buf_eixida.read()
 
 
+@app.get("/debug-env", tags=["Diagnòstic"])
+async def debug_env():
+    """Mostra les variables d'entorn relacionades amb les claus API."""
+    import os
+    clau_raw = os.environ.get("ANTHROPIC_API_KEY_CORRECCIO", "")
+    return {
+        "clau_present":          bool(clau_raw),
+        "clau_longitud":         len(clau_raw),
+        "clau_prefix":           repr(clau_raw[:20]) if clau_raw else "",
+        "clau_sufix":            repr(clau_raw[-10:]) if clau_raw else "",
+        "comença_sk_ant":        clau_raw.startswith("sk-ant-"),
+        "te_caracters_estranys": any(ord(c) > 127 or ord(c) < 32 for c in clau_raw),
+        "caracters_estranys":    [repr(c) for c in clau_raw if ord(c) > 127 or ord(c) < 32],
+        "PYTHONPATH":            os.environ.get("PYTHONPATH", "no definit"),
+        "CWD":                   os.getcwd(),
+        "env_path_calculat":     str(Path(__file__).resolve().parent.parent / ".env"),
+        "env_existeix":          (Path(__file__).resolve().parent.parent / ".env").exists(),
+    }
+
+
 @app.post(
     "/corregeix-document/test",
     summary = "Diagnòstic: prova la connexió a Claude Sonnet amb un segment curt",
