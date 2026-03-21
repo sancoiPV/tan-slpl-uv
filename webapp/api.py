@@ -808,6 +808,7 @@ class PeticioTraduccioImatge(BaseModel):
     imatge_base64:     str
     tipus_mime:        str = "image/png"
     prompt_addicional: str = ""
+    mode:              str = "traduccio"  # 'traduccio' o 'refinament'
 
 
 @app.post("/tradueix-imatge", tags=["Traducció"],
@@ -833,11 +834,23 @@ async def tradueix_imatge(peticio: PeticioTraduccioImatge):
         client = genai.Client(api_key=api_key)
         imatge_bytes = base64.b64decode(peticio.imatge_base64)
 
-        prompt_final = PROMPT_TRADUCCIO_IMATGE_DEFAULT
-        if peticio.prompt_addicional.strip():
-            prompt_final += (
-                f"\n\nInstruccions addicionals:\n{peticio.prompt_addicional.strip()}"
+        # Construeix el prompt segons el mode
+        if peticio.mode == 'refinament':
+            # Per a refinament: aplica únicament les instruccions del tècnic
+            prompt_final = (
+                "Edita aquesta imatge aplicant les modificacions indicades sobre el text. "
+                "No canvies cap element visual (colors, fonts, disseny, layout) excepte el "
+                "text especificat. Retorna exactament la mateixa imatge amb únicament els "
+                "canvis de text sol·licitats.\n\n"
+                + peticio.prompt_addicional.strip()
             )
+        else:
+            # Per a traducció nova: usa el prompt complet de valencianització
+            prompt_final = PROMPT_TRADUCCIO_IMATGE_DEFAULT
+            if peticio.prompt_addicional.strip():
+                prompt_final += (
+                    f"\n\nInstruccions addicionals:\n{peticio.prompt_addicional.strip()}"
+                )
 
         resposta = client.models.generate_content(
             model="gemini-3-pro-image-preview",

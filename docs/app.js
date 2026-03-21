@@ -726,6 +726,8 @@ async function tradueixImatges() {
 
 function renderitzaResultats() {
   const resultats = document.getElementById('imatge-resultats');
+  const refinament = document.getElementById('imatge-refinament');
+
   resultats.style.display = 'flex';
   resultats.innerHTML = `
     <h3>Imatges traduïdes</h3>
@@ -740,11 +742,80 @@ function renderitzaResultats() {
             </button>
           </div>
           <img src="${img.dataUrl}" alt="${escapeHtml(img.nom)}"
-               class="imatge-preview-gran">
+               class="imatge-preview imatge-preview-gran">
         </div>
       `).join('')}
     </div>
   `;
+
+  // Mostra el bloc de refinament iteratiu
+  if (refinament) {
+    refinament.style.display = 'block';
+    document.getElementById('imatge-modificacions').value = '';
+  }
+}
+
+async function aplicaModificacions() {
+  const modificacions = document.getElementById('imatge-modificacions').value.trim();
+
+  if (!modificacions) {
+    mostraMissatgeImatge('error', 'Introdueix les modificacions que cal aplicar.');
+    return;
+  }
+  if (imatgesTradudes.length === 0) {
+    mostraMissatgeImatge('error', 'No hi ha cap imatge traduïda sobre la qual aplicar modificacions.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-aplicar-modificacions');
+  btn.disabled = true;
+  btn.textContent = '⏳ Aplicant modificacions...';
+
+  try {
+    const url = await TAN.getUrlAvancada();
+    const imatgesRefinades = [];
+
+    for (let i = 0; i < imatgesTradudes.length; i++) {
+      const img = imatgesTradudes[i];
+      mostraMissatgeImatge('info', `Aplicant modificacions a la imatge ${i + 1} de ${imatgesTradudes.length}...`);
+
+      const resp = await fetch(`${url}/tradueix-imatge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imatge_base64: img.base64,
+          tipus_mime: img.tipus,
+          prompt_addicional: `Aquesta imatge ja ha estat traduïda al valencià. Aplica les modificacions següents sobre el text de la imatge sense canviar cap altre element visual:\n\n${modificacions}`,
+          mode: 'refinament',
+        })
+      });
+
+      if (!resp.ok) {
+        const error = await resp.json();
+        throw new Error(error.detail || `Error ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      imatgesRefinades.push({
+        nom: img.nom,
+        tipus: data.tipus_mime,
+        base64: data.imatge_base64,
+        dataUrl: `data:${data.tipus_mime};base64,${data.imatge_base64}`,
+      });
+    }
+
+    // Substitueix les imatges traduïdes per les refinades
+    imatgesTradudes = imatgesRefinades;
+    renderitzaResultats();
+    document.getElementById('imatge-modificacions').value = '';
+    mostraMissatgeImatge('ok', '✓ Modificacions aplicades correctament.');
+
+  } catch (e) {
+    mostraMissatgeImatge('error', `Error aplicant les modificacions: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✅ Aplicar les modificacions';
+  }
 }
 
 function descarregaImatgeIndividual(index) {

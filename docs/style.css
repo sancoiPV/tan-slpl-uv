@@ -910,3 +910,44 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   color: #0c5460;
   border: 1px solid #bee5eb;
 }
+
+/* ── Refinament iteratiu d'imatges ──────────────────── */
+
+.imatge-refinament {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: var(--uv-gris, #F5F5F5);
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.imatge-refinament label {
+  display: block;
+  font-weight: 500;
+  font-size: 0.95rem;
+  margin-bottom: 0.6rem;
+}
+
+.imatge-refinament textarea {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  resize: vertical;
+  font-family: inherit;
+  margin-bottom: 0.75rem;
+  box-sizing: border-box;
+}
+
+.imatge-refinament-accions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.imatge-refinament-nota {
+  font-size: 0.82rem;
+  color: var(--uv-gris-m, #888);
+  font-style: italic;
+}

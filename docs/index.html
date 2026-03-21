@@ -302,6 +302,25 @@
   <!-- Resultats -->
   <div id="imatge-resultats" class="imatge-resultats" style="display:none"></div>
 
+  <!-- Refinament iteratiu -->
+  <div class="imatge-refinament" id="imatge-refinament" style="display:none">
+    <label for="imatge-modificacions">
+      ✏️ Modificacions sobre el text de la imatge traduïda (opcional)
+    </label>
+    <textarea id="imatge-modificacions" rows="3"
+              placeholder="Per exemple: Canvia 'Enginyeria Electrònica' per 'Enginyeria Electrònica i Informàtica'. El terme 'resistència' ha de ser 'resistor'. Corregeix l'accentuació de 'física'...">
+    </textarea>
+    <div class="imatge-refinament-accions">
+      <button onclick="aplicaModificacions()" class="btn-primary"
+              id="btn-aplicar-modificacions">
+        ✅ Aplicar les modificacions
+      </button>
+      <span class="imatge-refinament-nota">
+        Les modificacions s'aplicaran sobre la darrera imatge traduïda.
+      </span>
+    </div>
+  </div>
+
   <!-- Missatges d'estat -->
   <div id="imatge-missatge" class="imatge-missatge" style="display:none"></div>
 
