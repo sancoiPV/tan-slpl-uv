@@ -58,7 +58,7 @@ import os as _os_env
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 _ENV_PATH.touch(exist_ok=True)  # Crea el fitxer si no existeix
 if _DOTENV_OK:
-    load_dotenv(dotenv_path=str(_ENV_PATH), override=True)
+    load_dotenv(dotenv_path=str(_ENV_PATH), override=False)
 
 # Neteja preventiva: elimina cometes que python-dotenv pugui haver llegit del .env
 import os as _os_clean
