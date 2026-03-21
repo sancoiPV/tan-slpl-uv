@@ -1554,10 +1554,12 @@ def _aplica_correccions_pptx(arbre, shapes: list[dict],
 async def _corregeix_segments_claude(
     segments: list[str],
     api_key: str,
-    mida_lot: int = 20,
+    mida_lot: int = 15,
 ) -> list[str]:
     """
     Envia segments de text a Claude Sonnet per a correcció normativa en lots.
+    Usa PROMPT_CORRECCIO_SISTEMA com a system prompt per garantir l'aplicació
+    de totes les normes del valencià universitari (UV).
     Retorna la llista de segments corregits conservant l'ordre i els índexs.
     """
     import anthropic as _ant
@@ -1575,19 +1577,14 @@ async def _corregeix_segments_claude(
         return segments_corregits
 
     for inici_lot in range(0, len(índexs_útils), mida_lot):
-        lot_idx   = índexs_útils[inici_lot: inici_lot + mida_lot]
+        lot_idx    = índexs_útils[inici_lot: inici_lot + mida_lot]
         lot_textos = {str(i): segments[i] for i in lot_idx}
 
-        prompt_lot = (
-            "Ets el corrector lingüístic expert del SLPL de la Universitat de València.\n"
-            "Corregeix els textos en valencià del JSON aplicant:\n"
-            "- Demostratius reforçats: aquest/aquesta (NO este/esta)\n"
-            "- Possessius amb -u-: meua/teua/seua (NO meva/teva/seva)\n"
-            "- Verbs incoatius: serveix/pateix/ofereix (NO servix/patix/oferix)\n"
-            "- Participis regulars: complit/oferit/establit (NO complert/ofert/establert)\n"
-            "- Accentuació general: anglès/francès (NO anglés/francés)\n"
-            "- Eliminació de calcs del castellà i lo neutre\n"
-            "- Normes del Manual de documents administratius de la UV\n\n"
+        prompt_usuari = (
+            "Corregeix normativament en valencià universitari els textos del JSON següent.\n"
+            "Aplica totes les regles del system prompt: demostratius reforçats, possessius amb -u-, "
+            "verbs incoatius -eix, participis regulars -it/-ida, accentuació general, "
+            "eliminació de calcs del castellà i lo neutre, lèxic culte, normes administratives UV.\n\n"
             "REGLES CRÍTIQUES:\n"
             "- Retorna EXACTAMENT el mateix JSON amb les mateixes claus numèriques.\n"
             "- Si un text és correcte, retorna'l IDÈNTIC.\n"
@@ -1601,7 +1598,8 @@ async def _corregeix_segments_claude(
             resposta = client.messages.create(
                 model      = "claude-sonnet-4-6",
                 max_tokens = 4096,
-                messages   = [{"role": "user", "content": prompt_lot}],
+                system     = PROMPT_CORRECCIO_SISTEMA,
+                messages   = [{"role": "user", "content": prompt_usuari}],
             )
             text_resp = resposta.content[0].text.strip()
 
@@ -1752,7 +1750,7 @@ async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
     Estratègia:
     1. Obre el ZIP intern del document
     2. Extreu el text de cada paràgraf (<w:p>/<a:p>)
-    3. Envia tots els segments a Claude Sonnet (lots de 20)
+    3. Envia tots els segments a Claude Sonnet (lots de 15)
     4. Reinjecta els textos corregits als nodes XML originals
     5. Retorna el document reconstruït
     """
