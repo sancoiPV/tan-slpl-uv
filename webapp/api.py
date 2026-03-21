@@ -1568,32 +1568,51 @@ async def _corregeix_segments_claude(
     client             = _ant.Anthropic(api_key=api_key)
     segments_corregits = list(segments)
 
-    índexs_útils = [
+    índexs_a_corregir = [
         i for i, s in enumerate(segments)
-        if s and s.strip() and len(s.strip()) > 2
+        if s and s.strip() and len(s.strip()) > 3
     ]
 
-    if not índexs_útils:
+    log.warning(
+        "[CORRECCIO] Total segments: %d | A corregir: %d | Clau prefix: %s",
+        len(segments), len(índexs_a_corregir),
+        (api_key[:12] + "...") if api_key else "BUIDA",
+    )
+
+    if not índexs_a_corregir:
+        log.warning("[CORRECCIO] Cap segment a corregir — tots filtrats")
         return segments_corregits
 
-    for inici_lot in range(0, len(índexs_útils), mida_lot):
-        lot_idx    = índexs_útils[inici_lot: inici_lot + mida_lot]
-        lot_textos = {str(i): segments[i] for i in lot_idx}
+    errors_lots: list[str] = []
 
-        prompt_usuari = (
-            "Corregeix normativament en valencià universitari els textos del JSON següent.\n"
-            "Aplica totes les regles del system prompt: demostratius reforçats, possessius amb -u-, "
-            "verbs incoatius -eix, participis regulars -it/-ida, accentuació general, "
-            "eliminació de calcs del castellà i lo neutre, lèxic culte, normes administratives UV.\n\n"
-            "REGLES CRÍTIQUES:\n"
-            "- Retorna EXACTAMENT el mateix JSON amb les mateixes claus numèriques.\n"
-            "- Si un text és correcte, retorna'l IDÈNTIC.\n"
-            "- NO afegeixis cap text fora del JSON.\n"
-            "- Preserva majúscules, sigles, noms propis, xifres i puntuació estructural.\n\n"
-            f"JSON d'entrada:\n{_js.dumps(lot_textos, ensure_ascii=False, indent=2)}\n\n"
-            "Retorna ÚNICAMENT el JSON corregit:"
+    for inici in range(0, len(índexs_a_corregir), mida_lot):
+        lot_índexs = índexs_a_corregir[inici: inici + mida_lot]
+        lot_textos = {str(i): segments[i] for i in lot_índexs}
+        num_lot    = inici // mida_lot + 1
+
+        log.warning(
+            "[CORRECCIO] Lot %d: %d segments (índexs %d–%d)",
+            num_lot, len(lot_índexs), lot_índexs[0], lot_índexs[-1],
         )
 
+        prompt_usuari = (
+            "Corregeix i postedita exhaustivament els textos en valencià del JSON següent "
+            "aplicant TOTES les normes dels blocs A, B i C del teu sistema.\n\n"
+            "REGLES CRÍTIQUES DE RESPOSTA:\n"
+            "- Retorna EXACTAMENT el mateix JSON amb les mateixes claus numèriques.\n"
+            "- Si un text ja és correcte, retorna'l IDÈNTIC sense cap canvi.\n"
+            "- NO afegeixis cap text fora del JSON.\n"
+            "- Preserva majúscules inicials, sigles, noms propis, xifres, símbols i puntuació estructural.\n"
+            "- NO canvies la longitud substancialment (±25% màxim).\n"
+            "- Aplica especialment: demostratius reforçats (aquest/aquesta/aquell), "
+            "possessius amb -u- (meua/teua/seua), verbs incoatius (-eix/-isca), "
+            "participis regulars (-it), accentuació general (anglès/francès), "
+            "eliminació de «lo neutre», correccions dels calcs del castellà.\n\n"
+            f"JSON d'entrada:\n{_js.dumps(lot_textos, ensure_ascii=False, indent=2)}\n\n"
+            "Retorna ÚNICAMENT el JSON corregit, sense cap text addicional:"
+        )
+
+        text_resp = ""
         try:
             resposta = client.messages.create(
                 model      = "claude-sonnet-4-6",
@@ -1602,24 +1621,55 @@ async def _corregeix_segments_claude(
                 messages   = [{"role": "user", "content": prompt_usuari}],
             )
             text_resp = resposta.content[0].text.strip()
+            log.warning(
+                "[CORRECCIO] Lot %d resposta raw (primers 200 car.): %r",
+                num_lot, text_resp[:200],
+            )
 
-            # Neteja delimitadors ```json``` si n'hi ha
+            # Neteja possible markdown ```json ... ```
             if text_resp.startswith("```"):
                 text_resp = re.sub(r"```(?:json)?\s*", "", text_resp)
                 text_resp = text_resp.replace("```", "").strip()
 
             lot_corregit = _js.loads(text_resp)
+            canvis = 0
 
-            for i in lot_idx:
-                val = lot_corregit.get(str(i))
-                if val and isinstance(val, str):
-                    segments_corregits[i] = val
+            for i in lot_índexs:
+                clau = str(i)
+                if clau in lot_corregit and isinstance(lot_corregit[clau], str):
+                    if lot_corregit[clau].strip():
+                        if lot_corregit[clau] != segments[i]:
+                            canvis += 1
+                        segments_corregits[i] = lot_corregit[clau]
+
+            log.warning("[CORRECCIO] Lot %d OK — %d canvis aplicats", num_lot, canvis)
+
+        except _ant.AuthenticationError as exc:
+            msg = f"Lot {num_lot} ERROR AUTENTICACIÓ: {exc}"
+            log.error("[CORRECCIO] %s", msg)
+            errors_lots.append(msg)
+            break  # Inútil continuar si la clau és incorrecta
+
+        except _ant.APIError as exc:
+            msg = f"Lot {num_lot} ERROR API Anthropic ({type(exc).__name__}): {exc}"
+            log.error("[CORRECCIO] %s", msg)
+            errors_lots.append(msg)
+
+        except _js.JSONDecodeError as exc:
+            msg = (
+                f"Lot {num_lot} ERROR JSON: {exc} | "
+                f"Text raw: {repr(text_resp[:300])}"
+            )
+            log.error("[CORRECCIO] %s", msg)
+            errors_lots.append(msg)
 
         except Exception as exc:
-            log.warning(
-                "Error en lot %d–%d de correcció de segments: %s",
-                inici_lot, inici_lot + len(lot_idx), exc,
-            )
+            msg = f"Lot {num_lot} ERROR INESPERAT ({type(exc).__name__}): {exc}"
+            log.error("[CORRECCIO] %s", msg)
+            errors_lots.append(msg)
+
+    if errors_lots:
+        log.warning("[CORRECCIO] Errors totals: %d: %s", len(errors_lots), errors_lots)
 
     return segments_corregits
 
@@ -1738,6 +1788,75 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
 
 
 @app.post(
+    "/corregeix-document/test",
+    summary = "Diagnòstic: prova la connexió a Claude Sonnet amb un segment curt",
+    tags    = ["Diagnòstic"],
+)
+async def test_correccio_document():
+    """
+    Endpoint de diagnòstic temporal: comprova que la clau API d'Anthropic és vàlida
+    i que Claude Sonnet respon correctament a una petició de correcció mínima.
+    Retorna el resultat detallat per facilitar la depuració.
+    """
+    import os
+    import anthropic as _ant
+
+    api_key = (
+        ANTHROPIC_API_KEY_CORRECCIO
+        or os.environ.get("ANTHROPIC_API_KEY", "")
+    )
+
+    if not api_key:
+        return {
+            "estat":        "error",
+            "motiu":        "Clau API no configurada",
+            "clau_present": False,
+        }
+
+    try:
+        client   = _ant.Anthropic(api_key=api_key)
+        resposta = client.messages.create(
+            model      = "claude-sonnet-4-6",
+            max_tokens = 200,
+            system     = "Ets un corrector de valencià. Respon sempre en JSON.",
+            messages   = [{
+                "role":    "user",
+                "content": (
+                    'Corregeix: {"0": "Este document es molt interessant."}\n'
+                    "Retorna únicament el JSON corregit."
+                ),
+            }],
+        )
+        text = resposta.content[0].text.strip()
+        return {
+            "estat":        "ok",
+            "model":        resposta.model,
+            "clau_prefix":  api_key[:12] + "...",
+            "resposta_raw": text,
+            "tokens_usats": resposta.usage.input_tokens + resposta.usage.output_tokens,
+        }
+
+    except _ant.AuthenticationError as exc:
+        return {
+            "estat": "error",
+            "motiu": "Clau API invàlida o caducada",
+            "detall": str(exc),
+        }
+    except _ant.APIError as exc:
+        return {
+            "estat": "error",
+            "motiu": f"Error API Anthropic ({type(exc).__name__})",
+            "detall": str(exc),
+        }
+    except Exception as exc:
+        return {
+            "estat": "error",
+            "motiu": type(exc).__name__,
+            "detall": str(exc),
+        }
+
+
+@app.post(
     "/corregeix-document",
     summary = "Corregeix un document DOCX o PPTX en valencià preservant el format",
     tags    = ["Correcció"],
@@ -1810,29 +1929,33 @@ async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
                 "application/vnd.openxmlformats-officedocument"
                 ".presentationml.presentation"
             )
+
+        temps_ms    = int((time.perf_counter() - inici) * 1000)
+        nom_sortida = Path(nom).stem + "_corregit" + extensió
+        log.info(
+            "Document corregit en %d ms → '%s' (%d bytes)",
+            temps_ms, nom_sortida, len(resultat),
+        )
+        return Response(
+            content    = resultat,
+            media_type = media_type,
+            headers    = {
+                "Content-Disposition": f'attachment; filename="{nom_sortida}"',
+                "Content-Length":      str(len(resultat)),
+                "X-Temps-Ms":          str(temps_ms),
+            },
+        )
+
+    except HTTPException:
+        raise
     except Exception as exc:
+        import traceback
+        detall = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
         log.exception("Error corregint el document '%s': %s", nom, exc)
         raise HTTPException(
             status_code=500,
-            detail=f"Error en la correcció del document: {exc}",
+            detail=f"Error en la correcció del document: {detall}",
         )
-
-    temps_ms     = int((time.perf_counter() - inici) * 1000)
-    nom_sortida  = Path(nom).stem + "_corregit" + extensió
-    log.info(
-        "Document corregit en %d ms → '%s' (%d bytes)",
-        temps_ms, nom_sortida, len(resultat),
-    )
-
-    return Response(
-        content    = resultat,
-        media_type = media_type,
-        headers    = {
-            "Content-Disposition": f'attachment; filename="{nom_sortida}"',
-            "Content-Length":      str(len(resultat)),
-            "X-Temps-Ms":          str(temps_ms),
-        },
-    )
 
 
 # ─── Gestió global d'errors ───────────────────────────────────────────────────
