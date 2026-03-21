@@ -816,56 +816,49 @@ async def tradueix_imatge(peticio: PeticioTraduccioImatge):
     """
     Tradueix el text inserit en una imatge del castellà/anglès al valencià
     usant l'API de Gemini (Nano Banana Pro / gemini-3-pro-image-preview).
+    Usa el nou paquet google-genai (>=1.0.0).
     """
     import os
-    try:
-        import google.generativeai as genai
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="Paquet 'google-generativeai' no instal·lat. "
-                   "Executa: pip install google-generativeai>=0.8.0",
-        )
+    from google import genai
+    from google.genai import types
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         raise HTTPException(
             status_code=503,
-            detail="GEMINI_API_KEY no configurada al servidor. "
-                   "Usa l'endpoint /configura-gemini o afegeix-la al fitxer .env.",
+            detail="GEMINI_API_KEY no configurada. Introdueix-la al panell de configuració.",
         )
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-3-pro-image-preview")
-
-        # Decodifica la imatge base64
+        client = genai.Client(api_key=api_key)
         imatge_bytes = base64.b64decode(peticio.imatge_base64)
 
-        # Construeix el prompt
         prompt_final = PROMPT_TRADUCCIO_IMATGE_DEFAULT
         if peticio.prompt_addicional.strip():
             prompt_final += (
-                f"\n\nInstruccions addicionals del tècnic:\n"
-                f"{peticio.prompt_addicional.strip()}"
+                f"\n\nInstruccions addicionals:\n{peticio.prompt_addicional.strip()}"
             )
 
-        # Crida l'API de Gemini amb la imatge
-        resposta = model.generate_content(
-            [
-                {"mime_type": peticio.tipus_mime, "data": imatge_bytes},
+        resposta = client.models.generate_content(
+            model="gemini-3-pro-image-preview",
+            contents=[
+                types.Part.from_bytes(
+                    data=imatge_bytes,
+                    mime_type=peticio.tipus_mime,
+                ),
                 prompt_final,
             ],
-            generation_config={"response_mime_type": peticio.tipus_mime},
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE", "TEXT"],
+            ),
         )
 
-        # Extreu la imatge de la resposta
-        for part in resposta.parts:
-            if hasattr(part, 'inline_data') and part.inline_data:
+        for part in resposta.candidates[0].content.parts:
+            if part.inline_data is not None:
                 imatge_traduit_b64 = base64.b64encode(
                     part.inline_data.data
                 ).decode('utf-8')
-                log.info("POST /tradueix-imatge — OK tipus=%s", peticio.tipus_mime)
+                log.info("POST /tradueix-imatge — OK tipus=%s", part.inline_data.mime_type)
                 return {
                     "imatge_base64": imatge_traduit_b64,
                     "tipus_mime":    part.inline_data.mime_type,
@@ -874,7 +867,7 @@ async def tradueix_imatge(peticio: PeticioTraduccioImatge):
 
         raise HTTPException(
             status_code=500,
-            detail="L'API de Gemini no ha retornat cap imatge. Prova amb un prompt diferent.",
+            detail="Gemini no ha retornat cap imatge. Prova amb un prompt diferent.",
         )
 
     except HTTPException:
