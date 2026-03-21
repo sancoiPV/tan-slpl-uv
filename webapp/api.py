@@ -16,6 +16,7 @@ Inici:
   uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import csv
 import io
 import json
 import logging
@@ -23,7 +24,7 @@ import re
 import sys
 import time
 import uuid
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -46,6 +47,77 @@ VERSIO          = "1.0"
 MODEL_ID        = "projecte-aina/aina-translator-es-ca"
 MAX_MIDA_FITXER = 20 * 1024 * 1024          # 20 MB en bytes
 EXTENSIONS_OK   = {".docx", ".pptx"}
+
+# ─── Glossaris ────────────────────────────────────────────────────────────────
+DIR_GLOSSARIS = ARREL_PROJECTE / "glossaris"
+DIR_GLOSSARIS.mkdir(exist_ok=True)
+
+DOMINIS = [
+    "Art i Història de l'Art",
+    "Biologia",
+    "Ciències Polítiques",
+    "Comunicacions institucionals i discursos",
+    "Convenis",
+    "Convocatòries: cursos, premis, beques, concursos",
+    "Dret",
+    "Economia",
+    "Enginyeries",
+    "Farmàcia",
+    "Filologia i Lingüística",
+    "Filosofia",
+    "Física",
+    "Formació del professorat i Ciències de l'Educació",
+    "Geografia",
+    "Història i Antropologia",
+    "Informàtica",
+    "Medicina i Infermeria",
+    "Medi Ambient",
+    "Música",
+    "Notes de Premsa",
+    "Pedagogia",
+    "Psicologia",
+    "Química",
+    "Salut Laboral i Prevenció de Riscos",
+]
+
+
+def nom_fitxer_glossari(domini: str) -> Path:
+    """Retorna la ruta del fitxer TSV per a un domini."""
+    nom = re.sub(r'[^\w\s-]', '', domini, flags=re.UNICODE)
+    nom = re.sub(r'\s+', '_', nom.strip())
+    return DIR_GLOSSARIS / f"{nom}.tsv"
+
+
+def carrega_glossari(domini: str) -> list[dict]:
+    """Carrega les entrades d'un glossari des del disc."""
+    path = nom_fitxer_glossari(domini)
+    if not path.exists():
+        return []
+    entrades = []
+    with open(path, encoding='utf-8', newline='') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        for row in reader:
+            if row.get('es') and row.get('ca'):
+                entrades.append({
+                    'es':     row['es'].strip(),
+                    'ca':     row['ca'].strip(),
+                    'tecnic': row.get('tecnic', '').strip(),
+                    'data':   row.get('data', '').strip(),
+                    'domini': domini,
+                })
+    return entrades
+
+
+def desa_glossari(domini: str, entrades: list[dict]) -> None:
+    """Desa les entrades d'un glossari al disc."""
+    path = nom_fitxer_glossari(domini)
+    with open(path, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(
+            f, fieldnames=['es', 'ca', 'tecnic', 'data', 'domini'],
+            delimiter='\t',
+        )
+        writer.writeheader()
+        writer.writerows(entrades)
 
 
 def genera_nom_traduit(nom_original: str) -> str:
@@ -604,6 +676,90 @@ async def estadistiques() -> RespostaEstadistiques:
         fitxers_avui  = _stats["fitxers_avui"],
         postedicions  = _stats["postedicions"],
     )
+
+
+# ─── Esquemes Pydantic — Glossari ────────────────────────────────────────────
+
+class PeticioEntradaGlossari(BaseModel):
+    es:     str
+    ca:     str
+    tecnic: str = ''
+    domini: str
+
+
+class RespostaGlossari(BaseModel):
+    domini:   str
+    entrades: list[dict]
+    total:    int
+
+
+# ─── Endpoints: Glossaris ─────────────────────────────────────────────────────
+
+@app.get("/glossaris", tags=["Glossari"],
+         summary="Llista els dominis disponibles")
+async def llista_dominis():
+    """Retorna la llista de dominis temàtics dels glossaris."""
+    return {"dominis": DOMINIS}
+
+
+@app.get("/glossari/{domini}", response_model=RespostaGlossari,
+         tags=["Glossari"], summary="Obté les entrades d'un glossari")
+async def obte_glossari(domini: str):
+    """Retorna totes les entrades del glossari d'un domini."""
+    if domini not in DOMINIS:
+        raise HTTPException(status_code=404,
+                            detail=f"Domini no trobat: {domini}")
+    entrades = carrega_glossari(domini)
+    return RespostaGlossari(domini=domini, entrades=entrades, total=len(entrades))
+
+
+@app.post("/glossari/{domini}", tags=["Glossari"],
+          summary="Afegeix o actualitza una entrada del glossari")
+async def afegeix_entrada(domini: str, peticio: PeticioEntradaGlossari):
+    """
+    Afegeix una nova entrada o actualitza una existent (per terme en castellà).
+    Si el terme ja existeix, n'actualitza la traducció i el tècnic.
+    """
+    if domini not in DOMINIS:
+        raise HTTPException(status_code=404,
+                            detail=f"Domini no trobat: {domini}")
+    entrades = carrega_glossari(domini)
+    for e in entrades:
+        if e['es'].lower() == peticio.es.lower():
+            e['ca']     = peticio.ca
+            e['tecnic'] = peticio.tecnic
+            e['data']   = datetime.now().strftime('%Y-%m-%d')
+            desa_glossari(domini, entrades)
+            log.info("Glossari '%s' — terme actualitzat: '%s'", domini, peticio.es)
+            return {"estat": "actualitzat", "entrada": e}
+    nova = {
+        'es':     peticio.es.strip(),
+        'ca':     peticio.ca.strip(),
+        'tecnic': peticio.tecnic.strip(),
+        'data':   datetime.now().strftime('%Y-%m-%d'),
+        'domini': domini,
+    }
+    entrades.append(nova)
+    desa_glossari(domini, entrades)
+    log.info("Glossari '%s' — terme afegit: '%s'", domini, peticio.es)
+    return {"estat": "afegit", "entrada": nova}
+
+
+@app.delete("/glossari/{domini}/{terme_es}", tags=["Glossari"],
+            summary="Elimina una entrada del glossari")
+async def elimina_entrada(domini: str, terme_es: str):
+    """Elimina una entrada del glossari pel terme en castellà."""
+    if domini not in DOMINIS:
+        raise HTTPException(status_code=404,
+                            detail=f"Domini no trobat: {domini}")
+    entrades       = carrega_glossari(domini)
+    entrades_noves = [e for e in entrades if e['es'].lower() != terme_es.lower()]
+    if len(entrades_noves) == len(entrades):
+        raise HTTPException(status_code=404,
+                            detail=f"Terme no trobat: {terme_es}")
+    desa_glossari(domini, entrades_noves)
+    log.info("Glossari '%s' — terme eliminat: '%s'", domini, terme_es)
+    return {"estat": "eliminat", "terme": terme_es}
 
 
 # ─── Gestió global d'errors ───────────────────────────────────────────────────

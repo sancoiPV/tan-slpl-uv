@@ -27,7 +27,9 @@ async function comprova() {
 // ─── Navegació (5 pestanyes) ──────────────────────────────────────────────────
 function mostra(id, btn) {
   document.querySelectorAll('.seccio').forEach(s => s.classList.remove('vis'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('act'));
+  document.querySelectorAll('.nav-btn, .tab-btn').forEach(b => b.classList.remove('act'));
+  // Amaga pestanyes addicionals (glossaris, etc.) quan se selecciona una secció normal
+  document.querySelectorAll('.tab-content').forEach(t => { t.style.display = 'none'; });
   document.getElementById('s-' + id).classList.add('vis');
   btn.classList.add('act');
 }
@@ -366,4 +368,185 @@ function ocrITradueix() {
 // ─── Inici ────────────────────────────────────────────────────────────────────
 comprova();
 setInterval(comprova, 30000);
+
+// ═══════════════════════════════════════════════════════
+// PESTANYA GLOSSARIS: ACTUALITZACIÓ
+// ═══════════════════════════════════════════════════════
+
+let glossariActual = [];
+let dominiActual = '';
+
+/**
+ * Activa la pestanya de glossaris (gestiona la visibilitat de totes les
+ * seccions normals i del panell de glossaris).
+ */
+function activaTab(id) {
+  document.querySelectorAll('.seccio').forEach(s => s.classList.remove('vis'));
+  document.querySelectorAll('.nav-btn, .tab-btn').forEach(b => b.classList.remove('act'));
+  const seccio = document.getElementById('tab-' + id);
+  if (seccio) seccio.style.display = 'block';
+  const btn = document.querySelector('[data-tab="' + id + '"]');
+  if (btn) btn.classList.add('act');
+}
+
+async function inicialitzaGlossari() {
+  try {
+    const url = await TAN.getUrlAvancada();
+    const resp = await fetch(`${url}/glossaris`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const select = document.getElementById('domini-select');
+    data.dominis.forEach(domini => {
+      const opt = document.createElement('option');
+      opt.value = domini;
+      opt.textContent = domini;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    console.warn('Glossari no disponible:', e.message);
+  }
+}
+
+async function carregaGlossari() {
+  const select = document.getElementById('domini-select');
+  dominiActual = select.value;
+  const form = document.getElementById('glossari-form');
+  const taulaContainer = document.getElementById('glossari-taula-container');
+  const badge = document.getElementById('glossari-total');
+
+  if (!dominiActual) {
+    form.style.display = 'none';
+    taulaContainer.style.display = 'none';
+    badge.style.display = 'none';
+    return;
+  }
+
+  form.style.display = 'block';
+  taulaContainer.style.display = 'block';
+
+  try {
+    const url = await TAN.getUrlAvancada();
+    const resp = await fetch(`${url}/glossari/${encodeURIComponent(dominiActual)}`);
+    if (!resp.ok) throw new Error(`Error ${resp.status}`);
+    const data = await resp.json();
+    glossariActual = data.entrades;
+    renderitzaTaula(glossariActual);
+    badge.textContent = `${data.total} entrada${data.total !== 1 ? 's' : ''}`;
+    badge.style.display = data.total > 0 ? 'inline' : 'none';
+  } catch (e) {
+    console.error('Error carregant glossari:', e);
+  }
+}
+
+function renderitzaTaula(entrades) {
+  const tbody = document.getElementById('glossari-tbody');
+  const buit = document.getElementById('glossari-buit');
+  tbody.innerHTML = '';
+  if (entrades.length === 0) {
+    buit.style.display = 'block';
+    return;
+  }
+  buit.style.display = 'none';
+  entrades.forEach(e => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(e.es)}</td>
+      <td><strong>${escapeHtml(e.ca)}</strong></td>
+      <td>${escapeHtml(e.tecnic || '—')}</td>
+      <td>${escapeHtml(e.data || '—')}</td>
+      <td>
+        <button class="btn-eliminar-terme"
+                onclick="eliminaTerme('${escapeHtml(e.es).replace(/'/g, "\\'")}')">
+          🗑
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function filtraGlossari() {
+  const cerca = document.getElementById('glossari-cerca').value.toLowerCase();
+  const filtrades = glossariActual.filter(e =>
+    e.es.toLowerCase().includes(cerca) ||
+    e.ca.toLowerCase().includes(cerca)
+  );
+  renderitzaTaula(filtrades);
+}
+
+async function afegeixTerme() {
+  const es = document.getElementById('terme-es').value.trim();
+  const ca = document.getElementById('terme-ca').value.trim();
+  const tecnic = document.getElementById('terme-tecnic').value;
+
+  if (!es || !ca) {
+    mostraMissatgeGlossari('error', 'Cal omplir el terme en castellà i la traducció valenciana.');
+    return;
+  }
+  if (!tecnic) {
+    mostraMissatgeGlossari('error', "Identifica't seleccionant el teu nom.");
+    return;
+  }
+  if (!dominiActual) {
+    mostraMissatgeGlossari('error', 'Selecciona un domini primer.');
+    return;
+  }
+
+  try {
+    const url = await TAN.getUrlAvancada();
+    const resp = await fetch(
+      `${url}/glossari/${encodeURIComponent(dominiActual)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ es, ca, tecnic, domini: dominiActual }),
+      }
+    );
+    if (!resp.ok) throw new Error(`Error ${resp.status}`);
+    const data = await resp.json();
+    const accio = data.estat === 'actualitzat' ? 'actualitzat' : 'afegit';
+    mostraMissatgeGlossari('ok', `✓ Terme "${es}" ${accio} correctament.`);
+    document.getElementById('terme-es').value = '';
+    document.getElementById('terme-ca').value = '';
+    await carregaGlossari();
+  } catch (e) {
+    mostraMissatgeGlossari('error', `Error afegint el terme: ${e.message}`);
+  }
+}
+
+async function eliminaTerme(termeEs) {
+  if (!confirm(`Eliminar el terme "${termeEs}" del glossari?`)) return;
+  try {
+    const url = await TAN.getUrlAvancada();
+    const resp = await fetch(
+      `${url}/glossari/${encodeURIComponent(dominiActual)}/${encodeURIComponent(termeEs)}`,
+      { method: 'DELETE' }
+    );
+    if (!resp.ok) throw new Error(`Error ${resp.status}`);
+    mostraMissatgeGlossari('ok', `✓ Terme "${termeEs}" eliminat.`);
+    await carregaGlossari();
+  } catch (e) {
+    mostraMissatgeGlossari('error', `Error eliminant el terme: ${e.message}`);
+  }
+}
+
+function mostraMissatgeGlossari(tipus, text) {
+  const el = document.getElementById('glossari-missatge');
+  el.textContent = text;
+  el.className = `glossari-missatge glossari-missatge-${tipus}`;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  inicialitzaGlossari();
+});
 

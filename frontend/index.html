@@ -28,6 +28,7 @@
     <button class="nav-btn" onclick="mostra('correccio-text',this)">Corrector de text en valencià</button>
     <button class="nav-btn" onclick="mostra('correccio-docs',this)">Correcció/postedició de documents en valencià</button>
     <button class="nav-btn" onclick="mostra('imatges',this)">Traducció d'imatges amb text</button>
+    <button class="tab-btn" data-tab="glossaris" onclick="activaTab('glossaris')">📚 Glossaris: actualització</button>
   </nav>
 </header>
 
@@ -247,6 +248,85 @@
     </div>
   </div>
 </section>
+
+<!-- ═══ SECCIÓ 6 · Glossaris: actualització ══════════════════════════════════ -->
+<div id="tab-glossaris" class="tab-content" style="display:none">
+  <div class="glossari-container">
+
+    <div class="glossari-header">
+      <h2>Glossaris: actualització</h2>
+      <p class="glossari-descripcio">
+        Gestió col·laborativa dels termes de traducció per a la Secció d'Assessorament Lingüístic.
+        Les correccions s'incorporen al model cada dilluns al matí.
+      </p>
+    </div>
+
+    <div class="glossari-domini-selector">
+      <label for="domini-select">Domini:</label>
+      <select id="domini-select" onchange="carregaGlossari()">
+        <option value="">— Selecciona un domini —</option>
+      </select>
+      <span id="glossari-total" class="glossari-badge" style="display:none"></span>
+    </div>
+
+    <div class="glossari-form" id="glossari-form" style="display:none">
+      <h3>Afegir / corregir terme</h3>
+      <div class="glossari-form-row">
+        <div class="glossari-form-group">
+          <label for="terme-es">Terme en castellà (incorrecte o a corregir)</label>
+          <input type="text" id="terme-es" placeholder="p. ex. Elementos Pasivos" autocomplete="off">
+        </div>
+        <div class="glossari-form-group">
+          <label for="terme-ca">Traducció correcta en valencià</label>
+          <input type="text" id="terme-ca" placeholder="p. ex. Elements Passius" autocomplete="off">
+        </div>
+      </div>
+      <div class="glossari-form-row">
+        <div class="glossari-form-group">
+          <label for="terme-tecnic">Tècnic/a</label>
+          <select id="terme-tecnic">
+            <option value="">— Identifica't —</option>
+            <option value="Tècnic 1">Tècnic/a 1</option>
+            <option value="Tècnic 2">Tècnic/a 2</option>
+            <option value="Tècnic 3">Tècnic/a 3</option>
+            <option value="Tècnic 4">Tècnic/a 4</option>
+            <option value="Tècnic 5">Tècnic/a 5</option>
+          </select>
+        </div>
+        <div class="glossari-form-group glossari-form-submit">
+          <button onclick="afegeixTerme()" class="btn-primary">
+            ➕ Afegir al glossari
+          </button>
+        </div>
+      </div>
+      <div id="glossari-missatge" class="glossari-missatge" style="display:none"></div>
+    </div>
+
+    <div class="glossari-taula-container" id="glossari-taula-container" style="display:none">
+      <div class="glossari-taula-header">
+        <h3>Entrades del glossari</h3>
+        <input type="text" id="glossari-cerca" placeholder="🔍 Cerca un terme..."
+               oninput="filtraGlossari()" class="glossari-cerca">
+      </div>
+      <table class="glossari-taula" id="glossari-taula">
+        <thead>
+          <tr>
+            <th>Terme en castellà</th>
+            <th>Traducció valenciana</th>
+            <th>Tècnic/a</th>
+            <th>Data</th>
+            <th>Acció</th>
+          </tr>
+        </thead>
+        <tbody id="glossari-tbody"></tbody>
+      </table>
+      <p id="glossari-buit" class="glossari-buit" style="display:none">
+        Aquest domini no té entrades encara. Afegeix el primer terme!
+      </p>
+    </div>
+
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>
