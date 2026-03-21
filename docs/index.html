@@ -305,8 +305,14 @@
     <div class="glossari-taula-container" id="glossari-taula-container" style="display:none">
       <div class="glossari-taula-header">
         <h3>Entrades del glossari</h3>
-        <input type="text" id="glossari-cerca" placeholder="🔍 Cerca un terme..."
-               oninput="filtraGlossari()" class="glossari-cerca">
+        <div class="glossari-taula-accions">
+          <input type="text" id="glossari-cerca" placeholder="🔍 Cerca un terme..."
+                 oninput="filtraGlossari()" class="glossari-cerca">
+          <button onclick="descarregaGlossari()" class="btn-descarrega-glossari"
+                  title="Descarrega el glossari en format TSV">
+            ⬇ Descarrega TSV
+          </button>
+        </div>
       </div>
       <table class="glossari-taula" id="glossari-taula">
         <thead>

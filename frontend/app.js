@@ -474,6 +474,44 @@ function filtraGlossari() {
   renderitzaTaula(filtrades);
 }
 
+async function descarregaGlossari() {
+  if (!dominiActual) {
+    mostraMissatgeGlossari('error', 'Selecciona un domini primer.');
+    return;
+  }
+  if (glossariActual.length === 0) {
+    mostraMissatgeGlossari('error', 'El glossari és buit, no hi ha res a descarregar.');
+    return;
+  }
+  try {
+    const url = await TAN.getUrlAvancada();
+    const resp = await fetch(
+      `${url}/glossari/${encodeURIComponent(dominiActual)}/exporta`
+    );
+    if (!resp.ok) throw new Error(`Error ${resp.status}`);
+
+    // Obté el nom del fitxer de la capçalera Content-Disposition
+    const disposition = resp.headers.get('Content-Disposition') || '';
+    const nomMatch = disposition.match(/filename="([^"]+)"/);
+    const nomFitxer = nomMatch ? nomMatch[1] : `glossari_${dominiActual}.tsv`;
+
+    // Descàrrega al navegador
+    const blob = await resp.blob();
+    const urlBlob = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = urlBlob;
+    a.download = nomFitxer;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(urlBlob);
+
+    mostraMissatgeGlossari('ok', `✓ Descarregant ${nomFitxer}`);
+  } catch (e) {
+    mostraMissatgeGlossari('error', `Error en la descàrrega: ${e.message}`);
+  }
+}
+
 async function afegeixTerme() {
   const es = document.getElementById('terme-es').value.trim();
   const ca = document.getElementById('terme-ca').value.trim();

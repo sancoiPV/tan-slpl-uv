@@ -626,3 +626,28 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   padding: 2rem;
   font-style: italic;
 }
+
+/* ── Botó de descàrrega TSV (pestanya Glossaris) ────── */
+
+.glossari-taula-accions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.btn-descarrega-glossari {
+  padding: 0.4rem 0.9rem;
+  background: var(--uv-blau, #0065a4);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btn-descarrega-glossari:hover {
+  background: var(--uv-nav, #003366);
+}

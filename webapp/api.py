@@ -762,6 +762,34 @@ async def elimina_entrada(domini: str, terme_es: str):
     return {"estat": "eliminat", "terme": terme_es}
 
 
+@app.get("/glossari/{domini}/exporta", tags=["Glossari"],
+         summary="Exporta el glossari d'un domini com a fitxer TSV")
+async def exporta_glossari(domini: str):
+    """Exporta el glossari d'un domini com a fitxer TSV descarregable."""
+    from fastapi.responses import FileResponse
+
+    if domini not in DOMINIS:
+        raise HTTPException(status_code=404, detail=f"Domini no trobat: {domini}")
+
+    path = nom_fitxer_glossari(domini)
+    if not path.exists() or path.stat().st_size == 0:
+        raise HTTPException(status_code=404,
+                            detail="El glossari és buit, no hi ha res a exportar.")
+
+    # Nom del fitxer: glossari_NomDomini_ddmmaaaa.tsv
+    data_avui      = datetime.now().strftime('%d%m%Y')
+    nom_domini_net = re.sub(r'[^\w]', '_', domini).strip('_')
+    nom_fitxer     = f"glossari_{nom_domini_net}_{data_avui}.tsv"
+
+    log.info("GET /glossari/%s/exporta → %s", domini, nom_fitxer)
+    return FileResponse(
+        path        = str(path),
+        media_type  = 'text/tab-separated-values; charset=utf-8',
+        filename    = nom_fitxer,
+        headers     = {"Content-Disposition": f'attachment; filename="{nom_fitxer}"'},
+    )
+
+
 # ─── Gestió global d'errors ───────────────────────────────────────────────────
 
 @app.exception_handler(404)
