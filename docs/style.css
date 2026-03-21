@@ -951,3 +951,482 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   color: var(--uv-gris-m, #888);
   font-style: italic;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CORRECCIÓ / POSTEDICIÓ DE TEXTOS EN VALENCIÀ
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.correccio-container {
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.correccio-header h2 {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--uv-blau, #003366);
+  margin: 0 0 0.35rem 0;
+}
+
+.correccio-descripcio {
+  font-size: 0.92rem;
+  color: var(--uv-gris-m, #555);
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* ── Configuració API Key ─────────────────────────────────────────────────── */
+
+.correccio-config {
+  background: #f4f8ff;
+  border: 1px solid #c5d7ef;
+  border-radius: 10px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.correccio-config summary {
+  padding: 0.75rem 1.1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--uv-blau, #003366);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.correccio-config summary::-webkit-details-marker { display: none; }
+
+.correccio-config-body {
+  padding: 0 1.1rem 1rem 1.1rem;
+  border-top: 1px solid #c5d7ef;
+}
+
+.correccio-config-nota {
+  font-size: 0.83rem;
+  color: #555;
+  margin: 0.7rem 0;
+  line-height: 1.5;
+}
+
+.correccio-config-fila {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.correccio-config-input {
+  flex: 1;
+  min-width: 220px;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid #b0c4de;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: monospace;
+}
+
+.correccio-config-missatge {
+  margin-top: 0.55rem;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 5px;
+}
+
+.correccio-config-ok    { background: #e6f7ee; color: #1a6b3a; }
+.correccio-config-error { background: #ffeaea; color: #b00020; }
+
+/* ── Opcions ─────────────────────────────────────────────────────────────── */
+
+.correccio-opcions {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+}
+
+.correccio-opcio-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: #333;
+}
+
+.correccio-opcio-label small {
+  color: #777;
+  font-size: 0.78rem;
+}
+
+/* ── Textarea d'entrada ───────────────────────────────────────────────────── */
+
+.correccio-entrada-bloc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.correccio-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.correccio-comptador {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: #888;
+}
+
+.correccio-textarea {
+  width: 100%;
+  min-height: 200px;
+  padding: 0.8rem 1rem;
+  border: 1.5px solid #b0c4de;
+  border-radius: 8px;
+  font-size: 0.93rem;
+  line-height: 1.6;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.correccio-textarea:focus {
+  outline: none;
+  border-color: var(--uv-blau, #003366);
+  box-shadow: 0 0 0 3px rgba(0, 51, 102, 0.1);
+}
+
+/* ── Botons d'acció ──────────────────────────────────────────────────────── */
+
+.correccio-accions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+/* ── Missatges d'estat ───────────────────────────────────────────────────── */
+
+.correccio-missatge {
+  padding: 0.6rem 1rem;
+  border-radius: 7px;
+  font-size: 0.9rem;
+}
+
+.correccio-missatge-ok    { background: #e6f7ee; color: #1a6b3a; border: 1px solid #b2dfca; }
+.correccio-missatge-error { background: #ffeaea; color: #b00020; border: 1px solid #ffb3b3; }
+.correccio-missatge-info  { background: #e8f0fd; color: #1a3e72; border: 1px solid #b3caf5; }
+
+/* ── Indicador de càrrega ────────────────────────────────────────────────── */
+
+.correccio-carregant {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem;
+  background: #f0f5ff;
+  border-radius: 8px;
+  border: 1px solid #c5d7ef;
+  font-size: 0.92rem;
+  color: var(--uv-blau, #003366);
+}
+
+.correccio-spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #b3c9e8;
+  border-top-color: var(--uv-blau, #003366);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── Bloc de resultats ───────────────────────────────────────────────────── */
+
+.correccio-resultats {
+  border: 1.5px solid #d0dce8;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* Barra d'estadístiques */
+.correccio-stats-bar {
+  display: flex;
+  gap: 0;
+  background: #f0f4fb;
+  border-bottom: 1px solid #d0dce8;
+}
+
+.correccio-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.65rem 0.5rem;
+  border-right: 1px solid #d0dce8;
+}
+
+.correccio-stat:last-child { border-right: none; }
+
+.correccio-stat-num {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--uv-blau, #003366);
+}
+
+.correccio-stat-lt { color: #c47300; }
+.correccio-stat-cl { color: #7b2fbe; }
+
+.correccio-stat-lbl {
+  font-size: 0.73rem;
+  color: #777;
+  margin-top: 0.2rem;
+  text-align: center;
+}
+
+/* Resum */
+.correccio-resum-bloc {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.65rem 1.1rem;
+  background: #fffde7;
+  border-bottom: 1px solid #e0d89a;
+  font-size: 0.88rem;
+  color: #4a3800;
+  line-height: 1.5;
+}
+
+.correccio-resum-bloc strong {
+  flex-shrink: 0;
+  color: #6b5000;
+}
+
+/* Pestanyes */
+.correccio-tabs {
+  display: flex;
+  border-bottom: 1.5px solid #d0dce8;
+  background: #f8f9fa;
+}
+
+.correccio-tab-btn {
+  padding: 0.55rem 1rem;
+  border: none;
+  background: none;
+  font-size: 0.87rem;
+  cursor: pointer;
+  color: #555;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-bottom: 2.5px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.correccio-tab-btn:hover { color: var(--uv-blau, #003366); }
+
+.correccio-tab-activa {
+  color: var(--uv-blau, #003366) !important;
+  border-bottom-color: var(--uv-blau, #003366) !important;
+  font-weight: 600;
+}
+
+.correccio-badge {
+  background: #d0dce8;
+  color: #333;
+  border-radius: 10px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Panels */
+.correccio-panel {
+  padding: 1rem 1.1rem;
+}
+
+/* Text corregit */
+.correccio-text-accions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.correccio-text-resultat {
+  white-space: pre-wrap;
+  font-size: 0.93rem;
+  line-height: 1.65;
+  color: #1a1a1a;
+  background: #fafcff;
+  border: 1px solid #dce6f0;
+  border-radius: 7px;
+  padding: 0.85rem 1rem;
+  min-height: 80px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+/* Llista de correccions */
+.correccio-llista {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.correccio-buit {
+  color: #4a8a5a;
+  font-size: 0.9rem;
+  padding: 0.5rem 0;
+  margin: 0;
+}
+
+.correccio-item {
+  border-radius: 7px;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.87rem;
+}
+
+.correccio-item-lt {
+  background: #fff9f0;
+  border: 1px solid #f5d99a;
+}
+
+.correccio-item-cl {
+  background: #f9f0ff;
+  border: 1px solid #ddb8f7;
+}
+
+.correccio-item-cap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.25rem;
+}
+
+.correccio-item-original {
+  background: #ffe0e0;
+  color: #8b0000;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  text-decoration: line-through;
+  text-decoration-color: #cc0000;
+}
+
+.correccio-item-corregit {
+  background: #d4edda;
+  color: #1a5c2a;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.correccio-regla-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  letter-spacing: 0.03em;
+}
+
+.correccio-badge-lt {
+  background: #ffd970;
+  color: #6b4d00;
+}
+
+.correccio-badge-cl {
+  background: #d9b3ff;
+  color: #4b0082;
+}
+
+.correccio-item-missatge,
+.correccio-item-justificacio {
+  color: #444;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.correccio-suggerits {
+  margin-top: 0.25rem;
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.correccio-suggerit {
+  background: #e8f5e9;
+  color: #1b5e20;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+/* Filtre per tipus */
+.correccio-filtre-bloc {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.correccio-label-sm {
+  font-size: 0.83rem;
+  color: #555;
+  font-weight: 600;
+}
+
+.correccio-select {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #b0c4de;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: #fff;
+  cursor: pointer;
+}
+
+/* Tipus badges (per color de categoria) */
+.correccio-tipus-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  text-transform: capitalize;
+}
+
+.correccio-tipus-ortografia  { background: #ffd6d6; color: #8b0000; }
+.correccio-tipus-morfologia  { background: #ffe5b3; color: #6b3d00; }
+.correccio-tipus-sintaxi     { background: #d6e8ff; color: #003380; }
+.correccio-tipus-lèxic       { background: #e0f5d6; color: #1b5e20; }
+.correccio-tipus-estil       { background: #ede0ff; color: #4b0082; }
+.correccio-tipus-puntuació   { background: #f0f0f0; color: #333; }
+.correccio-tipus-registre    { background: #fff3cd; color: #664d03; }
+
+/* Botó petit ─────────────────────────────────────────────────────────────── */
+.btn-sm {
+  font-size: 0.82rem !important;
+  padding: 0.3rem 0.7rem !important;
+}

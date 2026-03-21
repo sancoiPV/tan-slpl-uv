@@ -847,3 +847,271 @@ function mostraMissatgeImatge(tipus, text) {
     setTimeout(() => { el.style.display = 'none'; }, 5000);
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CORRECCIÓ / POSTEDICIÓ DE TEXTOS EN VALENCIÀ
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _dadesCorreccio = null;  // Última resposta de /corregeix
+
+// ── Configuració de la clau API d'Anthropic ────────────────────────────────
+
+async function configurarAnthropicKey() {
+  const clau = document.getElementById('correccio-anthropic-key').value.trim();
+  const elMsg = document.getElementById('correccio-config-missatge');
+  if (!clau) {
+    mostraMissatgeCorreccio('error', 'Introdueix la clau API d\'Anthropic.');
+    return;
+  }
+  elMsg.style.display = 'none';
+  try {
+    const resp = await fetch(`${API_BASE}/configura-anthropic`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ api_key: clau }),
+    });
+    const dades = await resp.json();
+    if (resp.ok) {
+      elMsg.textContent = '✅ ' + dades.missatge;
+      elMsg.className   = 'correccio-config-missatge correccio-config-ok';
+      elMsg.style.display = 'block';
+      document.getElementById('correccio-anthropic-key').value = '';
+      document.getElementById('correccio-config-panel').removeAttribute('open');
+    } else {
+      elMsg.textContent = '❌ ' + (dades.detail || 'Error configurant la clau.');
+      elMsg.className   = 'correccio-config-missatge correccio-config-error';
+      elMsg.style.display = 'block';
+    }
+  } catch (e) {
+    elMsg.textContent = '❌ Error de xarxa: ' + e.message;
+    elMsg.className   = 'correccio-config-missatge correccio-config-error';
+    elMsg.style.display = 'block';
+  }
+}
+
+// ── Corregeix el text ──────────────────────────────────────────────────────
+
+async function corregeixText() {
+  const text = document.getElementById('correccio-textarea').value.trim();
+  if (!text) {
+    mostraMissatgeCorreccio('error', 'Introdueix un text per a corregir.');
+    return;
+  }
+
+  const usarLT     = document.getElementById('opt-languagetool').checked;
+  const usarClaude = document.getElementById('opt-claude').checked;
+
+  if (!usarLT && !usarClaude) {
+    mostraMissatgeCorreccio('error', 'Activa almenys una capa de correcció.');
+    return;
+  }
+
+  // Amaga resultats anteriors i mostra càrrega
+  document.getElementById('correccio-resultats').style.display = 'none';
+  document.getElementById('correccio-missatge').style.display  = 'none';
+  document.getElementById('correccio-carregant').style.display = 'flex';
+  document.getElementById('btn-corregeix').disabled = true;
+
+  const passos = [];
+  if (usarLT)     passos.push('LanguageTool');
+  if (usarClaude) passos.push('Claude Sonnet');
+  document.getElementById('correccio-carregant-txt').textContent =
+    `Corregint amb ${passos.join(' + ')}…`;
+
+  try {
+    const resp = await fetch(`${API_BASE}/corregeix`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        text:              text,
+        usar_languagetool: usarLT,
+        usar_claude:       usarClaude,
+      }),
+    });
+
+    const dades = await resp.json();
+
+    if (!resp.ok) {
+      throw new Error(dades.detail || `Error ${resp.status}`);
+    }
+
+    _dadesCorreccio = dades;
+    renderitzaCorreccions(dades);
+
+  } catch (e) {
+    mostraMissatgeCorreccio('error', 'Error: ' + e.message);
+  } finally {
+    document.getElementById('correccio-carregant').style.display = 'none';
+    document.getElementById('btn-corregeix').disabled = false;
+  }
+}
+
+// ── Renderitza els resultats ───────────────────────────────────────────────
+
+function renderitzaCorreccions(dades) {
+  const nLT = (dades.correccions_lt    || []).length;
+  const nCL = (dades.correccions_claude || []).length;
+  const nTotal = nLT + nCL;
+
+  // Estadístiques
+  document.getElementById('stat-total').textContent = nTotal;
+  document.getElementById('stat-lt').textContent    = nLT;
+  document.getElementById('stat-cl').textContent    = nCL;
+  document.getElementById('badge-lt').textContent   = nLT;
+  document.getElementById('badge-cl').textContent   = nCL;
+
+  // Resum
+  const resumBloc = document.getElementById('correccio-resum-bloc');
+  if (dades.resum) {
+    document.getElementById('correccio-resum-text').textContent = dades.resum;
+    resumBloc.style.display = 'flex';
+  } else {
+    resumBloc.style.display = 'none';
+  }
+
+  // Text corregit
+  document.getElementById('correccio-text-resultat').textContent =
+    dades.text_corregit || dades.text_original;
+
+  // Llista LanguageTool
+  const elLT = document.getElementById('correccio-lt-llista');
+  if (nLT === 0) {
+    elLT.innerHTML = '<p class="correccio-buit">Cap error detectat per LanguageTool. ✅</p>';
+  } else {
+    elLT.innerHTML = (dades.correccions_lt || []).map((c, i) => `
+      <div class="correccio-item correccio-item-lt">
+        <div class="correccio-item-cap">
+          <span class="correccio-regla-badge correccio-badge-lt">${escapeHtmlC(c.regla_id || 'LT')}</span>
+          <span class="correccio-item-original">${escapeHtmlC(c.original || '')}</span>
+          ${c.suggerits && c.suggerits[0]
+            ? `→ <span class="correccio-item-corregit">${escapeHtmlC(c.suggerits[0])}</span>`
+            : ''}
+        </div>
+        <div class="correccio-item-missatge">${escapeHtmlC(c.missatge || '')}</div>
+        ${c.suggerits && c.suggerits.length > 1
+          ? `<div class="correccio-suggerits">Suggerits: ${c.suggerits.map(s => `<span class="correccio-suggerit">${escapeHtmlC(s)}</span>`).join(' ')}</div>`
+          : ''}
+      </div>`).join('');
+  }
+
+  // Llista Claude
+  renderitzaLlistaClaude(dades.correccions_claude || []);
+
+  // Activa la pestanya de text i mostra resultats
+  activaCorrecciöTab('text');
+  document.getElementById('correccio-resultats').style.display = 'block';
+}
+
+function renderitzaLlistaClaude(correccions) {
+  const el = document.getElementById('correccio-cl-llista');
+  if (!correccions || correccions.length === 0) {
+    el.innerHTML = '<p class="correccio-buit">Cap correcció addicional per Claude Sonnet. ✅</p>';
+    return;
+  }
+  el.innerHTML = correccions.map((c, i) => `
+    <div class="correccio-item correccio-item-cl" data-tipus="${escapeHtmlC((c.tipus || '').toLowerCase())}">
+      <div class="correccio-item-cap">
+        <span class="correccio-regla-badge correccio-badge-cl">${escapeHtmlC(c.regla || '—')}</span>
+        <span class="correccio-tipus-badge correccio-tipus-${escapeHtmlC((c.tipus || 'estil').toLowerCase())}">${escapeHtmlC(c.tipus || 'estil')}</span>
+        <span class="correccio-item-original">${escapeHtmlC(c.original || '')}</span>
+        ${c.corregit ? `→ <span class="correccio-item-corregit">${escapeHtmlC(c.corregit)}</span>` : ''}
+      </div>
+      <div class="correccio-item-justificacio">${escapeHtmlC(c.justificacio || '')}</div>
+    </div>`).join('');
+}
+
+// ── Filtra correccions Claude per tipus ───────────────────────────────────
+
+function filtraCorreccions() {
+  if (!_dadesCorreccio) return;
+  const tipus = document.getElementById('correccio-filtre-tipus').value.toLowerCase();
+  const correccions = (_dadesCorreccio.correccions_claude || []).filter(c => {
+    if (!tipus) return true;
+    return (c.tipus || '').toLowerCase() === tipus;
+  });
+  renderitzaLlistaClaude(correccions);
+}
+
+// ── Pestanyes de resultats ─────────────────────────────────────────────────
+
+function activaCorrecciöTab(id) {
+  const panels = ['text', 'lt', 'cl'];
+  panels.forEach(p => {
+    const btn   = document.getElementById(`ctab-${p}`);
+    const panel = document.getElementById(`cpanel-${p}`);
+    if (btn)   btn.classList.toggle('correccio-tab-activa', p === id);
+    if (panel) panel.style.display = p === id ? 'block' : 'none';
+  });
+}
+
+// ── Copia el text corregit ─────────────────────────────────────────────────
+
+async function copiaTextCorregit() {
+  const text = document.getElementById('correccio-text-resultat').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    mostraMissatgeCorreccio('ok', '✅ Text copiat al porta-retalls.');
+  } catch (e) {
+    mostraMissatgeCorreccio('error', 'No s\'ha pogut copiar: ' + e.message);
+  }
+}
+
+// ── Descarrega el text corregit com a .txt ─────────────────────────────────
+
+function descarregaTextCorregit() {
+  if (!_dadesCorreccio) return;
+  const text = _dadesCorreccio.text_corregit || '';
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `text_corregit_${new Date().toISOString().slice(0, 10)}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ── Neteja la secció de correcció ─────────────────────────────────────────
+
+function netejaCorreccio() {
+  document.getElementById('correccio-textarea').value = '';
+  document.getElementById('correccio-comptador').textContent = '0 caràcters';
+  document.getElementById('correccio-resultats').style.display = 'none';
+  document.getElementById('correccio-missatge').style.display  = 'none';
+  _dadesCorreccio = null;
+  activaCorrecciöTab('text');
+}
+
+// ── Actualitza el comptador de caràcters ──────────────────────────────────
+
+function actualitzaEstadistiques() {
+  const text = document.getElementById('correccio-textarea').value;
+  const n    = text.length;
+  const par  = text.trim() ? text.trim().split(/\s+/).length : 0;
+  document.getElementById('correccio-comptador').textContent =
+    `${n.toLocaleString('ca')} caràcters · ${par.toLocaleString('ca')} paraules`;
+}
+
+// ── Missatges d'estat de la secció correcció ──────────────────────────────
+
+function mostraMissatgeCorreccio(tipus, text) {
+  const el = document.getElementById('correccio-missatge');
+  el.textContent = text;
+  el.className = `correccio-missatge correccio-missatge-${tipus}`;
+  el.style.display = 'block';
+  if (tipus !== 'info') {
+    setTimeout(() => { el.style.display = 'none'; }, 7000);
+  }
+}
+
+// ── Funció d'escapament HTML (reutilitzable) ──────────────────────────────
+
+function escapeHtmlC(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}

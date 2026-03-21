@@ -182,43 +182,174 @@
 
 <!-- ═══ SECCIÓ 4 · Correcció/postedició de documents en valencià ════════════ -->
 <section class="seccio" id="s-correccio-docs">
+<div class="correccio-container">
 
-  <div class="upload-area" id="upload-area-cd"
-    ondragover="event.preventDefault();this.classList.add('drag-over')"
-    ondragleave="this.classList.remove('drag-over')"
-    ondrop="onDropDocs(event,'correccio')">
-    <div class="upload-top">
-      <button class="btn-apujar"
-        onclick="document.getElementById('inp-cd').click()">Apujar document</button>
-      <input type="file" id="inp-cd" accept=".docx,.pptx" style="display:none"
-        onchange="seleccionaFitxer(this.files[0],'correccio')">
-      <div class="drag-hint">o arrossega el document ací</div>
-      <div class="formats-txt">.docx i .pptx · màx. 20 MB</div>
-    </div>
-    <div class="fitxer-info" id="fitxer-info-cd">
-      <div class="fitxer-icona" id="fitxer-ico-cd">📄</div>
-      <div class="fitxer-detalls">
-        <div class="fitxer-nom" id="fitxer-nom-cd"></div>
-        <div class="fitxer-meta" id="fitxer-meta-cd"></div>
+  <div class="correccio-header">
+    <h2>Correcció de textos en valencià</h2>
+    <p class="correccio-descripcio">
+      Corregeix textos en català/valencià aplicant les normes del
+      <strong>valencià universitari normatiu</strong>. Doble capa:
+      LanguageTool (ortografia i gramàtica bàsica) + Claude Sonnet
+      (normes específiques de la UV, 60+ regles morfosintàctiques i d'estil).
+    </p>
+  </div>
+
+  <!-- Configuració API Key Anthropic (col·lapsable) -->
+  <details class="correccio-config" id="correccio-config-panel">
+    <summary>⚙ Configuració de l'API d'Anthropic (Claude Sonnet)</summary>
+    <div class="correccio-config-body">
+      <p class="correccio-config-nota">
+        Per a usar la capa de correcció avançada amb Claude Sonnet cal una
+        clau API d'Anthropic. La clau es desa només per a la sessió actual
+        i no s'emmagatzema de forma permanent.
+      </p>
+      <div class="correccio-config-fila">
+        <input type="password" id="correccio-anthropic-key"
+               placeholder="sk-ant-api03-…"
+               class="correccio-config-input"
+               autocomplete="off">
+        <button class="btn-secondary" onclick="configurarAnthropicKey()">
+          Desa la clau
+        </button>
       </div>
-      <button class="btn-tradueix-doc"
-        onclick="processaFitxerActual('correccio')">Corregeix</button>
+      <div id="correccio-config-missatge" class="correccio-config-missatge" style="display:none"></div>
     </div>
+  </details>
+
+  <!-- Opcions de correcció -->
+  <div class="correccio-opcions">
+    <label class="correccio-opcio-label">
+      <input type="checkbox" id="opt-languagetool" checked>
+      <span>LanguageTool <small>(ortografia i gramàtica ca-ES)</small></span>
+    </label>
+    <label class="correccio-opcio-label">
+      <input type="checkbox" id="opt-claude" checked>
+      <span>Claude Sonnet <small>(normes universitàries valencianes)</small></span>
+    </label>
   </div>
 
-  <div class="progres-cont" id="progCont-cd">
-    <div class="progres-lbl" id="progLbl-cd">Analitzant el document...</div>
-    <div class="progres-bar"><div class="progres-fill"></div></div>
+  <!-- Textarea d'entrada -->
+  <div class="correccio-entrada-bloc">
+    <label class="correccio-label" for="correccio-textarea">
+      Text a corregir
+      <span class="correccio-comptador" id="correccio-comptador">0 caràcters</span>
+    </label>
+    <textarea
+      id="correccio-textarea"
+      class="correccio-textarea"
+      placeholder="Enganxa ací el text en català/valencià que vols corregir…"
+      rows="10"
+      oninput="actualitzaEstadistiques()"
+      maxlength="100000"
+    ></textarea>
   </div>
 
-  <div class="resultat-card" id="resCard-cd">
-    <div class="res-icona" id="resIco-cd">📄</div>
-    <div class="res-info">
-      <div class="res-nom" id="resNom-cd"></div>
-      <div class="res-det" id="resDet-cd"></div>
-    </div>
-    <button class="btn-descarrega" id="btnDesc-cd">⬇️ Descarrega</button>
+  <!-- Botons d'acció -->
+  <div class="correccio-accions">
+    <button class="btn-primary" id="btn-corregeix" onclick="corregeixText()">
+      ✏️ Corregeix
+    </button>
+    <button class="btn-secondary" onclick="netejaCorreccio()">
+      🗑 Neteja
+    </button>
   </div>
+
+  <!-- Missatges d'estat -->
+  <div id="correccio-missatge" class="correccio-missatge" style="display:none"></div>
+
+  <!-- Indicador de càrrega -->
+  <div id="correccio-carregant" class="correccio-carregant" style="display:none">
+    <div class="correccio-spinner"></div>
+    <span id="correccio-carregant-txt">Corregint el text…</span>
+  </div>
+
+  <!-- Bloc de resultats -->
+  <div id="correccio-resultats" class="correccio-resultats" style="display:none">
+
+    <!-- Barra d'estadístiques -->
+    <div class="correccio-stats-bar">
+      <div class="correccio-stat">
+        <span class="correccio-stat-num" id="stat-total">0</span>
+        <span class="correccio-stat-lbl">correccions totals</span>
+      </div>
+      <div class="correccio-stat">
+        <span class="correccio-stat-num correccio-stat-lt" id="stat-lt">0</span>
+        <span class="correccio-stat-lbl">LanguageTool</span>
+      </div>
+      <div class="correccio-stat">
+        <span class="correccio-stat-num correccio-stat-cl" id="stat-cl">0</span>
+        <span class="correccio-stat-lbl">Claude Sonnet</span>
+      </div>
+    </div>
+
+    <!-- Resum -->
+    <div id="correccio-resum-bloc" class="correccio-resum-bloc" style="display:none">
+      <strong>Resum:</strong>
+      <span id="correccio-resum-text"></span>
+    </div>
+
+    <!-- Pestanyes de resultats -->
+    <div class="correccio-tabs">
+      <button class="correccio-tab-btn correccio-tab-activa"
+              id="ctab-text"
+              onclick="activaCorrecciöTab('text')">
+        📄 Text corregit
+      </button>
+      <button class="correccio-tab-btn"
+              id="ctab-lt"
+              onclick="activaCorrecciöTab('lt')">
+        🔡 LanguageTool
+        <span class="correccio-badge" id="badge-lt">0</span>
+      </button>
+      <button class="correccio-tab-btn"
+              id="ctab-cl"
+              onclick="activaCorrecciöTab('cl')">
+        🤖 Claude Sonnet
+        <span class="correccio-badge" id="badge-cl">0</span>
+      </button>
+    </div>
+
+    <!-- Pestanya: Text corregit -->
+    <div id="cpanel-text" class="correccio-panel correccio-panel-actiu">
+      <div class="correccio-text-accions">
+        <button class="btn-secondary btn-sm" onclick="copiaTextCorregit()">
+          📋 Copia
+        </button>
+        <button class="btn-secondary btn-sm" onclick="descarregaTextCorregit()">
+          ⬇️ Descarrega .txt
+        </button>
+      </div>
+      <div id="correccio-text-resultat" class="correccio-text-resultat"></div>
+    </div>
+
+    <!-- Pestanya: LanguageTool -->
+    <div id="cpanel-lt" class="correccio-panel" style="display:none">
+      <div id="correccio-lt-llista" class="correccio-llista"></div>
+    </div>
+
+    <!-- Pestanya: Claude Sonnet -->
+    <div id="cpanel-cl" class="correccio-panel" style="display:none">
+      <!-- Filtre per tipus -->
+      <div class="correccio-filtre-bloc">
+        <label class="correccio-label-sm">Filtra per tipus:</label>
+        <select id="correccio-filtre-tipus" class="correccio-select"
+                onchange="filtraCorreccions()">
+          <option value="">Tots</option>
+          <option value="ortografia">Ortografia</option>
+          <option value="morfologia">Morfologia</option>
+          <option value="sintaxi">Sintaxi</option>
+          <option value="lèxic">Lèxic</option>
+          <option value="estil">Estil</option>
+          <option value="puntuació">Puntuació</option>
+          <option value="registre">Registre</option>
+        </select>
+      </div>
+      <div id="correccio-cl-llista" class="correccio-llista"></div>
+    </div>
+
+  </div><!-- /correccio-resultats -->
+
+</div><!-- /correccio-container -->
 </section>
 
 <!-- ═══ SECCIÓ 5 · Traducció d'imatges amb text (Gemini Nano Banana Pro) ═══ -->

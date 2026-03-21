@@ -913,6 +913,418 @@ async def configura_gemini(api_key: str = Body(..., embed=True)):
     return {"estat": "ok", "missatge": "Clau API configurada correctament."}
 
 
+# ─── Correcció/postedició de documents en valencià ────────────────────────────
+
+# Clau API d'Anthropic (es pot establir per entorn o via /configura-anthropic)
+ANTHROPIC_API_KEY_CORRECCIO: str = ""
+
+PROMPT_CORRECCIO_SISTEMA = """Ets un corrector ortogràfic, gramatical i estilístic especialitzat en **valencià normatiu universitari**.
+La teua funció és revisar textos en català/valencià i retornar-los completament corregits, aplicant estrictament les normes que es detallen a continuació.
+
+════════════════════════════════════════════════════════════════
+BLOC A — CRITERIS LINGÜÍSTICS DE LES UNIVERSITATS VALENCIANES
+════════════════════════════════════════════════════════════════
+
+A1. DEMOSTRATIUS. Usa exclusivament el sistema binari reforçat en registre formal:
+    · Proximitat: aquest/aquesta/aquests/aquestes (NO este/esta/estos/estes)
+    · Llunyania: aquell/aquella/aquells/aquelles
+    · Elimina el sistema ternari: este/eixe/aquell → aquest/aquell
+
+A2. VERBS INCOATIUS. Forma culta amb -esc/-eix (no -isc/-ix):
+    · servesc/serveixes/serveix/servim/serviu/serveixen
+    · patesc/pateixes/pateix/patim/patiu/pateixen
+    · oferesc/ofereixes/ofereix/oferim/oferiu/ofereixen
+    · establesc, aparesc, meresc, conec, aparesc, pertanys
+
+A3. POSSESSIUS. Forma amb -u- (tònica):
+    · meua/teua/seua (NO meva/teva/seva)
+    · meus/teus/seus, meues/teues/seues (NO meves/teves/seves)
+
+A4. ACCENTUACIÓ. Segueix la norma del català central excepte:
+    · anglès/anglesa (NO anglés/anglesa)
+    · francès/francesa (NO francés/francesa)
+    · cortès/cortesa (NO cortés/cortesa)
+    · Al remat de paraula: café → cafè, però mantén: perquè, però
+
+A5. LÈXIC. Prefereix les formes cultes i generals:
+    · avui (NO hui), però → però/ara bé
+    · menut/menuda (NO xicotet/xicoteta en registre formal)
+    · aprendre (NO dependre en el sentit cognitiu)
+    · vespre (NO vesprada com a sinònim de tarda en formal)
+
+A6. PLURALS DELS MOTS EN -C/-G/-X:
+    · discos, textos, èxits (NO discs, texts, èxits)
+    · Però: aspectes, projectes (correctes)
+
+A7. PARTICIPIS. Formes regulars en -it (no irregulars afavorides en col·loquial):
+    · complit (NO complert), oferit (NO ofert)
+    · establit (NO establert), omplit (NO omplert)
+    · Excepcions lexicalitzades: obert, escrit, vist, dit, fet, mort (formes fortes acceptades)
+
+A8. CONNECTORS DISCURSIUS. Usa connectors propis del registre escrit formal:
+    · Per tant, per consegüent, de manera que, tanmateix, malgrat això
+    · Evita: llavors (com a connector causal), aleshores (excepte en sentit temporal)
+
+A9. TRACTAMENT PERSONAL. En comunicació institucional:
+    · Vós/vosaltres per al tractament de cortesia col·lectiu
+    · Vostè/vostès en comunicació molt formal i protocol·lària
+
+A10. FORMES VERBALS PERIFRÀSTIQUES. Pretèrit perfet perifràstic:
+     · va fer, va dir, van anar (formes acceptades)
+     · NB: el perfet sintètic (feu, digué, anaren) és preferible en estil literari formal
+
+════════════════════════════════════════════════════════════════
+BLOC B — GRAMÀTICA: NORMES SINTÀCTIQUES I MORFOLÒGIQUES (60 REGLES)
+════════════════════════════════════════════════════════════════
+
+B1.  GÈNERE: masculí per defecte en noms epicens institucionals quan no hi ha referent concret.
+B2.  NOMBRE: concordança estricta subjecte–verb fins i tot en construccions invertides.
+B3.  ARTICLE DEFINIT: el/la/els/les davant noms propis geogràfics catalans (el País Valencià).
+B4.  ARTICLE NEUTRE: ho (no el) com a pronom neutre (m'agrada ← ho faig bé).
+B5.  APOSTROFACIÓ: l'home, l'hora, l'IVAM; però: la universitat (vocal feble no s'apostrofa si és u àtona).
+B6.  PREPOSICIONS. De/del/de la: no contraure si és nom propi femení (de la Maria).
+B7.  QUE/QUÈ: qué interrogatiu/exclamatiu → qué; relatiu sense pausa → que.
+B8.  RELATIU QUI: reservat a persones (la persona qui ho fa); QUE per a coses.
+B9.  ON/ON QUE: on (lloc); on que (incorrecte → on / en el qual).
+B10. PER A / PER: finalitat → per a; causa/agent → per.
+B11. EN / AMB: mitjà instrumental → amb; lloc dins → en.
+B12. INFINITIU: no usar -r final en contacte amb pronom (fer-lo, dir-li; NO fè-lo).
+B13. GERUNDI. Evita gerundis no concurrents o de posterioritat.
+B14. PASIVA REFLEXA: es construeix amb se (es publica, se celebrarà) en registre formal.
+B15. PRONOM SE: no confondre se reflexiu i se passiu; no usar en registre formal.
+B16. PRONOMS FEBLES. Ordre: reflexiu > datiu > acusatiu > hi > en (se li'n dóna).
+B17. CLÍTICS. No duplicar pronoms si l'objecte és tònic (ho fa ell, no *el fa ell).
+B18. EN ENANTIOPOSICIÓ: en davant de numerals partitius (en tinc tres, no *tinc tres).
+B19. HI/HI HA: hi ha (existencial); hi ha d'haver (obligació); no *hi ha de que.
+B20. ARTICLE + ADJECTIU POSSESSIU: la meua feina (article + possessiu obligatori en català).
+B21. DEMOSTRATIU + POSSESSIU: aquesta feina meua (ordre fix).
+B22. NEGACIÓ: no + verb; ni … ni (correlativa); tampoc (no *tampoc no en registre no marcat).
+B23. DOBLE NEGACIÓ: en registre formal, evitar «no … pas» (dialectalisme).
+B24. SUBJECTIU VALOR MODAL: cal que + subjuntiu; és necessari que + subjuntiu.
+B25. CONDICIONAL HIPOTÈTIC: si + imperfet de subjuntiu, condicional simple (si tinguera, faria).
+B26. CONCORDANÇA TEMPORAL: mantén la seqüència temporal (narració al passat → imperfet/plusquamperfet).
+B27. VOZ ACTIVA preferible a veu passiva perifràstica en registre administratiu.
+B28. QUEISME: evitar *de que quan la subordinada és subjecte o objecte directe.
+B29. DEQUEISME: usar de que quan el verb regeix preposició de (estic segur que → estic segur que ← correcte).
+B30. COMPLEMENT PREDICATIU: concorda amb el subjecte (van arribar contents, no *content).
+B31. ADJECTIU ATRIBUTIU: posició preferent postnominal en registre formal (informe detallat).
+B32. ADVERBI DE MANERA: forma en -ment (clarament, ràpidament); evita perífrasis innecessàries.
+B33. COMPARATIVES. Igualtat: tan … com; superioritat: més … que; inferioritat: menys … que.
+B34. SUPERLATIUS. Absolut: molt + adj. o -íssim (utilíssim); relatiu: el més + adj.
+B35. CONSTRUCCIÓ ABSOLUTA: havent acabat la reunió, … (correcte); *Acabant la reunió, … (evitar).
+B36. ORACIONS DE RELATIU EXPLICATIVES: amb comes (la proposta, que fou aprovada, …).
+B37. ORACIONS DE RELATIU ESPECIFICATIVES: sense comes (la proposta que fou aprovada …).
+B38. MAJÚSCULES: noms propis, institucions, càrrecs en protocol, però no adjectius de gentilici.
+B39. NUMERALS. Escriu en lletra els nombres de l'u al nou en prosa; xifres des del 10.
+B40. FRACCIONS: la meitat, un terç, tres quartes parts (no *tres cuartos en calc del castellà).
+B41. PERCENTATGE: el 35 % (amb espai i sense punt entre xifra i símbol).
+B42. DATA: dia mes any (15 de març de 2026); no usar el format anglès ni abreviatures de mesos.
+B43. HORA: les 9.30 h (punts, no dos punts); les 12 del migdia, les 0 hores.
+B44. DIVISES: 1.500 € (punt per a milers, coma per a decimals: 1.500,75 €).
+B45. ABREVIATURES. Usos normatius: pàg./pàgs., núm./núms., Sr./Sra., Dra./Dr.
+B46. SIGLES: sense punts (UV, UPV, IEC); article concorda amb el substantiu elidit (l'IEC, la UV).
+B47. TOPÒNIMS: forma oficial catalana (el País Valencià, Alacant, Castelló de la Plana).
+B48. ANTROPÒNIMS: respecta la forma oficial de cada persona; en documentació usa nom complet en primera menció.
+B49. ESTRANGERISMES: en cursiva si no adaptats; adapta els que tenen forma catalana (internet → internet, sense cursiva).
+B50. LLATINISMES: en cursiva si no lexicalitzats (in situ, ex aequo, curriculum).
+B51. TECNICISMES: usa la terminologia normativa del camp (consulta el TERMCAT si cal).
+B52. CALCS DEL CASTELLÀ: evita calcs sintàctics i lèxics (a nivell de → pel que fa a; en base a → basant-se en; de cara a → per a).
+B53. REPETICIONS: evita repeticions lèxiques innecessàries; usa pronoms i sinònims contextuals.
+B54. ECONOMIA LINGÜÍSTICA: no usar circumlocucions on hi ha un terme precís.
+B55. COHERÈNCIA TERMINOLÒGICA: un sol terme per a cada concepte al llarg del document.
+B56. PARAL·LELISME: manté estructura paral·lela en enumeracions i elements coordinats.
+B57. PUNTUACIÓ: coma davant de connectors adversatius (però, tanmateix, sinó); punt i coma per a separar elements llargs d'una enumeració.
+B58. COMETES: « » (angulars) en català; " " per a cites internes.
+B59. GUIÓ/GUIONET: guió llarg (—) per a incisos; guionet (-) per a compostos i prefixos.
+B60. PARÈNTESI/CLAUDÀTOR: parèntesi per a aclariments; claudàtor per a interpolacions en citació textual.
+
+════════════════════════════════════════════════════════════════
+BLOC C — MANUAL DE DOCUMENTS ADMINISTRATIUS (UV)
+════════════════════════════════════════════════════════════════
+
+C1. ENCAPÇALAMENTS. L'encapçalament del document inclou: emissor, destinatari, assumpte i data.
+C2. SALUTACIÓ. En comunicació oficial: "Senyor/Senyora," o "Benvolgut/Benvolguda,".
+    Evita fórmules col·loquials o estrangeres.
+C3. COMIAT. Formes protocol·làries: "Atentament," "Amb respecte," "Cordialment,".
+    Evita: "Quedant a la vostra disposició" (gal·licisme) → "Restant a la vostra disposició".
+C4. VERB EN REGISTRE ADMINISTRATIU. Usa les formes plenes:
+    · sol·licitar (NO demanar en context formal), manifestar (NO dir), comunicar (NO avisar).
+C5. ESTRUCTURES FIXES DOCUMENTALS.
+    · "Faig constar que…" (certificats)
+    · "Expose / Sol·licite / …" (instàncies)
+    · "…, i a tal efecte, RESOLC:" (resolucions)
+C6. VOZ I PERSONA. Prefereix la primera persona del singular en documents personals;
+    impersonal en documents institucionals.
+C7. TRACTAMENT INSTITUCIONAL. La Universitat de València (no *l'Universitat);
+    el Rectorat, la Junta de Govern, el Consell de Govern (majúscules en noms d'òrgans).
+C8. CITACIÓ DE NORMATIVA. "D'acord amb l'article 5 de la Llei…" (amb article determinat davant «article»).
+
+════════════════════════════════════════════════════════════════
+INSTRUCCIONS DE RESPOSTA
+════════════════════════════════════════════════════════════════
+
+Quan rebis un text per corregir:
+1. Retorna el text completament corregit aplicant totes les regles anteriors.
+2. Proporciona una llista detallada de les correccions realitzades en format JSON dins de ```json ``` amb aquest esquema:
+   [
+     {
+       "original": "text original amb l'error",
+       "corregit": "text corregit",
+       "tipus": "ortografia|morfologia|sintaxi|lèxic|estil|puntuació|registre",
+       "regla": "codi de la regla (p. ex. A1, B52, C4)",
+       "justificacio": "explicació breu de la correcció"
+     },
+     ...
+   ]
+3. Proporciona un resum breu (1-2 frases) de les principals àrees de millora detectades.
+
+Format de resposta OBLIGATORI:
+---TEXT CORREGIT---
+[text complet corregit]
+---FI TEXT---
+---CORRECCIONS---
+```json
+[llista de correccions]
+```
+---FI CORRECCIONS---
+---RESUM---
+[resum breu]
+---FI RESUM---
+"""
+
+
+class PeticioCorreccio(BaseModel):
+    text: str = Field(
+        ...,
+        min_length  = 1,
+        max_length  = 100_000,
+        description = "Text en valencià a corregir.",
+    )
+    usar_languagetool: bool = Field(
+        default     = True,
+        description = "Si cal aplicar primer la capa de LanguageTool (ca-ES).",
+    )
+    usar_claude: bool = Field(
+        default     = True,
+        description = "Si cal aplicar la capa de correcció amb Claude Sonnet.",
+    )
+
+
+class ItemCorreccioLT(BaseModel):
+    missatge:  str
+    offset:    int
+    longitud:  int
+    original:  str
+    suggerits: list[str]
+    regla_id:  str
+
+
+class ItemCorreccioC(BaseModel):
+    original:     str
+    corregit:     str
+    tipus:        str
+    regla:        str
+    justificacio: str
+
+
+class RespostaCorreccio(BaseModel):
+    text_original:     str
+    text_corregit:     str
+    correccions_lt:    list[dict]
+    correccions_claude: list[dict]
+    resum:             str
+    estat:             str
+
+
+@app.post("/configura-anthropic", tags=["Configuració"],
+          summary="Configura la clau API d'Anthropic per a la sessió actual")
+async def configura_anthropic(api_key: str = Body(..., embed=True)):
+    """
+    Desa la clau API d'Anthropic a la variable d'entorn ANTHROPIC_API_KEY
+    per a la sessió actual. Cal tornar-la a introduir si uvicorn es reinicia.
+    """
+    import os
+    global ANTHROPIC_API_KEY_CORRECCIO
+    if not api_key.startswith("sk-ant-"):
+        raise HTTPException(
+            status_code=400,
+            detail="Clau API d'Anthropic no vàlida (ha de començar per 'sk-ant-').",
+        )
+    os.environ["ANTHROPIC_API_KEY"] = api_key
+    ANTHROPIC_API_KEY_CORRECCIO = api_key
+    log.info("Clau API d'Anthropic configurada per a aquesta sessió.")
+    return {"estat": "ok", "missatge": "Clau API d'Anthropic configurada correctament."}
+
+
+@app.post(
+    "/corregeix",
+    response_model = RespostaCorreccio,
+    summary        = "Corregeix un text en valencià (LanguageTool + Claude Sonnet)",
+    tags           = ["Correcció"],
+)
+async def corregeix(peticio: PeticioCorreccio) -> RespostaCorreccio:
+    """
+    Corregeix un text en valencià aplicant dues capes:
+    1. LanguageTool (API pública, ca-ES): errors ortogràfics i gramaticals bàsics.
+    2. Claude Sonnet (claude-sonnet-4-6): normes específiques del valencià universitari.
+
+    Retorna el text corregit, la llista de correccions de cada capa i un resum.
+    """
+    import os
+    import httpx
+    import anthropic as _anthropic
+    import json as _json
+
+    text_entrant = peticio.text.strip()
+    if not text_entrant:
+        raise HTTPException(status_code=422, detail="El camp 'text' no pot estar buit.")
+
+    correccions_lt: list[dict] = []
+    text_despres_lt = text_entrant
+
+    # ── CAPA 1: LanguageTool ──────────────────────────────────────────────────
+    if peticio.usar_languagetool:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://api.languagetool.org/v2/check",
+                    data={
+                        "text":     text_entrant,
+                        "language": "ca-ES",
+                    },
+                    headers={"Accept": "application/json"},
+                )
+                resp.raise_for_status()
+                dades_lt = resp.json()
+
+            for match in dades_lt.get("matches", []):
+                context  = match.get("context", {})
+                original = context.get("text", "")[
+                    context.get("offset", 0):
+                    context.get("offset", 0) + context.get("length", 0)
+                ]
+                suggerits = [r.get("value", "") for r in match.get("replacements", [])[:3]]
+                correccions_lt.append({
+                    "missatge":  match.get("message", ""),
+                    "offset":    match.get("offset", 0),
+                    "longitud":  match.get("length", 0),
+                    "original":  original,
+                    "suggerits": suggerits,
+                    "regla_id":  match.get("rule", {}).get("id", ""),
+                })
+
+            # Aplica el primer suggerit de cada correcció (ordre invers per no desplaçar offsets)
+            text_despres_lt = text_entrant
+            for c in sorted(correccions_lt, key=lambda x: x["offset"], reverse=True):
+                if c["suggerits"]:
+                    ini = c["offset"]
+                    fi  = ini + c["longitud"]
+                    text_despres_lt = (
+                        text_despres_lt[:ini]
+                        + c["suggerits"][0]
+                        + text_despres_lt[fi:]
+                    )
+            log.info("LanguageTool — %d coincidències trobades", len(correccions_lt))
+
+        except httpx.HTTPError as exc:
+            log.warning("Error en la petició a LanguageTool: %s", exc)
+            # Continua sense LanguageTool si l'API no respon
+        except Exception as exc:
+            log.warning("Error inesperat a LanguageTool: %s", exc)
+
+    # ── CAPA 2: Claude Sonnet ─────────────────────────────────────────────────
+    correccions_claude: list[dict] = []
+    text_final = text_despres_lt
+    resum = ""
+
+    if peticio.usar_claude:
+        api_key_anthropic = (
+            ANTHROPIC_API_KEY_CORRECCIO
+            or os.environ.get("ANTHROPIC_API_KEY", "")
+        )
+        if not api_key_anthropic:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "ANTHROPIC_API_KEY no configurada. "
+                    "Introdueix-la al panell de configuració."
+                ),
+            )
+
+        try:
+            client_a = _anthropic.Anthropic(api_key=api_key_anthropic)
+
+            missatge_usuari = (
+                f"Corregeix el text següent en valencià aplicant totes les normes indicades:\n\n"
+                f"{text_despres_lt}"
+            )
+
+            resposta = client_a.messages.create(
+                model      = "claude-sonnet-4-6",
+                max_tokens = 8192,
+                system     = PROMPT_CORRECCIO_SISTEMA,
+                messages   = [{"role": "user", "content": missatge_usuari}],
+            )
+
+            contingut_resposta = resposta.content[0].text
+
+            # Extreu el text corregit
+            m_text = re.search(
+                r'---TEXT CORREGIT---\s*(.*?)\s*---FI TEXT---',
+                contingut_resposta,
+                re.DOTALL,
+            )
+            if m_text:
+                text_final = m_text.group(1).strip()
+
+            # Extreu la llista de correccions JSON
+            m_corr = re.search(
+                r'---CORRECCIONS---.*?```json\s*(.*?)\s*```.*?---FI CORRECCIONS---',
+                contingut_resposta,
+                re.DOTALL,
+            )
+            if m_corr:
+                try:
+                    correccions_claude = _json.loads(m_corr.group(1).strip())
+                except _json.JSONDecodeError:
+                    log.warning("No s'ha pogut parsejar el JSON de correccions de Claude.")
+
+            # Extreu el resum
+            m_resum = re.search(
+                r'---RESUM---\s*(.*?)\s*---FI RESUM---',
+                contingut_resposta,
+                re.DOTALL,
+            )
+            if m_resum:
+                resum = m_resum.group(1).strip()
+
+            log.info(
+                "Claude Sonnet — %d correccions aplicades",
+                len(correccions_claude),
+            )
+
+        except _anthropic.AuthenticationError:
+            raise HTTPException(
+                status_code=401,
+                detail="Clau API d'Anthropic invàlida o caducada.",
+            )
+        except Exception as exc:
+            log.exception("Error en la correcció amb Claude: %s", exc)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error en la correcció amb Claude Sonnet: {exc}",
+            )
+
+    return RespostaCorreccio(
+        text_original      = text_entrant,
+        text_corregit      = text_final,
+        correccions_lt     = correccions_lt,
+        correccions_claude = correccions_claude,
+        resum              = resum,
+        estat              = "ok",
+    )
+
+
 # ─── Gestió global d'errors ───────────────────────────────────────────────────
 
 @app.exception_handler(404)

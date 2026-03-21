@@ -27,6 +27,10 @@ streamlit
 # IA generativa (traducció d'imatges amb Gemini)
 google-genai>=1.0.0
 
+# Correcció/postedició de text en valencià (LanguageTool + Claude Sonnet)
+anthropic>=0.40.0
+httpx>=0.27.0
+
 # Processament de documents
 python-docx
 python-pptx
