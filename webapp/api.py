@@ -55,7 +55,7 @@ FITXER_STATS    = DIR_LOGS / "estadistiques.json"
 
 # ─── Fitxer .env: carrega claus API de forma persistent ──────────────────────
 import os as _os_env
-_ENV_PATH = ARREL_PROJECTE / ".env"
+_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 _ENV_PATH.touch(exist_ok=True)  # Crea el fitxer si no existeix
 if _DOTENV_OK:
     load_dotenv(dotenv_path=str(_ENV_PATH), override=True)
