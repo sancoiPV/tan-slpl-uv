@@ -29,6 +29,11 @@
     <button class="nav-btn" onclick="mostra('correccio-docs',this)">Correcció/postedició de documents en valencià</button>
     <button class="nav-btn" onclick="mostra('imatges',this)">Traducció d'imatges amb text</button>
     <button class="tab-btn" data-tab="glossaris" onclick="activaTab('glossaris')">📚 Glossaris: actualització</button>
+    <button class="btn-claus-api" id="btn-claus-api"
+            onclick="obreModalClausAPI()"
+            title="Gestiona les claus API de Gemini i Anthropic">
+      🔑 Claus API
+    </button>
   </nav>
 </header>
 
@@ -193,28 +198,6 @@
       (normes específiques de la UV, 60+ regles morfosintàctiques i d'estil).
     </p>
   </div>
-
-  <!-- Configuració API Key Anthropic (col·lapsable) -->
-  <details class="correccio-config" id="correccio-config-panel">
-    <summary>⚙ Configuració de l'API d'Anthropic (Claude Sonnet)</summary>
-    <div class="correccio-config-body">
-      <p class="correccio-config-nota">
-        Per a usar la capa de correcció avançada amb Claude Sonnet cal una
-        clau API d'Anthropic. La clau es desa només per a la sessió actual
-        i no s'emmagatzema de forma permanent.
-      </p>
-      <div class="correccio-config-fila">
-        <input type="password" id="correccio-anthropic-key"
-               placeholder="sk-ant-api03-…"
-               class="correccio-config-input"
-               autocomplete="off">
-        <button class="btn-secondary" onclick="configurarAnthropicKey()">
-          Desa la clau
-        </button>
-      </div>
-      <div id="correccio-config-missatge" class="correccio-config-missatge" style="display:none"></div>
-    </div>
-  </details>
 
   <!-- Opcions de correcció -->
   <div class="correccio-opcions">
@@ -416,26 +399,6 @@
     </p>
   </div>
 
-  <!-- Configuració API Key (col·lapsable) -->
-  <details class="imatge-config" id="imatge-config-panel">
-    <summary>⚙ Configuració de l'API de Gemini</summary>
-    <div class="imatge-config-body">
-      <p class="imatge-config-nota">
-        Introdueix la teua clau API de Google Gemini Pro.
-        La clau es desa localment per a la sessió actual.
-      </p>
-      <div class="imatge-config-row">
-        <input type="password" id="gemini-api-key"
-               placeholder="AIzaSy..."
-               autocomplete="off">
-        <button onclick="configurarGeminiKey()" class="btn-secondary">
-          💾 Desar clau
-        </button>
-      </div>
-      <div id="gemini-key-status" class="imatge-key-status"></div>
-    </div>
-  </details>
-
   <!-- Zona de pujada d'imatges -->
   <div class="imatge-upload-zone" id="imatge-upload-zone"
        ondragover="event.preventDefault()"
@@ -595,5 +558,80 @@
 </div>
 
 <script src="app.js"></script>
+
+<!-- ═══ MODAL · Claus API ═══════════════════════════════════════════════════ -->
+<div id="modal-claus-api" class="modal-overlay" style="display:none"
+     onclick="tancaModalSiOverlay(event)">
+  <div class="modal-contingut" onclick="event.stopPropagation()">
+
+    <div class="modal-capçalera">
+      <h2>🔑 Claus API</h2>
+      <button onclick="tancaModalClausAPI()" class="modal-tancar" title="Tancar">✕</button>
+    </div>
+
+    <p class="modal-descripcio">
+      Les claus s'emmagatzemen al fitxer <code>.env</code> del servidor local i es carreguen
+      automàticament cada vegada que s'arrenca el motor TAN. Ningú no en pot veure els caràcters reals.
+    </p>
+
+    <!-- ── Clau Gemini ────────────────────────────────────────────────────── -->
+    <div class="modal-clau-seccio">
+      <div class="modal-clau-capçalera">
+        <span class="modal-clau-titol">🖼 Google Gemini (Nano Banana Pro)</span>
+        <span class="modal-clau-estat" id="gemini-estat-badge">Comprovant…</span>
+      </div>
+      <p class="modal-clau-us">Usada per a la pestanya "Traducció d'imatges amb text".</p>
+      <div class="modal-clau-row">
+        <div class="modal-clau-input-wrap">
+          <input type="password" id="modal-gemini-key"
+                 placeholder="AIzaSy••••••••••••••••••••••••••"
+                 autocomplete="off" class="modal-clau-input">
+          <button onclick="alternaVisibilitatClau('modal-gemini-key', this)"
+                  class="modal-clau-ull" title="Mostra/amaga la clau">👁</button>
+        </div>
+        <button onclick="desarClauAPI('gemini')" class="btn-primary btn-desar-clau">
+          💾 Desar
+        </button>
+      </div>
+      <div id="gemini-clau-actual" class="modal-clau-actual"></div>
+      <div id="gemini-missatge" class="modal-clau-missatge" style="display:none"></div>
+    </div>
+
+    <hr class="modal-separador">
+
+    <!-- ── Clau Anthropic ─────────────────────────────────────────────────── -->
+    <div class="modal-clau-seccio">
+      <div class="modal-clau-capçalera">
+        <span class="modal-clau-titol">✍ Anthropic Claude Sonnet</span>
+        <span class="modal-clau-estat" id="anthropic-estat-badge">Comprovant…</span>
+      </div>
+      <p class="modal-clau-us">Usada per a la pestanya "Correcció/postedició de documents en valencià".</p>
+      <div class="modal-clau-row">
+        <div class="modal-clau-input-wrap">
+          <input type="password" id="modal-anthropic-key"
+                 placeholder="sk-ant-••••••••••••••••••••••••••"
+                 autocomplete="off" class="modal-clau-input">
+          <button onclick="alternaVisibilitatClau('modal-anthropic-key', this)"
+                  class="modal-clau-ull" title="Mostra/amaga la clau">👁</button>
+        </div>
+        <button onclick="desarClauAPI('anthropic')" class="btn-primary btn-desar-clau">
+          💾 Desar
+        </button>
+      </div>
+      <div id="anthropic-clau-actual" class="modal-clau-actual"></div>
+      <div id="anthropic-missatge" class="modal-clau-missatge" style="display:none"></div>
+    </div>
+
+    <div class="modal-peu">
+      <p class="modal-peu-nota">
+        🔒 Les claus es desen al fitxer <code>.env</code> del servidor local
+        i mai no s'envien a GitHub ni a cap servei extern.
+      </p>
+      <button onclick="tancaModalClausAPI()" class="btn-secondary">Tancar</button>
+    </div>
+
+  </div>
+</div>
+
 </body>
 </html>

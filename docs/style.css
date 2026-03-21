@@ -1523,3 +1523,236 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   color: #999;
   line-height: 1.5;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BOTÓ NAV · CLAUS API
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.btn-claus-api {
+  margin-left: auto;
+  padding: 0.38rem 0.85rem;
+  background: transparent;
+  border: 1px solid var(--color-border, #dde4ef);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--uv-blau, #003366);
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+  white-space: nowrap;
+  align-self: center;
+}
+
+.btn-claus-api:hover {
+  background: var(--color-surface, #f0f4fb);
+  border-color: var(--uv-blau, #003366);
+}
+
+.btn-claus-api-atencio {
+  border-color: #856404 !important;
+  color: #856404 !important;
+  background: #fff8e1 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MODAL · CLAUS API
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.52);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+
+.modal-contingut {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.75rem 2rem;
+  max-width: 560px;
+  width: 100%;
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+}
+
+.modal-capçalera {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.modal-capçalera h2 {
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: var(--uv-blau, #003366);
+  margin: 0;
+}
+
+.modal-tancar {
+  background: none;
+  border: none;
+  font-size: 1.15rem;
+  cursor: pointer;
+  color: #888;
+  padding: 0.2rem 0.45rem;
+  border-radius: 5px;
+  line-height: 1;
+  transition: background 0.15s;
+}
+
+.modal-tancar:hover { background: #f0f0f0; }
+
+.modal-descripcio {
+  font-size: 0.84rem;
+  color: #666;
+  margin: 0 0 1.35rem 0;
+  line-height: 1.55;
+}
+
+.modal-descripcio code {
+  background: #f0f4fb;
+  padding: 0.08rem 0.3rem;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.82rem;
+}
+
+/* Secció d'una clau */
+.modal-clau-seccio { margin-bottom: 0.5rem; }
+
+.modal-clau-capçalera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+  gap: 0.5rem;
+}
+
+.modal-clau-titol {
+  font-weight: 600;
+  font-size: 0.93rem;
+  color: #222;
+}
+
+.modal-clau-estat {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.12rem 0.5rem;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.estat-ok    { background: #d4edda; color: #155724; }
+.estat-error { background: #f8d7da; color: #721c24; }
+
+.modal-clau-us {
+  font-size: 0.81rem;
+  color: #888;
+  margin: 0 0 0.55rem 0;
+}
+
+.modal-clau-row {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.modal-clau-input-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.modal-clau-input {
+  width: 100%;
+  padding: 0.48rem 2.4rem 0.48rem 0.75rem;
+  border: 1px solid #c0d0e8;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-family: monospace;
+  transition: border-color 0.18s;
+  box-sizing: border-box;
+}
+
+.modal-clau-input:focus {
+  outline: none;
+  border-color: var(--uv-blau, #003366);
+  box-shadow: 0 0 0 3px rgba(0, 51, 102, 0.1);
+}
+
+.modal-clau-ull {
+  position: absolute;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 0;
+  opacity: 0.55;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+
+.modal-clau-ull:hover { opacity: 1; }
+
+.btn-desar-clau {
+  white-space: nowrap;
+  padding: 0.48rem 1rem !important;
+  font-size: 0.88rem !important;
+}
+
+.modal-clau-actual {
+  font-size: 0.8rem;
+  color: #888;
+  margin-top: 0.3rem;
+  font-family: monospace;
+  min-height: 1.1em;
+}
+
+.modal-clau-missatge {
+  margin-top: 0.35rem;
+  padding: 0.38rem 0.65rem;
+  border-radius: 5px;
+  font-size: 0.83rem;
+}
+
+.modal-clau-missatge-ok    { background: #d4edda; color: #155724; }
+.modal-clau-missatge-error { background: #f8d7da; color: #721c24; }
+
+.modal-separador {
+  border: none;
+  border-top: 1px solid #e8ecf2;
+  margin: 1.1rem 0;
+}
+
+.modal-peu {
+  margin-top: 1.35rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.modal-peu-nota {
+  font-size: 0.79rem;
+  color: #888;
+  flex: 1;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.modal-peu-nota code {
+  background: #f0f4fb;
+  padding: 0.08rem 0.3rem;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.78rem;
+}

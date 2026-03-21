@@ -571,33 +571,8 @@ document.addEventListener('DOMContentLoaded', () => {
 let imatgesSeleccionades = [];
 let imatgesTradudes = [];
 
-async function configurarGeminiKey() {
-  const key = document.getElementById('gemini-api-key').value.trim();
-  const status = document.getElementById('gemini-key-status');
-
-  if (!key.startsWith('AIza')) {
-    status.textContent = '✗ La clau no té el format correcte (ha de començar per AIza).';
-    status.className = 'imatge-key-status error';
-    return;
-  }
-
-  try {
-    const url = await TAN.getUrlAvancada();
-    const resp = await fetch(`${url}/configura-gemini`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: key })
-    });
-    if (!resp.ok) throw new Error(`Error ${resp.status}`);
-    status.textContent = '✓ Clau API configurada correctament per a aquesta sessió.';
-    status.className = 'imatge-key-status ok';
-    // Tanca el panell de configuració
-    document.getElementById('imatge-config-panel').removeAttribute('open');
-  } catch (e) {
-    status.textContent = `✗ Error configurant la clau: ${e.message}`;
-    status.className = 'imatge-key-status error';
-  }
-}
+// configurarGeminiKey() — substituïda pel modal centralitzat 🔑 Claus API
+// La gestió de la clau de Gemini es fa des de obreModalClausAPI()
 
 function handleImageDrop(event) {
   event.preventDefault();
@@ -854,40 +829,8 @@ function mostraMissatgeImatge(tipus, text) {
 
 let _dadesCorreccio = null;  // Última resposta de /corregeix
 
-// ── Configuració de la clau API d'Anthropic ────────────────────────────────
-
-async function configurarAnthropicKey() {
-  const clau = document.getElementById('correccio-anthropic-key').value.trim();
-  const elMsg = document.getElementById('correccio-config-missatge');
-  if (!clau) {
-    mostraMissatgeCorreccio('error', 'Introdueix la clau API d\'Anthropic.');
-    return;
-  }
-  elMsg.style.display = 'none';
-  try {
-    const resp = await fetch(`${API_BASE}/configura-anthropic`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ api_key: clau }),
-    });
-    const dades = await resp.json();
-    if (resp.ok) {
-      elMsg.textContent = '✅ ' + dades.missatge;
-      elMsg.className   = 'correccio-config-missatge correccio-config-ok';
-      elMsg.style.display = 'block';
-      document.getElementById('correccio-anthropic-key').value = '';
-      document.getElementById('correccio-config-panel').removeAttribute('open');
-    } else {
-      elMsg.textContent = '❌ ' + (dades.detail || 'Error configurant la clau.');
-      elMsg.className   = 'correccio-config-missatge correccio-config-error';
-      elMsg.style.display = 'block';
-    }
-  } catch (e) {
-    elMsg.textContent = '❌ Error de xarxa: ' + e.message;
-    elMsg.className   = 'correccio-config-missatge correccio-config-error';
-    elMsg.style.display = 'block';
-  }
-}
+// configurarAnthropicKey() — substituïda pel modal centralitzat 🔑 Claus API
+// La gestió de la clau d'Anthropic es fa des de obreModalClausAPI()
 
 // ── Corregeix el text ──────────────────────────────────────────────────────
 
@@ -919,7 +862,8 @@ async function corregeixText() {
     `Corregint amb ${passos.join(' + ')}…`;
 
   try {
-    const resp = await fetch(`${API_BASE}/corregeix`, {
+    const url  = await TAN.getUrlAvancada();
+    const resp = await fetch(`${url}/corregeix`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
@@ -1229,3 +1173,144 @@ function descarregaDocumentCorregit() {
   document.body.removeChild(a);
   URL.revokeObjectURL(urlBlob);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODAL — CLAUS API
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function obreModalClausAPI() {
+  document.getElementById('modal-claus-api').style.display = 'flex';
+  await carregaEstatClausAPI();
+}
+
+function tancaModalClausAPI() {
+  document.getElementById('modal-claus-api').style.display = 'none';
+}
+
+// Tanca el modal si l'usuari fa clic a l'overlay (fora del contingut)
+function tancaModalSiOverlay(event) {
+  if (event.target === document.getElementById('modal-claus-api')) {
+    tancaModalClausAPI();
+  }
+}
+
+async function carregaEstatClausAPI() {
+  try {
+    const url  = await TAN.getUrlAvancada();
+    const resp = await fetch(`${url}/api-keys/estat`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    // Gemini
+    const geminiEstat  = document.getElementById('gemini-estat-badge');
+    const geminiActual = document.getElementById('gemini-clau-actual');
+    if (geminiEstat) {
+      if (data.gemini.configurada) {
+        geminiEstat.textContent = '✓ Configurada';
+        geminiEstat.className   = 'modal-clau-estat estat-ok';
+        if (geminiActual) geminiActual.textContent = `Clau actual: ${data.gemini.clau_parcial}`;
+      } else {
+        geminiEstat.textContent = '✗ No configurada';
+        geminiEstat.className   = 'modal-clau-estat estat-error';
+        if (geminiActual) geminiActual.textContent = '';
+      }
+    }
+
+    // Anthropic
+    const anthropicEstat  = document.getElementById('anthropic-estat-badge');
+    const anthropicActual = document.getElementById('anthropic-clau-actual');
+    if (anthropicEstat) {
+      if (data.anthropic.configurada) {
+        anthropicEstat.textContent = '✓ Configurada';
+        anthropicEstat.className   = 'modal-clau-estat estat-ok';
+        if (anthropicActual) anthropicActual.textContent = `Clau actual: ${data.anthropic.clau_parcial}`;
+      } else {
+        anthropicEstat.textContent = '✗ No configurada';
+        anthropicEstat.className   = 'modal-clau-estat estat-error';
+        if (anthropicActual) anthropicActual.textContent = '';
+      }
+    }
+  } catch (e) {
+    console.warn('No s\'ha pogut carregar l\'estat de les claus API:', e.message);
+  }
+}
+
+async function desarClauAPI(servei) {
+  const inputId    = servei === 'gemini' ? 'modal-gemini-key'    : 'modal-anthropic-key';
+  const missatgeId = servei === 'gemini' ? 'gemini-missatge'     : 'anthropic-missatge';
+  const clau       = document.getElementById(inputId).value.trim();
+
+  if (!clau) {
+    mostraModalMissatge(missatgeId, 'error', 'Introdueix una clau API.');
+    return;
+  }
+
+  try {
+    const url  = await TAN.getUrlAvancada();
+    const resp = await fetch(`${url}/api-keys/desa`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ servei, clau }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || `Error ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    mostraModalMissatge(
+      missatgeId, 'ok',
+      `✓ Clau desada correctament: ${data.clau_parcial}`
+    );
+    document.getElementById(inputId).value = '';
+    await carregaEstatClausAPI();
+
+  } catch (e) {
+    mostraModalMissatge(missatgeId, 'error', `✗ ${e.message}`);
+  }
+}
+
+function alternaVisibilitatClau(inputId, boto) {
+  const input = document.getElementById(inputId);
+  if (input.type === 'password') {
+    input.type       = 'text';
+    boto.textContent = '🙈';
+    boto.title       = 'Amaga la clau';
+  } else {
+    input.type       = 'password';
+    boto.textContent = '👁';
+    boto.title       = 'Mostra la clau';
+  }
+}
+
+function mostraModalMissatge(id, tipus, text) {
+  const el      = document.getElementById(id);
+  el.textContent = text;
+  el.className   = `modal-clau-missatge modal-clau-missatge-${tipus}`;
+  el.style.display = 'block';
+  if (tipus !== 'info') {
+    setTimeout(() => { el.style.display = 'none'; }, 5000);
+  }
+}
+
+// Comprova l'estat de les claus en carregar la pàgina i actualitza el botó nav
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(async () => {
+    try {
+      const url  = await TAN.getUrlAvancada();
+      const resp = await fetch(`${url}/api-keys/estat`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const totes = data.gemini.configurada && data.anthropic.configurada;
+      const btn   = document.getElementById('btn-claus-api');
+      if (btn && !totes) {
+        btn.classList.add('btn-claus-api-atencio');
+        btn.title = 'Hi ha claus API sense configurar — clica per gestionar-les';
+      } else if (btn) {
+        btn.classList.remove('btn-claus-api-atencio');
+        btn.title = 'Gestiona les claus API de Gemini i Anthropic';
+      }
+    } catch (_) {}
+  }, 2500);
+});

@@ -38,6 +38,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+# ─── python-dotenv: càrrega i persistència de claus API ──────────────────────
+try:
+    from dotenv import load_dotenv, set_key as _dotenv_set_key
+    _DOTENV_OK = True
+except ImportError:
+    _DOTENV_OK = False
+
 # ─── Rutes del projecte ───────────────────────────────────────────────────────
 ARREL_PROJECTE  = Path(__file__).parent.parent
 DIR_MODELS      = ARREL_PROJECTE / "model-afinar"
@@ -45,6 +52,13 @@ DIR_LOGS        = ARREL_PROJECTE / "logs"
 DIR_POSTEDICIONS = ARREL_PROJECTE / "corpus" / "postedicions"
 FITXER_LOG      = DIR_LOGS / "api.log"
 FITXER_STATS    = DIR_LOGS / "estadistiques.json"
+
+# ─── Fitxer .env: carrega claus API de forma persistent ──────────────────────
+import os as _os_env
+_ENV_PATH = ARREL_PROJECTE / ".env"
+_ENV_PATH.touch(exist_ok=True)  # Crea el fitxer si no existeix
+if _DOTENV_OK:
+    load_dotenv(dotenv_path=str(_ENV_PATH), override=True)
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 VERSIO          = "1.0"
@@ -897,22 +911,17 @@ async def tradueix_imatge(peticio: PeticioTraduccioImatge):
 
 
 @app.post("/configura-gemini", tags=["Configuració"],
-          summary="Configura la clau API de Gemini per a la sessió actual")
+          summary="[DEPRECAT] Usa /api-keys/desa en comptes d'aquest endpoint")
 async def configura_gemini(api_key: str = Body(..., embed=True)):
-    """
-    Desa la clau API de Gemini a la variable d'entorn GEMINI_API_KEY
-    per a la sessió actual del servidor. Cal tornar-la a introduir si
-    uvicorn es reinicia. Per a configuració permanent, afegeix-la al
-    fitxer .env de l'arrel del projecte (ja al .gitignore).
-    """
+    """Mantingut per compatibilitat. Usa POST /api-keys/desa."""
     import os
     if not api_key.startswith("AIza"):
-        raise HTTPException(
-            status_code=400,
-            detail="Clau API de Gemini no vàlida (ha de començar per 'AIza').",
-        )
+        raise HTTPException(status_code=400,
+                            detail="Clau API de Gemini no vàlida (ha de començar per 'AIza').")
     os.environ["GEMINI_API_KEY"] = api_key
-    log.info("Clau API de Gemini configurada per a aquesta sessió.")
+    if _DOTENV_OK:
+        _dotenv_set_key(str(_ENV_PATH), "GEMINI_API_KEY", api_key)
+    log.info("Clau API de Gemini configurada (via endpoint antic).")
     return {"estat": "ok", "missatge": "Clau API configurada correctament."}
 
 
@@ -1140,23 +1149,125 @@ class RespostaCorreccio(BaseModel):
 
 
 @app.post("/configura-anthropic", tags=["Configuració"],
-          summary="Configura la clau API d'Anthropic per a la sessió actual")
+          summary="[DEPRECAT] Usa /api-keys/desa en comptes d'aquest endpoint")
 async def configura_anthropic(api_key: str = Body(..., embed=True)):
-    """
-    Desa la clau API d'Anthropic a la variable d'entorn ANTHROPIC_API_KEY
-    per a la sessió actual. Cal tornar-la a introduir si uvicorn es reinicia.
-    """
+    """Mantingut per compatibilitat. Usa POST /api-keys/desa."""
     import os
     global ANTHROPIC_API_KEY_CORRECCIO
     if not api_key.startswith("sk-ant-"):
-        raise HTTPException(
-            status_code=400,
-            detail="Clau API d'Anthropic no vàlida (ha de començar per 'sk-ant-').",
-        )
+        raise HTTPException(status_code=400,
+                            detail="Clau API d'Anthropic no vàlida (ha de començar per 'sk-ant-').")
     os.environ["ANTHROPIC_API_KEY"] = api_key
+    os.environ["ANTHROPIC_API_KEY_CORRECCIO"] = api_key
     ANTHROPIC_API_KEY_CORRECCIO = api_key
-    log.info("Clau API d'Anthropic configurada per a aquesta sessió.")
+    if _DOTENV_OK:
+        _dotenv_set_key(str(_ENV_PATH), "ANTHROPIC_API_KEY_CORRECCIO", api_key)
+    log.info("Clau API d'Anthropic configurada (via endpoint antic).")
     return {"estat": "ok", "missatge": "Clau API d'Anthropic configurada correctament."}
+
+
+# ─── Gestió centralitzada de claus API ───────────────────────────────────────
+
+class PeticioClauAPI(BaseModel):
+    servei: str = Field(..., description="'gemini' o 'anthropic'")
+    clau:   str = Field(..., description="Valor de la clau API")
+
+
+class RespostaClauAPI(BaseModel):
+    servei:       str
+    configurada:  bool
+    clau_parcial: str
+
+
+@app.post(
+    "/api-keys/desa",
+    response_model = RespostaClauAPI,
+    summary        = "Desa una clau API al .env de forma persistent",
+    tags           = ["Configuració"],
+)
+async def desa_clau_api(peticio: PeticioClauAPI) -> RespostaClauAPI:
+    """
+    Desa una clau API al fitxer .env de l'arrel del projecte de forma
+    persistent (s'aplicarà en cada reinici del servidor).
+    Actualitza també la sessió actual sense necessitat de reiniciar.
+    """
+    import os
+    global ANTHROPIC_API_KEY_CORRECCIO
+
+    servei = peticio.servei.lower().strip()
+    clau   = peticio.clau.strip()
+
+    if servei == "gemini":
+        if not clau.startswith("AIza"):
+            raise HTTPException(
+                status_code=400,
+                detail="Clau de Gemini no vàlida (ha de començar per 'AIza').",
+            )
+        nom_variable = "GEMINI_API_KEY"
+        os.environ[nom_variable] = clau
+
+    elif servei == "anthropic":
+        if not clau.startswith("sk-ant-"):
+            raise HTTPException(
+                status_code=400,
+                detail="Clau d'Anthropic no vàlida (ha de començar per 'sk-ant-').",
+            )
+        nom_variable = "ANTHROPIC_API_KEY_CORRECCIO"
+        os.environ[nom_variable] = clau
+        os.environ["ANTHROPIC_API_KEY"] = clau
+        ANTHROPIC_API_KEY_CORRECCIO = clau
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Servei desconegut: '{servei}'.")
+
+    # Persisteix al .env
+    if _DOTENV_OK:
+        _dotenv_set_key(str(_ENV_PATH), nom_variable, clau)
+        log.info("Clau '%s' desada al .env i a l'entorn.", nom_variable)
+    else:
+        log.warning(
+            "python-dotenv no disponible: la clau '%s' s'ha establit per a "
+            "la sessió actual però NO s'ha desat al .env.",
+            nom_variable,
+        )
+
+    clau_parcial = ("••••••••" + clau[-4:]) if len(clau) > 4 else "••••"
+    return RespostaClauAPI(servei=servei, configurada=True, clau_parcial=clau_parcial)
+
+
+@app.get(
+    "/api-keys/estat",
+    summary = "Estat de configuració de les claus API",
+    tags    = ["Configuració"],
+)
+async def estat_claus_api():
+    """
+    Retorna si cada clau API està configurada i els darrers 4 caràcters
+    emmascarat. Mai retorna el valor real de la clau.
+    """
+    import os
+
+    def parcial(clau: str) -> str:
+        if not clau:
+            return ""
+        return "••••••••" + clau[-4:]
+
+    clau_gemini    = os.environ.get("GEMINI_API_KEY", "")
+    clau_anthropic = (
+        os.environ.get("ANTHROPIC_API_KEY_CORRECCIO", "")
+        or ANTHROPIC_API_KEY_CORRECCIO
+    )
+
+    return {
+        "gemini": {
+            "configurada":  bool(clau_gemini),
+            "clau_parcial": parcial(clau_gemini),
+        },
+        "anthropic": {
+            "configurada":  bool(clau_anthropic),
+            "clau_parcial": parcial(clau_anthropic),
+        },
+    }
 
 
 @app.post(
