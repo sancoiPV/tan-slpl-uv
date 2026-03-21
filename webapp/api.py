@@ -22,9 +22,12 @@ import io
 import json
 import logging
 import re
+import shutil
 import sys
+import tempfile
 import time
 import uuid
+import zipfile
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal, Optional
@@ -1322,6 +1325,404 @@ async def corregeix(peticio: PeticioCorreccio) -> RespostaCorreccio:
         correccions_claude = correccions_claude,
         resum              = resum,
         estat              = "ok",
+    )
+
+
+# ─── Correcció de documents DOCX / PPTX ───────────────────────────────────────
+
+# Namespaces XML Word / PowerPoint (locals a aquest mòdul)
+_NS_W_DOC = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_NS_A_DOC = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+# Fitxers XML que cal processar dins un DOCX
+_FITXERS_XML_DOCX_FIXES = {
+    "word/document.xml",
+    "word/footnotes.xml",
+    "word/endnotes.xml",
+    "word/comments.xml",
+}
+_PATRÓ_FITXERS_DOCX_EXTRA = re.compile(
+    r"word/(header\d+|footer\d+)\.xml$"
+)
+# Fitxers XML que cal processar dins un PPTX
+_PATRÓ_FITXERS_PPTX = re.compile(
+    r"ppt/(slides/slide\d+|notesSlides/notesSlide\d+)\.xml$"
+)
+# Atribut xml:space="preserve"
+_XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+
+
+def _obte_text_paràgraf_doc(p_node, ns_t: str) -> str:
+    """Concatena el text de tots els nodes <w:t>/<a:t> fills del paràgraf."""
+    parts = []
+    for t in p_node.iter(f"{{{ns_t}}}t"):
+        if t.text:
+            parts.append(t.text)
+    return "".join(parts)
+
+
+def _substitueix_text_runs(p_node, text_nou: str, ns_t: str) -> None:
+    """
+    Distribueix text_nou entre els nodes <w:t>/<a:t> del paràgraf preservant
+    tots els atributs de format (rPr, pPr, etc.).
+    Tot el text va al primer node t; la resta queden buits.
+    """
+    nodes_t = [n for n in p_node.iter(f"{{{ns_t}}}t") if n.text is not None]
+    if not nodes_t:
+        # Si no hi havia text, crea un node t dins del primer run si existeix
+        tag_r   = f"{{{ns_t}}}r" if ns_t else f"{{{_NS_W_DOC}}}r"
+        primers = list(p_node.iter(tag_r))
+        if primers:
+            from lxml import etree as _et
+            nou = _et.SubElement(primers[0], f"{{{ns_t}}}t")
+            nou.text = text_nou
+            nou.set(_XML_SPACE, "preserve")
+        return
+
+    nodes_t[0].text = text_nou
+    if text_nou and (text_nou[:1] == " " or text_nou[-1:] == " "):
+        nodes_t[0].set(_XML_SPACE, "preserve")
+    for node in nodes_t[1:]:
+        node.text = ""
+
+
+def _extrau_paràgrafs_docx(xml_bytes: bytes) -> list[dict]:
+    """
+    Analitza el XML de Word i retorna la llista de paràgrafs:
+    [{index, text, node}] (índex del paràgraf dins el document).
+    """
+    from lxml import etree as _et
+    arbre   = _et.fromstring(xml_bytes)
+    resultat = []
+    for i, p in enumerate(arbre.iter(f"{{{_NS_W_DOC}}}p")):
+        text = _obte_text_paràgraf_doc(p, _NS_W_DOC)
+        resultat.append({"index": i, "text": text, "node": p})
+    return resultat, arbre
+
+
+def _aplica_correccions_docx(arbre, paràgrafs: list[dict], segments_corregits: list[str]) -> bytes:
+    """Substitueix el text de cada paràgraf amb la versió corregida i serialitza."""
+    from lxml import etree as _et
+    for p in paràgrafs:
+        idx   = p["index"]
+        nou   = segments_corregits[idx] if idx < len(segments_corregits) else ""
+        antic = p["text"]
+        if nou and nou != antic:
+            _substitueix_text_runs(p["node"], nou, _NS_W_DOC)
+    return _et.tostring(arbre, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _extrau_shapes_pptx(xml_bytes: bytes):
+    """
+    Analitza el XML d'una diapositiva PPTX i retorna:
+    (shapes, arbre) on shapes = [{shape_idx, par_idx, text, node}]
+    """
+    from lxml import etree as _et
+    arbre   = _et.fromstring(xml_bytes)
+    shapes  = []
+    for si, txBody in enumerate(arbre.iter(f"{{{_NS_A_DOC}}}txBody")):
+        for pi, p in enumerate(txBody.iter(f"{{{_NS_A_DOC}}}p")):
+            text = _obte_text_paràgraf_doc(p, _NS_A_DOC)
+            shapes.append({"si": si, "pi": pi, "text": text, "node": p})
+    return shapes, arbre
+
+
+def _aplica_correccions_pptx(arbre, shapes: list[dict],
+                               segments_corregits: list[str],
+                               offset_inici: int) -> bytes:
+    """Substitueix el text de cada shape/paràgraf amb la versió corregida."""
+    from lxml import etree as _et
+    for k, shape in enumerate(shapes):
+        idx_global = offset_inici + k
+        nou  = segments_corregits[idx_global] if idx_global < len(segments_corregits) else ""
+        if nou and nou != shape["text"]:
+            _substitueix_text_runs(shape["node"], nou, _NS_A_DOC)
+    return _et.tostring(arbre, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+async def _corregeix_segments_claude(
+    segments: list[str],
+    api_key: str,
+    mida_lot: int = 20,
+) -> list[str]:
+    """
+    Envia segments de text a Claude Sonnet per a correcció normativa en lots.
+    Retorna la llista de segments corregits conservant l'ordre i els índexs.
+    """
+    import anthropic as _ant
+    import json as _js
+
+    client             = _ant.Anthropic(api_key=api_key)
+    segments_corregits = list(segments)
+
+    índexs_útils = [
+        i for i, s in enumerate(segments)
+        if s and s.strip() and len(s.strip()) > 2
+    ]
+
+    if not índexs_útils:
+        return segments_corregits
+
+    for inici_lot in range(0, len(índexs_útils), mida_lot):
+        lot_idx   = índexs_útils[inici_lot: inici_lot + mida_lot]
+        lot_textos = {str(i): segments[i] for i in lot_idx}
+
+        prompt_lot = (
+            "Ets el corrector lingüístic expert del SLPL de la Universitat de València.\n"
+            "Corregeix els textos en valencià del JSON aplicant:\n"
+            "- Demostratius reforçats: aquest/aquesta (NO este/esta)\n"
+            "- Possessius amb -u-: meua/teua/seua (NO meva/teva/seva)\n"
+            "- Verbs incoatius: serveix/pateix/ofereix (NO servix/patix/oferix)\n"
+            "- Participis regulars: complit/oferit/establit (NO complert/ofert/establert)\n"
+            "- Accentuació general: anglès/francès (NO anglés/francés)\n"
+            "- Eliminació de calcs del castellà i lo neutre\n"
+            "- Normes del Manual de documents administratius de la UV\n\n"
+            "REGLES CRÍTIQUES:\n"
+            "- Retorna EXACTAMENT el mateix JSON amb les mateixes claus numèriques.\n"
+            "- Si un text és correcte, retorna'l IDÈNTIC.\n"
+            "- NO afegeixis cap text fora del JSON.\n"
+            "- Preserva majúscules, sigles, noms propis, xifres i puntuació estructural.\n\n"
+            f"JSON d'entrada:\n{_js.dumps(lot_textos, ensure_ascii=False, indent=2)}\n\n"
+            "Retorna ÚNICAMENT el JSON corregit:"
+        )
+
+        try:
+            resposta = client.messages.create(
+                model      = "claude-sonnet-4-6",
+                max_tokens = 4096,
+                messages   = [{"role": "user", "content": prompt_lot}],
+            )
+            text_resp = resposta.content[0].text.strip()
+
+            # Neteja delimitadors ```json``` si n'hi ha
+            if text_resp.startswith("```"):
+                text_resp = re.sub(r"```(?:json)?\s*", "", text_resp)
+                text_resp = text_resp.replace("```", "").strip()
+
+            lot_corregit = _js.loads(text_resp)
+
+            for i in lot_idx:
+                val = lot_corregit.get(str(i))
+                if val and isinstance(val, str):
+                    segments_corregits[i] = val
+
+        except Exception as exc:
+            log.warning(
+                "Error en lot %d–%d de correcció de segments: %s",
+                inici_lot, inici_lot + len(lot_idx), exc,
+            )
+
+    return segments_corregits
+
+
+async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
+    """Corregeix un DOCX i retorna el DOCX corregit preservant el format."""
+    tots_segments: list[str]         = []
+    mapa_fitxer: dict[str, tuple]    = {}
+
+    # ── Passada 1: extrau tots els segments de text ───────────────────────────
+    with zipfile.ZipFile(io.BytesIO(fitxer_bytes)) as zin:
+        noms = zin.namelist()
+        for nom in noms:
+            if nom in _FITXERS_XML_DOCX_FIXES or _PATRÓ_FITXERS_DOCX_EXTRA.match(nom):
+                try:
+                    xml_bytes = zin.read(nom)
+                    paràgrafs, arbre = _extrau_paràgrafs_docx(xml_bytes)
+                    inici = len(tots_segments)
+                    for p in paràgrafs:
+                        tots_segments.append(p["text"])
+                    mapa_fitxer[nom] = (paràgrafs, arbre, inici, xml_bytes)
+                except Exception as exc:
+                    log.warning("Error extraient paràgrafs de '%s': %s", nom, exc)
+                    mapa_fitxer[nom] = None
+
+    # ── Corregeix tots els segments de cop ────────────────────────────────────
+    corregits = await _corregeix_segments_claude(tots_segments, api_key)
+
+    # ── Passada 2: reconstrueix el ZIP ────────────────────────────────────────
+    buf_eixida = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(fitxer_bytes)) as zin, \
+         zipfile.ZipFile(buf_eixida, "w", zipfile.ZIP_DEFLATED) as zout:
+        for nom in zin.namelist():
+            if nom in mapa_fitxer and mapa_fitxer[nom] is not None:
+                paràgrafs, arbre, inici, xml_original = mapa_fitxer[nom]
+                # Construeix llista de segments corregits amb índex global
+                segs_fitxer = corregits[inici: inici + len(paràgrafs)]
+                # Reconstrueix els índexs locals: paràgraf[k].index → segs_fitxer[k]
+                segs_per_idx = {p["index"]: segs_fitxer[k] for k, p in enumerate(paràgrafs)}
+                # Crea un nou arbre per a aquest fitxer (reutilitza el ja parsejat)
+                # Aplica: substitueix segs_per_idx[index] per cada paràgraf
+                from lxml import etree as _et
+                arbre_treballat = _et.fromstring(xml_original)
+                for i, p_node in enumerate(arbre_treballat.iter(f"{{{_NS_W_DOC}}}p")):
+                    nou = segs_per_idx.get(i, "")
+                    antic = paràgrafs[i]["text"] if i < len(paràgrafs) else ""
+                    if nou and nou != antic:
+                        _substitueix_text_runs(p_node, nou, _NS_W_DOC)
+                xml_corregit = _et.tostring(
+                    arbre_treballat, xml_declaration=True, encoding="UTF-8", standalone=True
+                )
+                # Força l'idioma ca-ES
+                xml_text = xml_corregit.decode("utf-8")
+                xml_text = re.sub(r'w:lang\s+w:val="[^"]*"', 'w:lang w:val="ca-ES"', xml_text)
+                zout.writestr(nom, xml_text.encode("utf-8"))
+            else:
+                zout.writestr(nom, zin.read(nom))
+
+    buf_eixida.seek(0)
+    return buf_eixida.read()
+
+
+async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
+    """Corregeix un PPTX i retorna el PPTX corregit preservant el format."""
+    tots_segments: list[str]       = []
+    mapa_fitxer: dict[str, tuple]  = {}
+
+    # ── Passada 1: extrau tots els segments ───────────────────────────────────
+    with zipfile.ZipFile(io.BytesIO(fitxer_bytes)) as zin:
+        noms = zin.namelist()
+        for nom in noms:
+            if _PATRÓ_FITXERS_PPTX.match(nom):
+                try:
+                    xml_bytes = zin.read(nom)
+                    shapes, arbre = _extrau_shapes_pptx(xml_bytes)
+                    inici = len(tots_segments)
+                    for s in shapes:
+                        tots_segments.append(s["text"])
+                    mapa_fitxer[nom] = (shapes, inici, xml_bytes)
+                except Exception as exc:
+                    log.warning("Error extraient shapes de '%s': %s", nom, exc)
+                    mapa_fitxer[nom] = None
+
+    # ── Corregeix ─────────────────────────────────────────────────────────────
+    corregits = await _corregeix_segments_claude(tots_segments, api_key)
+
+    # ── Passada 2: reconstrueix el ZIP ────────────────────────────────────────
+    buf_eixida = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(fitxer_bytes)) as zin, \
+         zipfile.ZipFile(buf_eixida, "w", zipfile.ZIP_DEFLATED) as zout:
+        for nom in zin.namelist():
+            if nom in mapa_fitxer and mapa_fitxer[nom] is not None:
+                shapes, inici, xml_original = mapa_fitxer[nom]
+                from lxml import etree as _et
+                arbre_treballat = _et.fromstring(xml_original)
+                k = 0
+                for txBody in arbre_treballat.iter(f"{{{_NS_A_DOC}}}txBody"):
+                    for p_node in txBody.iter(f"{{{_NS_A_DOC}}}p"):
+                        if k < len(shapes):
+                            idx_global = inici + k
+                            nou  = corregits[idx_global] if idx_global < len(corregits) else ""
+                            if nou and nou != shapes[k]["text"]:
+                                _substitueix_text_runs(p_node, nou, _NS_A_DOC)
+                            k += 1
+                xml_corregit = _et.tostring(
+                    arbre_treballat, xml_declaration=True, encoding="UTF-8", standalone=True
+                )
+                xml_text = xml_corregit.decode("utf-8")
+                xml_text = re.sub(r'\blang="[^"]*"', 'lang="ca-ES"', xml_text)
+                zout.writestr(nom, xml_text.encode("utf-8"))
+            else:
+                zout.writestr(nom, zin.read(nom))
+
+    buf_eixida.seek(0)
+    return buf_eixida.read()
+
+
+@app.post(
+    "/corregeix-document",
+    summary = "Corregeix un document DOCX o PPTX en valencià preservant el format",
+    tags    = ["Correcció"],
+)
+async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
+    """
+    Corregeix normativament un document .docx o .pptx en català/valencià
+    preservant el format, la tipografia, els colors i l'estructura originals.
+
+    Estratègia:
+    1. Obre el ZIP intern del document
+    2. Extreu el text de cada paràgraf (<w:p>/<a:p>)
+    3. Envia tots els segments a Claude Sonnet (lots de 20)
+    4. Reinjecta els textos corregits als nodes XML originals
+    5. Retorna el document reconstruït
+    """
+    import os
+
+    api_key = (
+        ANTHROPIC_API_KEY_CORRECCIO
+        or os.environ.get("ANTHROPIC_API_KEY", "")
+    )
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Clau API d'Anthropic no configurada. "
+                "Introdueix-la al panell de configuració de la pestanya 'Correcció'."
+            ),
+        )
+
+    nom       = fitxer.filename or "document"
+    extensió  = Path(nom).suffix.lower()
+
+    if extensió not in (".docx", ".pptx"):
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                f"Extensió '{extensió}' no admesa. "
+                "Només s'accepten fitxers .docx i .pptx."
+            ),
+        )
+
+    contingut = await fitxer.read()
+    if len(contingut) > MAX_MIDA_FITXER:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"El fitxer supera el límit de 20 MB "
+                f"({len(contingut) / 1_048_576:.1f} MB rebuts)."
+            ),
+        )
+
+    log.info(
+        "POST /corregeix-document — fitxer='%s' mida=%.1f KB",
+        nom, len(contingut) / 1024,
+    )
+
+    inici = time.perf_counter()
+    try:
+        if extensió == ".docx":
+            resultat   = await _processa_docx_correccio(contingut, api_key)
+            media_type = (
+                "application/vnd.openxmlformats-officedocument"
+                ".wordprocessingml.document"
+            )
+        else:
+            resultat   = await _processa_pptx_correccio(contingut, api_key)
+            media_type = (
+                "application/vnd.openxmlformats-officedocument"
+                ".presentationml.presentation"
+            )
+    except Exception as exc:
+        log.exception("Error corregint el document '%s': %s", nom, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error en la correcció del document: {exc}",
+        )
+
+    temps_ms     = int((time.perf_counter() - inici) * 1000)
+    nom_sortida  = Path(nom).stem + "_corregit" + extensió
+    log.info(
+        "Document corregit en %d ms → '%s' (%d bytes)",
+        temps_ms, nom_sortida, len(resultat),
+    )
+
+    return Response(
+        content    = resultat,
+        media_type = media_type,
+        headers    = {
+            "Content-Disposition": f'attachment; filename="{nom_sortida}"',
+            "Content-Length":      str(len(resultat)),
+            "X-Temps-Ms":          str(temps_ms),
+        },
     )
 
 

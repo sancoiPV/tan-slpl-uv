@@ -254,6 +254,57 @@
     </button>
   </div>
 
+  <!-- ── Secció de documents DOCX / PPTX ──────────────────────────────────── -->
+  <div class="correccio-document-seccio">
+    <div class="correccio-document-divisor">
+      <span>o bé</span>
+    </div>
+
+    <div class="correccio-document-controls">
+      <div class="correccio-document-esquerra">
+        <input type="file" id="correccio-doc-input"
+               accept=".docx,.pptx" style="display:none"
+               onchange="handleDocumentSelect(event)">
+
+        <button onclick="document.getElementById('correccio-doc-input').click()"
+                class="btn-secondary btn-apujar-doc"
+                id="btn-apujar-document">
+          📄 Apujar document en valencià
+        </button>
+
+        <div id="correccio-doc-info" class="correccio-doc-info" style="display:none">
+          <span class="correccio-doc-icona" id="correccio-doc-icona">📄</span>
+          <span class="correccio-doc-nom"   id="correccio-doc-nom"></span>
+          <span class="correccio-doc-mida"  id="correccio-doc-mida"></span>
+          <button onclick="eliminaDocument()"
+                  class="btn-eliminar-terme" title="Eliminar">🗑</button>
+        </div>
+      </div>
+
+      <div class="correccio-document-dreta">
+        <button onclick="corregeixDocument()"
+                class="btn-primary btn-corregir-doc"
+                id="btn-corregir-document"
+                style="display:none">
+          ✍ Corregir document
+        </button>
+
+        <button onclick="descarregaDocumentCorregit()"
+                class="btn-descarrega-glossari btn-descarregar-doc"
+                id="btn-descarregar-document"
+                style="display:none">
+          ⬇ Descarregar document corregit
+        </button>
+      </div>
+    </div>
+
+    <p class="correccio-document-nota">
+      Formats admesos: <strong>.docx</strong> (Word) i
+      <strong>.pptx</strong> (PowerPoint) · Màx. 20 MB ·
+      El document retornat és una rèplica exacta de l'original amb el text corregit
+    </p>
+  </div>
+
   <!-- Missatges d'estat -->
   <div id="correccio-missatge" class="correccio-missatge" style="display:none"></div>
 

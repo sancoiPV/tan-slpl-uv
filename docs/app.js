@@ -1115,3 +1115,117 @@ function escapeHtmlC(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+// ── Correcció de documents DOCX / PPTX ────────────────────────────────────
+
+let _documentSeleccionat   = null;
+let _documentCorregitBlob  = null;
+let _nomDocumentCorregit   = '';
+
+function handleDocumentSelect(event) {
+  const fitxer = event.target.files[0];
+  if (!fitxer) return;
+
+  const ext = fitxer.name.split('.').pop().toLowerCase();
+  if (!['docx', 'pptx'].includes(ext)) {
+    mostraMissatgeCorreccio('error', 'Només s\'admeten fitxers .docx i .pptx.');
+    event.target.value = '';
+    return;
+  }
+  if (fitxer.size > 20 * 1024 * 1024) {
+    mostraMissatgeCorreccio('error', 'El fitxer supera el límit de 20 MB.');
+    event.target.value = '';
+    return;
+  }
+
+  _documentSeleccionat  = fitxer;
+  _documentCorregitBlob = null;
+
+  const icones = { docx: '📝', pptx: '📊' };
+  document.getElementById('correccio-doc-icona').textContent = icones[ext] || '📄';
+  document.getElementById('correccio-doc-nom').textContent   = fitxer.name;
+  document.getElementById('correccio-doc-mida').textContent  =
+    `(${(fitxer.size / 1024).toFixed(0)} KB)`;
+  document.getElementById('correccio-doc-info').style.display      = 'flex';
+  document.getElementById('btn-corregir-document').style.display   = 'inline-flex';
+  document.getElementById('btn-descarregar-document').style.display = 'none';
+
+  event.target.value = '';
+}
+
+function eliminaDocument() {
+  _documentSeleccionat  = null;
+  _documentCorregitBlob = null;
+  document.getElementById('correccio-doc-info').style.display      = 'none';
+  document.getElementById('btn-corregir-document').style.display   = 'none';
+  document.getElementById('btn-descarregar-document').style.display = 'none';
+  document.getElementById('correccio-doc-input').value = '';
+}
+
+async function corregeixDocument() {
+  if (!_documentSeleccionat) {
+    mostraMissatgeCorreccio('error', 'Apuja un document primer.');
+    return;
+  }
+
+  const btn    = document.getElementById('btn-corregir-document');
+  const txtOri = btn.textContent;
+  btn.disabled    = true;
+  btn.textContent = '⏳ Corregint...';
+
+  mostraMissatgeCorreccio('info',
+    `Corregint "${_documentSeleccionat.name}"… Pot trigar uns minuts depenent de la llargada del document.`
+  );
+
+  try {
+    const url      = await TAN.getUrlAvancada();
+    const formData = new FormData();
+    formData.append('fitxer', _documentSeleccionat);
+
+    const resp = await fetch(`${url}/corregeix-document`, {
+      method: 'POST',
+      body:   formData,
+    });
+
+    if (!resp.ok) {
+      let detall = `Error ${resp.status}`;
+      try { const err = await resp.json(); detall = err.detail || detall; } catch (_) {}
+      throw new Error(detall);
+    }
+
+    // Nom del fitxer a partir de la capçalera Content-Disposition
+    const disp     = resp.headers.get('Content-Disposition') || '';
+    const nomMatch = disp.match(/filename="([^"]+)"/);
+    _nomDocumentCorregit = nomMatch
+      ? nomMatch[1]
+      : _documentSeleccionat.name.replace(/(\.[^.]+)$/, '_corregit$1');
+
+    _documentCorregitBlob = await resp.blob();
+
+    document.getElementById('btn-descarregar-document').style.display = 'inline-flex';
+    mostraMissatgeCorreccio('ok',
+      '✅ Document corregit. Clica "⬇ Descarregar document corregit" per obtenir-lo.'
+    );
+
+  } catch (e) {
+    mostraMissatgeCorreccio('error', `Error en la correcció del document: ${e.message}`);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = txtOri;
+  }
+}
+
+function descarregaDocumentCorregit() {
+  if (!_documentCorregitBlob) {
+    mostraMissatgeCorreccio('error', 'No hi ha cap document corregit per descarregar.');
+    return;
+  }
+  const urlBlob = URL.createObjectURL(_documentCorregitBlob);
+  const a       = document.createElement('a');
+  a.href        = urlBlob;
+  a.download    = _nomDocumentCorregit;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(urlBlob);
+}

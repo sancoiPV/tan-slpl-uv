@@ -1430,3 +1430,96 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   font-size: 0.82rem !important;
   padding: 0.3rem 0.7rem !important;
 }
+
+/* ── Correcció de documents DOCX / PPTX ──────────────────────────────────── */
+
+.correccio-document-seccio {
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.correccio-document-divisor {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.correccio-document-divisor::before,
+.correccio-document-divisor::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #dde4ed;
+}
+
+.correccio-document-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.15rem;
+  background: #f6f8fb;
+  border: 1px solid #d0dce8;
+  border-radius: 10px;
+}
+
+.correccio-document-esquerra {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.correccio-document-dreta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.btn-apujar-doc,
+.btn-corregir-doc,
+.btn-descarregar-doc {
+  white-space: nowrap;
+}
+
+.correccio-doc-info {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  background: #fff;
+  border: 1px solid #c5d7ef;
+  border-radius: 6px;
+  font-size: 0.87rem;
+}
+
+.correccio-doc-icona {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.correccio-doc-nom {
+  font-weight: 500;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #222;
+}
+
+.correccio-doc-mida {
+  color: #888;
+  font-size: 0.8rem;
+}
+
+.correccio-document-nota {
+  margin-top: 0.55rem;
+  font-size: 0.79rem;
+  color: #999;
+  line-height: 1.5;
+}
