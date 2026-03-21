@@ -24,6 +24,9 @@ fastapi
 uvicorn
 streamlit
 
+# IA generativa (traducció d'imatges amb Gemini)
+google-generativeai>=0.8.0
+
 # Processament de documents
 python-docx
 python-pptx

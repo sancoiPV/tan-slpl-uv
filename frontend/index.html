@@ -221,32 +221,91 @@
   </div>
 </section>
 
-<!-- ═══ CANVI 7 · Secció "Traducció d'imatges amb text" ══════════════════════ -->
+<!-- ═══ SECCIÓ 5 · Traducció d'imatges amb text (Gemini Nano Banana Pro) ═══ -->
 <section class="seccio" id="s-imatges">
-  <div class="imatge-area"
-    ondragover="event.preventDefault()"
-    ondrop="onDropImatge(event)">
-    <div class="imatge-upload">
-      <button class="btn-apujar"
-        onclick="document.getElementById('inp-img').click()">Apujar imatge</button>
-      <input type="file" id="inp-img" accept="image/*" style="display:none"
-        onchange="seleccionaImatge(this.files[0])">
-      <div class="drag-hint">o arrossega la imatge ací</div>
-      <div class="formats-txt">.png, .jpg, .jpeg, .gif, .webp, .bmp · màx. 10 MB</div>
-    </div>
-    <!-- Previsualització -->
-    <div class="imatge-preview" id="imatge-preview">
-      <img id="imatge-img" src="" alt="Previsualització de la imatge carregada">
-      <div class="imatge-meta" id="imatge-meta"></div>
-      <div class="imatge-accio">
-        <button class="btn-apujar" onclick="ocrITradueix()">Extraure i traduir text</button>
+<div class="imatge-container">
+
+  <div class="imatge-header">
+    <h2>Traducció d'imatges amb text</h2>
+    <p class="imatge-descripcio">
+      Tradueix al valencià el text inserit en imatges (JPG, PNG, WEBP, GIF)
+      usant Nano Banana Pro (Gemini 3 Pro Image). Preserva el disseny, la
+      tipografia i el format originals.
+    </p>
+  </div>
+
+  <!-- Configuració API Key (col·lapsable) -->
+  <details class="imatge-config" id="imatge-config-panel">
+    <summary>⚙ Configuració de l'API de Gemini</summary>
+    <div class="imatge-config-body">
+      <p class="imatge-config-nota">
+        Introdueix la teua clau API de Google Gemini Pro.
+        La clau es desa localment per a la sessió actual.
+      </p>
+      <div class="imatge-config-row">
+        <input type="password" id="gemini-api-key"
+               placeholder="AIzaSy..."
+               autocomplete="off">
+        <button onclick="configurarGeminiKey()" class="btn-secondary">
+          💾 Desar clau
+        </button>
       </div>
+      <div id="gemini-key-status" class="imatge-key-status"></div>
     </div>
-    <!-- Resultat OCR (placeholder) -->
-    <div class="imatge-resultat" id="imatge-resultat">
-      Funcionalitat pendent d'integració OCR. Properament disponible.
+  </details>
+
+  <!-- Zona de pujada d'imatges -->
+  <div class="imatge-upload-zone" id="imatge-upload-zone"
+       ondragover="event.preventDefault()"
+       ondrop="handleImageDrop(event)">
+    <input type="file" id="imatge-input" accept="image/*" multiple
+           style="display:none" onchange="handleImageSelect(event)">
+    <div class="imatge-upload-placeholder" id="imatge-upload-placeholder">
+      <span class="imatge-upload-icon">🖼</span>
+      <p>Arrossega imatges aquí o</p>
+      <button onclick="document.getElementById('imatge-input').click()"
+              class="btn-primary" id="btn-apujar-imatge">
+        📤 Apujar imatge amb text
+      </button>
+      <p class="imatge-upload-nota">Formats admesos: JPG, PNG, WEBP, GIF · Màx. 10 MB per imatge</p>
     </div>
   </div>
+
+  <!-- Llista d'imatges pujades -->
+  <div id="imatges-llista" class="imatges-llista" style="display:none"></div>
+
+  <!-- Prompt addicional -->
+  <div class="imatge-prompt-container" id="imatge-prompt-container" style="display:none">
+    <label for="imatge-prompt-addicional">
+      💬 Instruccions addicionals per al model (opcional)
+    </label>
+    <textarea id="imatge-prompt-addicional" rows="3"
+              placeholder="Per exemple: El text en negreta ha de quedar en negreta. Preserva els termes tècnics en anglès. No tradueixis els noms propis..."></textarea>
+    <p class="imatge-prompt-nota">
+      El model traduirà automàticament tot el text al valencià. Usa aquest camp
+      per a instruccions específiques addicionals.
+    </p>
+  </div>
+
+  <!-- Botons d'acció -->
+  <div class="imatge-accions" id="imatge-accions" style="display:none">
+    <button onclick="tradueixImatges()" class="btn-primary btn-traduir-imatge"
+            id="btn-traduir-imatge">
+      🔄 Traduir imatge
+    </button>
+    <button onclick="descarregaImattgesTradudes()" class="btn-secondary"
+            id="btn-descarregar-imatge" style="display:none">
+      ⬇ Descarregar imatge traduïda
+    </button>
+  </div>
+
+  <!-- Resultats -->
+  <div id="imatge-resultats" class="imatge-resultats" style="display:none"></div>
+
+  <!-- Missatges d'estat -->
+  <div id="imatge-missatge" class="imatge-missatge" style="display:none"></div>
+
+</div>
 </section>
 
 <!-- ═══ SECCIÓ 6 · Glossaris: actualització ══════════════════════════════════ -->

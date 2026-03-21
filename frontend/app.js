@@ -336,34 +336,9 @@ async function processaFitxerActual(mode) {
   }
 }
 
-// ─── CANVI 7 · Imatges ────────────────────────────────────────────────────────
-function onDropImatge(e) {
-  e.preventDefault();
-  if (e.dataTransfer.files[0]) seleccionaImatge(e.dataTransfer.files[0]);
-}
-
-function seleccionaImatge(fitxer) {
-  if (!fitxer) return;
-  if (fitxer.size > 10 * 1024 * 1024) {
-    alert('La imatge supera el límit de 10 MB'); return;
-  }
-  const reader = new FileReader();
-  reader.onload = ev => {
-    document.getElementById('imatge-img').src = ev.target.result;
-    document.getElementById('imatge-meta').textContent =
-      fitxer.name + ' · ' + (fitxer.size / 1024).toFixed(0) + ' KB';
-    document.getElementById('imatge-preview').style.display  = 'block';
-    document.getElementById('imatge-resultat').style.display = 'none';
-  };
-  reader.readAsDataURL(fitxer);
-}
-
-function ocrITradueix() {
-  const res = document.getElementById('imatge-resultat');
-  res.style.display = 'block';
-  res.textContent   =
-    'Funcionalitat pendent d\'integració OCR. Properament disponible.';
-}
+// ─── SUBSTITUÏT per la implementació completa de Gemini (vegeu més avall) ────
+// Les funcions onDropImatge / seleccionaImatge / ocrITradueix han estat
+// reemplaçades per handleImageDrop / handleImageSelect / tradueixImatges.
 
 // ─── Inici ────────────────────────────────────────────────────────────────────
 comprova();
@@ -588,3 +563,216 @@ document.addEventListener('DOMContentLoaded', () => {
   inicialitzaGlossari();
 });
 
+
+// ═══════════════════════════════════════════════════════
+// PESTANYA TRADUCCIÓ D'IMATGES AMB TEXT (Gemini)
+// ═══════════════════════════════════════════════════════
+
+let imatgesSeleccionades = [];
+let imatgesTradudes = [];
+
+async function configurarGeminiKey() {
+  const key = document.getElementById('gemini-api-key').value.trim();
+  const status = document.getElementById('gemini-key-status');
+
+  if (!key.startsWith('AIza')) {
+    status.textContent = '✗ La clau no té el format correcte (ha de començar per AIza).';
+    status.className = 'imatge-key-status error';
+    return;
+  }
+
+  try {
+    const url = await TAN.getUrlAvancada();
+    const resp = await fetch(`${url}/configura-gemini`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: key })
+    });
+    if (!resp.ok) throw new Error(`Error ${resp.status}`);
+    status.textContent = '✓ Clau API configurada correctament per a aquesta sessió.';
+    status.className = 'imatge-key-status ok';
+    // Tanca el panell de configuració
+    document.getElementById('imatge-config-panel').removeAttribute('open');
+  } catch (e) {
+    status.textContent = `✗ Error configurant la clau: ${e.message}`;
+    status.className = 'imatge-key-status error';
+  }
+}
+
+function handleImageDrop(event) {
+  event.preventDefault();
+  const fitxers = Array.from(event.dataTransfer.files).filter(
+    f => f.type.startsWith('image/')
+  );
+  afegeixImatges(fitxers);
+}
+
+function handleImageSelect(event) {
+  const fitxers = Array.from(event.target.files);
+  afegeixImatges(fitxers);
+  event.target.value = '';
+}
+
+function afegeixImatges(fitxers) {
+  fitxers.forEach(fitxer => {
+    if (fitxer.size > 10 * 1024 * 1024) {
+      mostraMissatgeImatge('error', `"${fitxer.name}" supera el límit de 10 MB.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      imatgesSeleccionades.push({
+        nom: fitxer.name,
+        tipus: fitxer.type,
+        base64: e.target.result.split(',')[1],
+        dataUrl: e.target.result,
+      });
+      renderitzaLlistaImatges();
+    };
+    reader.readAsDataURL(fitxer);
+  });
+}
+
+function renderitzaLlistaImatges() {
+  const llista = document.getElementById('imatges-llista');
+  const prompt = document.getElementById('imatge-prompt-container');
+  const accions = document.getElementById('imatge-accions');
+
+  if (imatgesSeleccionades.length === 0) {
+    llista.style.display = 'none';
+    prompt.style.display = 'none';
+    accions.style.display = 'none';
+    return;
+  }
+
+  llista.style.display = 'flex';
+  prompt.style.display = 'block';
+  accions.style.display = 'flex';
+  document.getElementById('btn-descarregar-imatge').style.display = 'none';
+
+  llista.innerHTML = imatgesSeleccionades.map((img, i) => `
+    <div class="imatge-item" id="imatge-item-${i}">
+      <img src="${img.dataUrl}" alt="${escapeHtml(img.nom)}" class="imatge-preview-thumb">
+      <div class="imatge-item-info">
+        <span class="imatge-item-nom">${escapeHtml(img.nom)}</span>
+        <button onclick="eliminaImatge(${i})" class="btn-eliminar-terme">🗑</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function eliminaImatge(index) {
+  imatgesSeleccionades.splice(index, 1);
+  imatgesTradudes = [];
+  document.getElementById('imatge-resultats').style.display = 'none';
+  renderitzaLlistaImatges();
+}
+
+async function tradueixImatges() {
+  if (imatgesSeleccionades.length === 0) {
+    mostraMissatgeImatge('error', 'Puja almenys una imatge primer.');
+    return;
+  }
+
+  const btnTraduir = document.getElementById('btn-traduir-imatge');
+  const promptAddicional = document.getElementById('imatge-prompt-addicional').value.trim();
+
+  btnTraduir.disabled = true;
+  btnTraduir.textContent = '⏳ Traduint...';
+  imatgesTradudes = [];
+
+  try {
+    const url = await TAN.getUrlAvancada();
+
+    for (let i = 0; i < imatgesSeleccionades.length; i++) {
+      const img = imatgesSeleccionades[i];
+      mostraMissatgeImatge('info', `Traduint imatge ${i + 1} de ${imatgesSeleccionades.length}...`);
+
+      const resp = await fetch(`${url}/tradueix-imatge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imatge_base64: img.base64,
+          tipus_mime: img.tipus,
+          prompt_addicional: promptAddicional,
+        })
+      });
+
+      if (!resp.ok) {
+        const error = await resp.json();
+        throw new Error(error.detail || `Error ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      imatgesTradudes.push({
+        nom: img.nom.replace(/(\.[^.]+)$/, '_VAL$1'),
+        tipus: data.tipus_mime,
+        base64: data.imatge_base64,
+        dataUrl: `data:${data.tipus_mime};base64,${data.imatge_base64}`,
+      });
+    }
+
+    renderitzaResultats();
+    document.getElementById('btn-descarregar-imatge').style.display = 'inline-flex';
+    mostraMissatgeImatge('ok', `✓ ${imatgesTradudes.length} imatge${imatgesTradudes.length !== 1 ? 's' : ''} traduïda${imatgesTradudes.length !== 1 ? 's' : ''} correctament.`);
+
+  } catch (e) {
+    mostraMissatgeImatge('error', `Error en la traducció: ${e.message}`);
+  } finally {
+    btnTraduir.disabled = false;
+    btnTraduir.textContent = '🔄 Traduir imatge';
+  }
+}
+
+function renderitzaResultats() {
+  const resultats = document.getElementById('imatge-resultats');
+  resultats.style.display = 'flex';
+  resultats.innerHTML = `
+    <h3>Imatges traduïdes</h3>
+    <div class="imatge-resultats-grid">
+      ${imatgesTradudes.map((img, i) => `
+        <div class="imatge-resultat-item">
+          <div class="imatge-resultat-header">
+            <span class="imatge-item-nom">${escapeHtml(img.nom)}</span>
+            <button onclick="descarregaImatgeIndividual(${i})"
+                    class="btn-descarrega-glossari">
+              ⬇ Descarregar
+            </button>
+          </div>
+          <img src="${img.dataUrl}" alt="${escapeHtml(img.nom)}"
+               class="imatge-preview-gran">
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function descarregaImatgeIndividual(index) {
+  const img = imatgesTradudes[index];
+  const a = document.createElement('a');
+  a.href = img.dataUrl;
+  a.download = img.nom;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function descarregaImattgesTradudes() {
+  if (imatgesTradudes.length === 0) {
+    mostraMissatgeImatge('error', 'No hi ha imatges traduïdes per descarregar.');
+    return;
+  }
+  imatgesTradudes.forEach((img, i) => {
+    setTimeout(() => descarregaImatgeIndividual(i), i * 300);
+  });
+}
+
+function mostraMissatgeImatge(tipus, text) {
+  const el = document.getElementById('imatge-missatge');
+  el.textContent = text;
+  el.className = `imatge-missatge imatge-missatge-${tipus}`;
+  el.style.display = 'block';
+  if (tipus !== 'info') {
+    setTimeout(() => { el.style.display = 'none'; }, 5000);
+  }
+}

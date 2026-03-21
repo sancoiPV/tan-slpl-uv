@@ -16,6 +16,7 @@ Inici:
   uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import base64
 import csv
 import io
 import json
@@ -29,7 +30,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 # ─── FastAPI i dependències web ───────────────────────────────────────────────
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -788,6 +789,122 @@ async def exporta_glossari(domini: str):
         filename    = nom_fitxer,
         headers     = {"Content-Disposition": f'attachment; filename="{nom_fitxer}"'},
     )
+
+
+# ─── Traducció d'imatges amb Gemini (Nano Banana Pro) ────────────────────────
+
+PROMPT_TRADUCCIO_IMATGE_DEFAULT = (
+    "Usa Nano Banana Pro i edita aquesta imatge per a traduir-ne tot el text del castellà "
+    "(espanyol), anglès i/o qualsevol altra llengua a la varietat valenciana universitària "
+    "del català. Has de retornar exactament la mateixa imatge (mateix format, grandària, "
+    "disposició, distribució i separació del text, grafisme, tipografia, fons, disseny, "
+    "icones, estructura, colors, tipus i grandària de les fonts, espaiat, imatges, etc.) "
+    "però amb tot el text traduït al català valencià i amb el menor pes de fitxer possible, "
+    "sempre preservant-ne una resolució òptima i la màxima llegibilitat del text."
+)
+
+
+class PeticioTraduccioImatge(BaseModel):
+    imatge_base64:     str
+    tipus_mime:        str = "image/png"
+    prompt_addicional: str = ""
+
+
+@app.post("/tradueix-imatge", tags=["Traducció"],
+          summary="Tradueix el text d'una imatge del castellà/anglès al valencià (Gemini)")
+async def tradueix_imatge(peticio: PeticioTraduccioImatge):
+    """
+    Tradueix el text inserit en una imatge del castellà/anglès al valencià
+    usant l'API de Gemini (Nano Banana Pro / gemini-3-pro-image-preview).
+    """
+    import os
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Paquet 'google-generativeai' no instal·lat. "
+                   "Executa: pip install google-generativeai>=0.8.0",
+        )
+
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="GEMINI_API_KEY no configurada al servidor. "
+                   "Usa l'endpoint /configura-gemini o afegeix-la al fitxer .env.",
+        )
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-3-pro-image-preview")
+
+        # Decodifica la imatge base64
+        imatge_bytes = base64.b64decode(peticio.imatge_base64)
+
+        # Construeix el prompt
+        prompt_final = PROMPT_TRADUCCIO_IMATGE_DEFAULT
+        if peticio.prompt_addicional.strip():
+            prompt_final += (
+                f"\n\nInstruccions addicionals del tècnic:\n"
+                f"{peticio.prompt_addicional.strip()}"
+            )
+
+        # Crida l'API de Gemini amb la imatge
+        resposta = model.generate_content(
+            [
+                {"mime_type": peticio.tipus_mime, "data": imatge_bytes},
+                prompt_final,
+            ],
+            generation_config={"response_mime_type": peticio.tipus_mime},
+        )
+
+        # Extreu la imatge de la resposta
+        for part in resposta.parts:
+            if hasattr(part, 'inline_data') and part.inline_data:
+                imatge_traduit_b64 = base64.b64encode(
+                    part.inline_data.data
+                ).decode('utf-8')
+                log.info("POST /tradueix-imatge — OK tipus=%s", peticio.tipus_mime)
+                return {
+                    "imatge_base64": imatge_traduit_b64,
+                    "tipus_mime":    part.inline_data.mime_type,
+                    "estat":         "ok",
+                }
+
+        raise HTTPException(
+            status_code=500,
+            detail="L'API de Gemini no ha retornat cap imatge. Prova amb un prompt diferent.",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("Error en la traducció d'imatge: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error en la traducció d'imatge: {e}",
+        )
+
+
+@app.post("/configura-gemini", tags=["Configuració"],
+          summary="Configura la clau API de Gemini per a la sessió actual")
+async def configura_gemini(api_key: str = Body(..., embed=True)):
+    """
+    Desa la clau API de Gemini a la variable d'entorn GEMINI_API_KEY
+    per a la sessió actual del servidor. Cal tornar-la a introduir si
+    uvicorn es reinicia. Per a configuració permanent, afegeix-la al
+    fitxer .env de l'arrel del projecte (ja al .gitignore).
+    """
+    import os
+    if not api_key.startswith("AIza"):
+        raise HTTPException(
+            status_code=400,
+            detail="Clau API de Gemini no vàlida (ha de començar per 'AIza').",
+        )
+    os.environ["GEMINI_API_KEY"] = api_key
+    log.info("Clau API de Gemini configurada per a aquesta sessió.")
+    return {"estat": "ok", "missatge": "Clau API configurada correctament."}
 
 
 # ─── Gestió global d'errors ───────────────────────────────────────────────────
