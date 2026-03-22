@@ -68,6 +68,62 @@ for _var_env in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY_CORRECCIO"):
     if _val_net != _val_env:
         _os_clean.environ[_var_env] = _val_net
 
+# ─── Funcions auxiliars per obtenir claus API de forma fiable ─────────────────
+
+def _obte_api_key_anthropic() -> str:
+    """
+    Obté la clau API d'Anthropic de forma fiable.
+    Prioritat: os.environ → lectura directa del .env
+    Necessari perquè --reload de uvicorn en Windows pot no heretar
+    les variables d'entorn correctament al procés fill.
+    """
+    clau = (
+        os.environ.get("ANTHROPIC_API_KEY_CORRECCIO", "").strip().strip("'\"")
+        or os.environ.get("ANTHROPIC_API_KEY", "").strip().strip("'\"")
+    )
+    if clau:
+        return clau
+
+    # Fallback: llegeix directament del .env
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if env_path.exists():
+        try:
+            for linia in env_path.read_text(encoding="utf-8").splitlines():
+                linia = linia.strip()
+                if linia.startswith("ANTHROPIC_API_KEY_CORRECCIO="):
+                    clau = linia.split("=", 1)[1].strip().strip("'\"")
+                    if clau:
+                        os.environ["ANTHROPIC_API_KEY_CORRECCIO"] = clau
+                        return clau
+        except Exception:
+            pass
+    return ""
+
+
+def _obte_api_key_gemini() -> str:
+    """
+    Obté la clau API de Gemini de forma fiable.
+    Prioritat: os.environ → lectura directa del .env
+    """
+    clau = os.environ.get("GEMINI_API_KEY", "").strip().strip("'\"")
+    if clau:
+        return clau
+
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if env_path.exists():
+        try:
+            for linia in env_path.read_text(encoding="utf-8").splitlines():
+                linia = linia.strip()
+                if linia.startswith("GEMINI_API_KEY="):
+                    clau = linia.split("=", 1)[1].strip().strip("'\"")
+                    if clau:
+                        os.environ["GEMINI_API_KEY"] = clau
+                        return clau
+        except Exception:
+            pass
+    return ""
+
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 VERSIO          = "1.0"
 MODEL_ID        = "projecte-aina/aina-translator-es-ca"
@@ -848,7 +904,7 @@ async def tradueix_imatge(peticio: PeticioTraduccioImatge):
     from google import genai
     from google.genai import types
 
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = _obte_api_key_gemini()
     if not api_key:
         raise HTTPException(
             status_code=503,
@@ -1263,11 +1319,8 @@ async def estat_claus_api():
             return ""
         return "••••••••" + clau[-4:]
 
-    clau_gemini    = os.environ.get("GEMINI_API_KEY", "")
-    clau_anthropic = (
-        os.environ.get("ANTHROPIC_API_KEY_CORRECCIO", "")
-        or ANTHROPIC_API_KEY_CORRECCIO
-    )
+    clau_gemini    = _obte_api_key_gemini()
+    clau_anthropic = _obte_api_key_anthropic()
 
     return {
         "gemini": {
@@ -1363,10 +1416,7 @@ async def corregeix(peticio: PeticioCorreccio) -> RespostaCorreccio:
     resum = ""
 
     if peticio.usar_claude:
-        api_key_anthropic = (
-            ANTHROPIC_API_KEY_CORRECCIO
-            or os.environ.get("ANTHROPIC_API_KEY", "")
-        )
+        api_key_anthropic = _obte_api_key_anthropic()
         if not api_key_anthropic:
             raise HTTPException(
                 status_code=503,
@@ -1822,7 +1872,9 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
 async def debug_env():
     """Mostra les variables d'entorn relacionades amb les claus API."""
     import os
-    clau_raw = os.environ.get("ANTHROPIC_API_KEY_CORRECCIO", "")
+    clau_raw      = _obte_api_key_anthropic()
+    clau_environ  = os.environ.get("ANTHROPIC_API_KEY_CORRECCIO", "").strip().strip("'\"")
+    origen        = "os.environ" if clau_environ else "fitxer .env"
     return {
         "clau_present":          bool(clau_raw),
         "clau_longitud":         len(clau_raw),
@@ -1831,6 +1883,7 @@ async def debug_env():
         "comença_sk_ant":        clau_raw.startswith("sk-ant-"),
         "te_caracters_estranys": any(ord(c) > 127 or ord(c) < 32 for c in clau_raw),
         "caracters_estranys":    [repr(c) for c in clau_raw if ord(c) > 127 or ord(c) < 32],
+        "origen":                origen,
         "PYTHONPATH":            os.environ.get("PYTHONPATH", "no definit"),
         "CWD":                   os.getcwd(),
         "env_path_calculat":     str(Path(__file__).resolve().parent.parent / ".env"),
@@ -1852,10 +1905,7 @@ async def test_correccio_document():
     import os
     import anthropic as _ant
 
-    api_key = (
-        ANTHROPIC_API_KEY_CORRECCIO
-        or os.environ.get("ANTHROPIC_API_KEY", "")
-    )
+    api_key = _obte_api_key_anthropic()
 
     if not api_key:
         return {
@@ -1926,10 +1976,7 @@ async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
     """
     import os
 
-    api_key = (
-        ANTHROPIC_API_KEY_CORRECCIO
-        or os.environ.get("ANTHROPIC_API_KEY", "")
-    )
+    api_key = _obte_api_key_anthropic()
     if not api_key:
         raise HTTPException(
             status_code=503,
