@@ -1930,6 +1930,16 @@ async def test_correccio_document():
             }],
         )
         text = resposta.content[0].text.strip()
+        # Elimina possibles ```json ... ``` que Claude pot afegir
+        if text.startswith("```"):
+            text = re.sub(r"```(?:json)?\s*", "", text)
+            text = text.replace("```", "").strip()
+        # Neteja encoding UTF-8 mal interpretat com Latin-1
+        if "Ã" in text or "â€" in text:
+            try:
+                text = text.encode("latin-1").decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
         return {
             "estat":        "ok",
             "model":        resposta.model,
