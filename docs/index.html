@@ -121,6 +121,26 @@
       <button class="btn-tradueix-doc"
         onclick="processaFitxerActual('traduccio')">Tradueix</button>
     </div>
+
+    <!-- Selector de domini lingüístic -->
+    <div class="doc-domini-selector" id="doc-domini-container" style="display:none">
+      <label for="doc-domini-select" class="doc-domini-label">
+        📚 Domini lingüístic d'especialitat
+      </label>
+      <div class="doc-domini-row">
+        <select id="doc-domini-select" class="doc-domini-select"
+                onchange="actualitzaInfoDomini()">
+          <option value="">— Sense domini específic (llengua general) —</option>
+        </select>
+        <span class="doc-domini-badge" id="doc-domini-badge"
+              style="display:none"></span>
+      </div>
+      <p class="doc-domini-nota" id="doc-domini-nota">
+        Si selecciones un domini, el motor aplicarà automàticament el glossari
+        d'especialitat corresponent per millorar la precisió terminològica de
+        la traducció.
+      </p>
+    </div>
   </div>
 
   <!-- CANVI 8 · Barra de progrés -->

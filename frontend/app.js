@@ -251,6 +251,9 @@ async function seleccionaFitxer(fitxer, mode) {
     document.getElementById('fitxer-meta-' + s).textContent =
       (fitxer.size / 1024).toFixed(0) + ' KB';
   }
+
+  // Mostra el selector de domini quan es carrega un fitxer per a traducció
+  if (mode === 'traduccio') mostraDocDominiSelector();
 }
 
 // ─── Extreu el nom del fitxer de la capçalera Content-Disposition ─────────────
@@ -293,6 +296,11 @@ async function processaFitxerActual(mode) {
   const form = new FormData();
   form.append('fitxer', fitxer);
   form.append('mode', mode);
+  // Afegeix el domini seleccionat (només per a la pestanya de traducció)
+  if (mode === 'traduccio') {
+    const dominiSelect = document.getElementById('doc-domini-select');
+    if (dominiSelect) form.append('domini', dominiSelect.value);
+  }
 
   try {
     const r = await fetch(await TAN.getUrlAvancada() + '/tradueix-document', {
@@ -1314,3 +1322,78 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (_) {}
   }, 2500);
 });
+
+// ═══════════════════════════════════════════════════════
+// SELECTOR DE DOMINI LINGÜÍSTIC — Pestanya Traducció de documents
+// ═══════════════════════════════════════════════════════
+
+async function inicialitzaDominiSelector() {
+  try {
+    const url = await TAN.getUrlAvancada();
+    const resp = await fetch(`${url}/dominis-amb-glossari`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    const select = document.getElementById('doc-domini-select');
+    if (!select) return;
+
+    // Neteja opcions existents (excepte la primera)
+    while (select.options.length > 1) {
+      select.remove(1);
+    }
+
+    // Afegeix els dominis, marcant els que tenen glossari
+    data.dominis.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = item.domini;
+      opt.textContent = item.te_glossari
+        ? `${item.domini} (${item.num_entrades} terme${item.num_entrades !== 1 ? 's' : ''})`
+        : item.domini;
+      opt.dataset.teGlossari  = item.te_glossari;
+      opt.dataset.numEntrades = item.num_entrades;
+      select.appendChild(opt);
+    });
+
+  } catch (e) {
+    console.warn('No s\'ha pogut carregar la llista de dominis:', e.message);
+  }
+}
+
+function mostraDocDominiSelector() {
+  const container = document.getElementById('doc-domini-container');
+  if (container) {
+    container.style.display = 'block';
+    inicialitzaDominiSelector();
+  }
+}
+
+function actualitzaInfoDomini() {
+  const select = document.getElementById('doc-domini-select');
+  const badge  = document.getElementById('doc-domini-badge');
+  const nota   = document.getElementById('doc-domini-nota');
+
+  if (!select || !badge) return;
+
+  const opcioSeleccionada = select.options[select.selectedIndex];
+
+  if (!select.value) {
+    badge.style.display = 'none';
+    nota.textContent = 'Si selecciones un domini, el motor aplicarà automàticament el glossari d\'especialitat corresponent per millorar la precisió terminològica de la traducció.';
+    return;
+  }
+
+  const teGlossari  = opcioSeleccionada.dataset.teGlossari === 'true';
+  const numEntrades = parseInt(opcioSeleccionada.dataset.numEntrades || '0');
+
+  if (teGlossari && numEntrades > 0) {
+    badge.textContent = `✓ ${numEntrades} terme${numEntrades !== 1 ? 's' : ''} al glossari`;
+    badge.className   = 'doc-domini-badge doc-domini-badge-ok';
+    badge.style.display = 'inline';
+    nota.textContent  = `El motor aplicarà els ${numEntrades} terme${numEntrades !== 1 ? 's' : ''} del glossari "${select.value}" per garantir la terminologia correcta en la traducció.`;
+  } else {
+    badge.textContent = 'Glossari buit';
+    badge.className   = 'doc-domini-badge doc-domini-badge-buit';
+    badge.style.display = 'inline';
+    nota.textContent  = `El domini "${select.value}" encara no té termes al glossari. Pots afegir-ne a la pestanya "Glossaris: actualització".`;
+  }
+}

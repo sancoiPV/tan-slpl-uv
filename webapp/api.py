@@ -191,6 +191,44 @@ def carrega_glossari(domini: str) -> list[dict]:
     return entrades
 
 
+def carrega_glossari_com_diccionari(domini: str) -> dict[str, str]:
+    """
+    Retorna el glossari d'un domini com a diccionari {terme_es: terme_ca}.
+    Ordena els termes de més llarg a més curt per evitar substitucions parcials.
+    """
+    if not domini or domini not in DOMINIS:
+        return {}
+    entrades = carrega_glossari(domini)
+    # Ordena de més llarg a més curt per prioritzar expressions multiparaula
+    entrades_ordenades = sorted(entrades, key=lambda e: len(e["es"]), reverse=True)
+    return {e["es"].strip(): e["ca"].strip() for e in entrades_ordenades if e["es"] and e["ca"]}
+
+
+def aplica_glossari_al_text(text: str, glossari: dict[str, str]) -> str:
+    """
+    Aplica les substitucions del glossari a un text.
+    Fa substitucions case-insensitive però preserva la capitalització original.
+    """
+    import re as _re_gl
+    if not glossari or not text:
+        return text
+
+    resultat = text
+    for terme_es, terme_ca in glossari.items():
+        if not terme_es:
+            continue
+        # Substitueix respectant límits de paraula, case-insensitive
+        patró = _re_gl.compile(_re_gl.escape(terme_es), _re_gl.IGNORECASE)
+        def substitueix_preservant_capitalitzacio(match, _ca=terme_ca):
+            original = match.group(0)
+            # Si l'original comença en majúscula, capitalitza la substitució
+            if original and original[0].isupper():
+                return _ca[0].upper() + _ca[1:] if _ca else _ca
+            return _ca
+        resultat = patró.sub(substitueix_preservant_capitalitzacio, resultat)
+    return resultat
+
+
 def desa_glossari(domini: str, entrades: list[dict]) -> None:
     """Desa les entrades d'un glossari al disc."""
     path = nom_fitxer_glossari(domini)
@@ -518,8 +556,9 @@ async def tradueix(peticio: PeticioTradueix) -> RespostaTradueix:
     tags    = ["Traducció"],
 )
 async def tradueix_document(
-    fitxer: UploadFile = File(..., description="Fitxer .docx o .pptx (màx. 20 MB)."),
-    mode:   str        = Form(default="traduccio", description="'traduccio' o 'correccio'"),
+    fitxer:  UploadFile = File(..., description="Fitxer .docx o .pptx (màx. 20 MB)."),
+    mode:    str        = Form(default="traduccio", description="'traduccio' o 'correccio'"),
+    domini:  str        = Form(default="", description="Domini lingüístic per aplicar el glossari."),
 ) -> StreamingResponse:
     """
     Rep un fitxer .docx o .pptx, tradueix tot el text que conté
@@ -565,8 +604,18 @@ async def tradueix_document(
     }
     mime_type = mime_types[extensio]
 
+    # Carrega el glossari del domini si s'ha especificat
+    glossari_domini = carrega_glossari_com_diccionari(domini) if domini else {}
+    if glossari_domini:
+        log.info(
+            "Aplicant glossari '%s' (%d termes) al document '%s'",
+            domini, len(glossari_domini), nom_original,
+        )
+
     try:
-        total_par = _tradueix_fitxer_xml(contingut, extensio.lstrip('.'), buffer_eixida)
+        total_par = _tradueix_fitxer_xml(
+            contingut, extensio.lstrip('.'), buffer_eixida, glossari_domini
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -598,10 +647,18 @@ async def tradueix_document(
     )
 
 
-def _tradueix_fitxer_xml(contingut: bytes, extensio: str, eixida: io.BytesIO) -> int:
+def _tradueix_fitxer_xml(
+    contingut: bytes,
+    extensio:  str,
+    eixida:    io.BytesIO,
+    glossari:  dict[str, str] | None = None,
+) -> int:
     """
     Tradueix un .docx o .pptx usant manipulació directa de l'XML intern
     (scripts/preserva_xml.py). Retorna el nombre de paraules de l'original.
+
+    Si s'especifica un glossari, aplica les substitucions terme_es→terme_ca
+    a cada segment ABANS de passar-lo al motor de traducció.
 
     El recompte de paraules es fa llegint el ZIP directament amb lxml,
     sense necessitat de python-docx ni python-pptx.
@@ -646,11 +703,42 @@ def _tradueix_fitxer_xml(contingut: bytes, extensio: str, eixida: io.BytesIO) ->
                 except Exception:
                     pass
 
+    # ── Funció de traducció (amb glossari opcional) ───────────────────────────
+    if glossari:
+        def _fn_tradueix_amb_glossari(text: str) -> str:
+            # Pre-traducció: substitueix termes castellans pels valencians
+            text_preprocessat = aplica_glossari_al_text(text, glossari)
+            return _tradueix_text(text_preprocessat)
+        fn_tradueix = _fn_tradueix_amb_glossari
+    else:
+        fn_tradueix = _tradueix_text
+
     # ── Traducció preservant format ──────────────────────────────────────────
-    resultat = _tradueix_document_xml(contingut, extensio, _tradueix_text)
+    resultat = _tradueix_document_xml(contingut, extensio, fn_tradueix)
     eixida.write(resultat)
     eixida.seek(0)
     return total_par
+
+
+# ─── Endpoint: GET /dominis-amb-glossari ─────────────────────────────────────
+
+@app.get(
+    "/dominis-amb-glossari",
+    summary = "Llista de dominis amb informació del glossari",
+    tags    = ["Glossari"],
+)
+async def dominis_amb_glossari():
+    """Retorna la llista de dominis amb indicació de si tenen glossari."""
+    resultat = []
+    for domini in DOMINIS:
+        path    = nom_fitxer_glossari(domini)
+        entrades = carrega_glossari(domini) if path.exists() else []
+        resultat.append({
+            "domini":       domini,
+            "te_glossari":  len(entrades) > 0,
+            "num_entrades": len(entrades),
+        })
+    return {"dominis": resultat}
 
 
 # ─── Endpoint: POST /recompte-paraules ───────────────────────────────────────
