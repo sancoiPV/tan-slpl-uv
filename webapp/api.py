@@ -1031,23 +1031,39 @@ async def tradueix_imatge(peticio: PeticioTraduccioImatge):
         client = genai.Client(api_key=api_key)
         imatge_bytes = base64.b64decode(peticio.imatge_base64)
 
-        # Construeix el prompt segons el mode
-        if peticio.mode == 'refinament':
-            # Per a refinament: aplica únicament les instruccions del tècnic
-            prompt_final = (
-                "Edita aquesta imatge aplicant les modificacions indicades sobre el text. "
-                "No canvies cap element visual (colors, fonts, disseny, layout) excepte el "
-                "text especificat. Retorna exactament la mateixa imatge amb únicament els "
-                "canvis de text sol·licitats.\n\n"
-                + peticio.prompt_addicional.strip()
-            )
-        else:
-            # Per a traducció nova: usa el prompt complet de valencianització
-            prompt_final = PROMPT_TRADUCCIO_IMATGE_DEFAULT
-            if peticio.prompt_addicional.strip():
-                prompt_final += (
-                    f"\n\nInstruccions addicionals:\n{peticio.prompt_addicional.strip()}"
+        # Construeix el prompt posant les instruccions addicionals AL PRINCIPI
+        # si n'hi ha, perquè Gemini les prioritze sobre el prompt general
+        if peticio.prompt_addicional.strip():
+            if peticio.mode == 'refinament':
+                prompt_final = (
+                    f"INSTRUCCIONS PRIORITÀRIES DEL TÈCNIC LINGÜÍSTIC"
+                    f" (cal aplicar-les OBLIGATÒRIAMENT i EXACTAMENT):\n"
+                    f"{peticio.prompt_addicional.strip()}\n\n"
+                    f"Aplica aquestes instruccions sobre el text de la imatge."
+                    f" No canvies cap element visual (colors, fonts, disseny, layout,"
+                    f" fons, icones, estructura) excepte el text especificat."
+                    f" Retorna exactament la mateixa imatge amb únicament els canvis"
+                    f" de text sol·licitats."
                 )
+            else:
+                prompt_final = (
+                    f"INSTRUCCIONS PRIORITÀRIES DEL TÈCNIC LINGÜÍSTIC"
+                    f" (cal aplicar-les OBLIGATÒRIAMENT i amb MÀXIMA PRIORITAT,"
+                    f" per damunt de qualsevol altra consideració):\n"
+                    f"{peticio.prompt_addicional.strip()}\n\n"
+                    f"A més de les instruccions anteriors, aplica també les normes"
+                    f" generals següents:\n{PROMPT_TRADUCCIO_IMATGE_DEFAULT}"
+                )
+        else:
+            if peticio.mode == 'refinament':
+                prompt_final = (
+                    "Edita aquesta imatge aplicant les modificacions indicades sobre el text. "
+                    "No canvies cap element visual (colors, fonts, disseny, layout, fons,"
+                    " icones, estructura) excepte el text especificat. Retorna exactament"
+                    " la mateixa imatge amb únicament els canvis de text sol·licitats."
+                )
+            else:
+                prompt_final = PROMPT_TRADUCCIO_IMATGE_DEFAULT
 
         resposta = client.models.generate_content(
             model="gemini-3-pro-image-preview",

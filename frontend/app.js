@@ -700,6 +700,7 @@ async function tradueixImatges() {
           imatge_base64: img.base64,
           tipus_mime: img.tipus,
           prompt_addicional: promptAddicional,
+          mode: 'traduccio',
         })
       });
 
@@ -796,7 +797,7 @@ async function aplicaModificacions() {
         body: JSON.stringify({
           imatge_base64: img.base64,
           tipus_mime: img.tipus,
-          prompt_addicional: `Aquesta imatge ja ha estat traduïda al valencià. Aplica les modificacions següents sobre el text de la imatge sense canviar cap altre element visual:\n\n${modificacions}`,
+          prompt_addicional: modificacions,
           mode: 'refinament',
         })
       });
