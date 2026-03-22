@@ -25,10 +25,10 @@
   <nav class="nav">
     <button class="nav-btn act" onclick="mostra('traduccio-text',this)">Traducció de text</button>
     <button class="nav-btn" onclick="mostra('traduccio-docs',this)">Traducció de documents</button>
-    <button class="nav-btn" onclick="mostra('correccio-text',this)">Corrector de text en valencià</button>
     <button class="nav-btn" onclick="mostra('correccio-docs',this)">Correcció/postedició de documents en valencià</button>
     <button class="nav-btn" onclick="mostra('imatges',this)">Traducció d'imatges amb text</button>
     <button class="tab-btn" data-tab="glossaris" onclick="activaTab('glossaris')">📚 Glossaris: actualització</button>
+    <button class="tab-btn" data-tab="traduccio-angles" onclick="activaTab('traduccio-angles')">🌐 EN ↔ VA</button>
     <button class="btn-claus-api" id="btn-claus-api"
             onclick="obreModalClausAPI()"
             title="Gestiona les claus API de Gemini i Anthropic">
@@ -160,51 +160,6 @@
   </div>
 </section>
 
-<!-- ═══ SECCIÓ 3 · Corrector de text en valencià ════════════════════════════ -->
-<section class="seccio" id="s-correccio-text">
-
-  <div class="subtitol">
-    <p>Eina de traducció automàtica neuronal basada en el motor TAN desenvolupat pel LangTechLab del BSC-CNS en el marc del Projecte Aina.</p>
-  </div>
-
-  <div class="panells">
-    <div class="panell-esquerre">
-      <div class="panell-cap">
-        <span class="idioma">Text original en valencià</span>
-      </div>
-      <textarea class="textarea" id="origen-c"
-        placeholder="Escriu o enganxa el text en valencià per corregir..."
-        oninput="actualCompCorr()"></textarea>
-      <div class="avis-criteri">⚠ Traduccions fetes d'acord amb els criteris lingüístics per als usos institucionals de les universitats públiques valencianes.</div>
-      <div class="comp-bar"><span id="comp-orig-c">0 paraules</span></div>
-      <div class="accions">
-        <button class="btn-sec" onclick="netejaCorr()">Neteja</button>
-      </div>
-    </div>
-
-    <!-- CANVI 6 · Botó "Corregeix" (terminació incoativa -eix) -->
-    <div class="central">
-      <button class="btn-tradueix" id="btnC" onclick="corregeixText()">Corregeix</button>
-    </div>
-
-    <div class="panell-dret">
-      <div class="panell-cap">
-        <span class="idioma">Valencià UV corregit</span>
-        <span class="temps" id="temps-c"></span>
-      </div>
-      <textarea class="textarea traduit" id="desti-c" readonly
-        placeholder="El text corregit apareixerà ací..."></textarea>
-      <div class="comp-bar"><span id="comp-desti-c">0 paraules</span></div>
-      <div class="accions">
-        <button class="btn-sec" onclick="editaCorr()">✏️ Edita</button>
-        <button class="btn-sec" onclick="copiaCorr()">📋 Copia</button>
-        <button class="btn-desa" id="btnDesaC" style="display:none"
-          onclick="desaPostCorr()">💾 Desa postedició</button>
-      </div>
-    </div>
-  </div>
-</section>
-
 <!-- ═══ SECCIÓ 4 · Correcció/postedició de documents en valencià ════════════ -->
 <section class="seccio" id="s-correccio-docs">
 <div class="correccio-container">
@@ -306,6 +261,18 @@
       <strong>.pptx</strong> (PowerPoint) · Màx. 20 MB ·
       El document retornat és una rèplica exacta de l'original amb el text corregit
     </p>
+  </div>
+
+  <!-- Barra de progrés correcció -->
+  <div id="correccio-progress-container" class="progress-container" style="display:none">
+    <div class="progress-header">
+      <span id="correccio-progress-text">Iniciant correcció...</span>
+      <span id="correccio-progress-percent">0%</span>
+    </div>
+    <div class="progress-bar-track">
+      <div id="correccio-progress-bar" class="progress-bar-fill" style="width:0%"></div>
+    </div>
+    <div class="progress-detall" id="correccio-progress-detall"></div>
   </div>
 
   <!-- Missatges d'estat -->
@@ -486,6 +453,18 @@
     </div>
   </div>
 
+  <!-- Barra de progrés imatges -->
+  <div id="imatge-progress-container" class="progress-container" style="display:none">
+    <div class="progress-header">
+      <span id="imatge-progress-text">Iniciant traducció...</span>
+      <span id="imatge-progress-percent">0%</span>
+    </div>
+    <div class="progress-bar-track">
+      <div id="imatge-progress-bar" class="progress-bar-fill" style="width:0%"></div>
+    </div>
+    <div class="progress-detall" id="imatge-progress-detall"></div>
+  </div>
+
   <!-- Missatges d'estat -->
   <div id="imatge-missatge" class="imatge-missatge" style="display:none"></div>
 
@@ -577,6 +556,129 @@
   </div>
 </div>
 
+<!-- ═══ SECCIÓ 7 · Traducció anglès ↔ valencià ════════════════════════════ -->
+<div id="tab-traduccio-angles" class="tab-content" style="display:none">
+  <div class="angles-container">
+
+    <div class="angles-header">
+      <h2>Traducció anglès ↔ valencià</h2>
+      <p class="angles-descripcio">
+        Traducció bidireccional entre anglès i valencià. Introdueix text directament
+        o apuja un document Word (.docx) o PowerPoint (.pptx).
+      </p>
+    </div>
+
+    <!-- Selector de direcció de traducció -->
+    <div class="angles-direccio">
+      <div class="angles-direccio-selector">
+        <span class="angles-llengua" id="angles-llengua-origen">Anglès</span>
+        <button class="angles-inverteix" onclick="inverteixDireccio()"
+                title="Inverteix la direcció de traducció">
+          ⇄
+        </button>
+        <span class="angles-llengua" id="angles-llengua-destí">Valencià</span>
+      </div>
+      <p class="angles-direccio-nota" id="angles-direccio-nota">
+        Traduint de <strong>anglès</strong> a <strong>valencià</strong>
+      </p>
+    </div>
+
+    <!-- Traducció de text -->
+    <div class="angles-text-seccio">
+      <h3>Text</h3>
+      <div class="angles-text-grid">
+        <div class="angles-text-bloc">
+          <label id="angles-label-entrada">Text en anglès</label>
+          <textarea id="angles-text-entrada" rows="8"
+                    placeholder="Introdueix el text a traduir..."></textarea>
+        </div>
+        <div class="angles-text-bloc">
+          <label id="angles-label-sortida">Traducció al valencià</label>
+          <textarea id="angles-text-sortida" rows="8" readonly
+                    placeholder="La traducció apareixerà aquí..."></textarea>
+          <div class="angles-sortida-accions" id="angles-sortida-accions"
+               style="display:none">
+            <button onclick="copiaAngles()" class="btn-secondary btn-petit">
+              📋 Copiar
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="angles-text-accions">
+        <button onclick="tradueixTextAngles()" class="btn-primary"
+                id="btn-traduir-text-angles">
+          🌐 Traduir text
+        </button>
+      </div>
+    </div>
+
+    <!-- Barra de progrés -->
+    <div id="angles-progress-container" class="progress-container" style="display:none">
+      <div class="progress-header">
+        <span id="angles-progress-text">Traduint...</span>
+        <span id="angles-progress-percent">0%</span>
+      </div>
+      <div class="progress-bar-track">
+        <div id="angles-progress-bar" class="progress-bar-fill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Separador -->
+    <div class="correccio-document-divisor" style="margin:1.5rem 0">
+      <span>o bé</span>
+    </div>
+
+    <!-- Traducció de documents -->
+    <div class="angles-doc-seccio">
+      <h3>Document</h3>
+      <div class="angles-doc-controls">
+        <input type="file" id="angles-doc-input"
+               accept=".docx,.pptx" style="display:none"
+               onchange="handleAnglesDocSelect(event)">
+
+        <button onclick="document.getElementById('angles-doc-input').click()"
+                class="btn-secondary btn-apujar-doc">
+          📄 Apujar document
+        </button>
+
+        <div id="angles-doc-info" class="correccio-doc-info" style="display:none">
+          <span class="correccio-doc-icona" id="angles-doc-icona">📄</span>
+          <span class="correccio-doc-nom" id="angles-doc-nom"></span>
+          <span class="correccio-doc-mida" id="angles-doc-mida"></span>
+          <button onclick="eliminaAnglesDoc()"
+                  class="btn-eliminar-terme">🗑</button>
+        </div>
+      </div>
+
+      <div class="angles-doc-accions" id="angles-doc-accions" style="display:none">
+        <button onclick="tradueixDocAngles()" class="btn-primary"
+                id="btn-traduir-doc-angles">
+          🌐 Traduir document
+        </button>
+        <button onclick="descarregaAnglesDoc()" class="btn-descarrega-glossari"
+                id="btn-descarrega-doc-angles" style="display:none">
+          ⬇ Descarregar document traduït
+        </button>
+      </div>
+
+      <p class="correccio-document-nota">
+        Formats admesos: <strong>.docx</strong> (Word) i <strong>.pptx</strong>
+        (PowerPoint) · Màx. 20 MB
+      </p>
+    </div>
+
+    <!-- Missatge d'estat -->
+    <div id="angles-missatge" class="correccio-missatge" style="display:none"></div>
+
+    <!-- Nota implementació -->
+    <div class="angles-nota-implementacio">
+      <p>⚠️ <strong>Nota:</strong> Aquesta pestanya està en fase de desenvolupament.
+      La traducció anglès ↔ valencià s'implementarà properament amb el motor adequat.</p>
+    </div>
+
+  </div>
+</div>
+
 <script src="app.js"></script>
 
 <!-- ═══ MODAL · Claus API ═══════════════════════════════════════════════════ -->
@@ -650,6 +752,23 @@
       <button onclick="tancaModalClausAPI()" class="btn-secondary">Tancar</button>
     </div>
 
+  </div>
+</div>
+
+<!-- Modal lightbox per a previsualització d'imatges -->
+<div id="lightbox-overlay" class="lightbox-overlay" style="display:none"
+     onclick="tancaLightbox()">
+  <div class="lightbox-contingut" onclick="event.stopPropagation()">
+    <button class="lightbox-tancar" onclick="tancaLightbox()">✕</button>
+    <div class="lightbox-titol" id="lightbox-titol"></div>
+    <img id="lightbox-imatge" class="lightbox-imatge" src="" alt="">
+    <div class="lightbox-peu">
+      <span id="lightbox-peu-text"></span>
+      <button id="lightbox-descarrega" class="btn-descarrega-glossari"
+              onclick="descarregaDesLightbox()" style="display:none">
+        ⬇ Descarregar
+      </button>
+    </div>
   </div>
 </div>
 

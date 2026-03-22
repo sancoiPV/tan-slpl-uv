@@ -364,12 +364,25 @@ let dominiActual = '';
  * seccions normals i del panell de glossaris).
  */
 function activaTab(id) {
+  // Amaga totes les seccions normals i totes les tab-content
   document.querySelectorAll('.seccio').forEach(s => s.classList.remove('vis'));
+  document.querySelectorAll('.tab-content').forEach(t => { t.style.display = 'none'; });
   document.querySelectorAll('.nav-btn, .tab-btn').forEach(b => b.classList.remove('act'));
+
+  // Mostra la pestanya seleccionada
   const seccio = document.getElementById('tab-' + id);
   if (seccio) seccio.style.display = 'block';
   const btn = document.querySelector('[data-tab="' + id + '"]');
   if (btn) btn.classList.add('act');
+
+  // Inicialitzacions CONDICIONALS (només si encara no s'han fet)
+  // per evitar esborrar l'estat de les altres pestanyes
+  if (id === 'glossaris' && document.getElementById('domini-select')?.options.length <= 1) {
+    inicialitzaGlossari();
+  }
+  // NOTA: imatgesSeleccionades, imatgesTradudes, _documentSeleccionat,
+  // _documentCorregitBlob, fitxerActualTd, fitxerActualCd
+  // NO s'han de reinicialitzar en canviar de pestanya.
 }
 
 async function inicialitzaGlossari() {
@@ -635,7 +648,10 @@ function renderitzaLlistaImatges() {
 
   llista.innerHTML = imatgesSeleccionades.map((img, i) => `
     <div class="imatge-item" id="imatge-item-${i}">
-      <img src="${img.dataUrl}" alt="${escapeHtml(img.nom)}" class="imatge-preview-thumb">
+      <img src="${img.dataUrl}" alt="${escapeHtml(img.nom)}"
+           class="imatge-preview-thumb imatge-clicable"
+           title="Clica per veure en gran"
+           onclick="obreLightbox('${img.dataUrl}', '${escapeHtml(img.nom)}', 'Original', null)">
       <div class="imatge-item-info">
         <span class="imatge-item-nom">${escapeHtml(img.nom)}</span>
         <button onclick="eliminaImatge(${i})" class="btn-eliminar-terme">🗑</button>
@@ -666,10 +682,16 @@ async function tradueixImatges() {
 
   try {
     const url = await TAN.getUrlAvancada();
+    const totalImatges = imatgesSeleccionades.length;
 
-    for (let i = 0; i < imatgesSeleccionades.length; i++) {
+    for (let i = 0; i < totalImatges; i++) {
       const img = imatgesSeleccionades[i];
-      mostraMissatgeImatge('info', `Traduint imatge ${i + 1} de ${imatgesSeleccionades.length}...`);
+      actualitzaProgress('imatge',
+        (i / totalImatges) * 90,
+        `Traduint imatge ${i + 1} de ${totalImatges}...`,
+        'Nano Banana Pro (Gemini 3 Pro Image)'
+      );
+      mostraMissatgeImatge('info', `Traduint imatge ${i + 1} de ${totalImatges}...`);
 
       const resp = await fetch(`${url}/tradueix-imatge`, {
         method: 'POST',
@@ -695,11 +717,15 @@ async function tradueixImatges() {
       });
     }
 
+    actualitzaProgress('imatge', 100, 'Traducció completada!', '');
+    setTimeout(() => amagaProgress('imatge'), 2000);
+
     renderitzaResultats();
     document.getElementById('btn-descarregar-imatge').style.display = 'inline-flex';
     mostraMissatgeImatge('ok', `✓ ${imatgesTradudes.length} imatge${imatgesTradudes.length !== 1 ? 's' : ''} traduïda${imatgesTradudes.length !== 1 ? 's' : ''} correctament.`);
 
   } catch (e) {
+    amagaProgress('imatge');
     mostraMissatgeImatge('error', `Error en la traducció: ${e.message}`);
   } finally {
     btnTraduir.disabled = false;
@@ -725,7 +751,9 @@ function renderitzaResultats() {
             </button>
           </div>
           <img src="${img.dataUrl}" alt="${escapeHtml(img.nom)}"
-               class="imatge-preview imatge-preview-gran">
+               class="imatge-preview imatge-preview-gran imatge-clicable"
+               title="Clica per veure en gran"
+               onclick="obreLightbox('${img.dataUrl}', '${escapeHtml(img.nom)}', 'Traduïda', ${i})">
         </div>
       `).join('')}
     </div>
@@ -869,6 +897,8 @@ async function corregeixText() {
   document.getElementById('correccio-carregant-txt').textContent =
     `Corregint amb ${passos.join(' + ')}…`;
 
+  actualitzaProgress('correccio', 5, 'Enviant text a Claude Sonnet...', '');
+
   try {
     const url  = await TAN.getUrlAvancada();
     const resp = await fetch(`${url}/corregeix`, {
@@ -887,10 +917,14 @@ async function corregeixText() {
       throw new Error(dades.detail || `Error ${resp.status}`);
     }
 
+    actualitzaProgress('correccio', 100, 'Correcció completada!', '');
+    setTimeout(() => amagaProgress('correccio'), 2000);
+
     _dadesCorreccio = dades;
     renderitzaCorreccions(dades);
 
   } catch (e) {
+    amagaProgress('correccio');
     mostraMissatgeCorreccio('error', 'Error: ' + e.message);
   } finally {
     document.getElementById('correccio-carregant').style.display = 'none';
@@ -1129,6 +1163,17 @@ async function corregeixDocument() {
     `Corregint "${_documentSeleccionat.name}"… Pot trigar uns minuts depenent de la llargada del document.`
   );
 
+  actualitzaProgress('correccio', 10, 'Processant el document...', 'Analitzant el contingut');
+
+  // Simula progrés incremental mentre es corregeix
+  let _progressInterval = setInterval(() => {
+    const barEl = document.getElementById('correccio-progress-bar');
+    const barActual = parseFloat(barEl?.style.width || '10');
+    if (barActual < 85) {
+      actualitzaProgress('correccio', barActual + 3, 'Corregint segments...', 'Aplicant normes AVL i Gramàtica Zero');
+    }
+  }, 1500);
+
   try {
     const url      = await TAN.getUrlAvancada();
     const formData = new FormData();
@@ -1138,6 +1183,8 @@ async function corregeixDocument() {
       method: 'POST',
       body:   formData,
     });
+
+    clearInterval(_progressInterval);
 
     if (!resp.ok) {
       let detall = `Error ${resp.status}`;
@@ -1154,12 +1201,17 @@ async function corregeixDocument() {
 
     _documentCorregitBlob = await resp.blob();
 
+    actualitzaProgress('correccio', 100, 'Document corregit!', '');
+    setTimeout(() => amagaProgress('correccio'), 2000);
+
     document.getElementById('btn-descarregar-document').style.display = 'inline-flex';
     mostraMissatgeCorreccio('ok',
       '✅ Document corregit. Clica "⬇ Descarregar document corregit" per obtenir-lo.'
     );
 
   } catch (e) {
+    clearInterval(_progressInterval);
+    amagaProgress('correccio');
     mostraMissatgeCorreccio('error', `Error en la correcció del document: ${e.message}`);
   } finally {
     btn.disabled    = false;
@@ -1324,6 +1376,89 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ═══════════════════════════════════════════════════════
+// BARRES DE PROGRÉS EN TEMPS REAL
+// ═══════════════════════════════════════════════════════
+
+function actualitzaProgress(prefix, percentatge, text, detall) {
+  const container = document.getElementById(`${prefix}-progress-container`);
+  const bar       = document.getElementById(`${prefix}-progress-bar`);
+  const textEl    = document.getElementById(`${prefix}-progress-text`);
+  const percentEl = document.getElementById(`${prefix}-progress-percent`);
+  const detallEl  = document.getElementById(`${prefix}-progress-detall`);
+
+  if (!container) return;
+
+  if (percentatge === null) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'block';
+  bar.style.width = `${Math.min(100, Math.max(0, percentatge))}%`;
+  if (text) textEl.textContent = text;
+  percentEl.textContent = `${Math.round(percentatge)}%`;
+  if (detall !== undefined) detallEl.textContent = detall || '';
+
+  // Color de la barra segons el progrés
+  if (percentatge >= 100) {
+    bar.className = 'progress-bar-fill progress-bar-complet';
+  } else if (percentatge > 50) {
+    bar.className = 'progress-bar-fill progress-bar-mig';
+  } else {
+    bar.className = 'progress-bar-fill';
+  }
+}
+
+function amagaProgress(prefix) {
+  actualitzaProgress(prefix, null, '', '');
+}
+
+// ═══════════════════════════════════════════════════════
+// LIGHTBOX DE PREVISUALITZACIÓ D'IMATGES
+// ═══════════════════════════════════════════════════════
+
+let _lightboxIndexDescarrega = null;
+
+function obreLightbox(dataUrl, nom, tipus, indexDescarrega) {
+  document.getElementById('lightbox-imatge').src = dataUrl;
+  document.getElementById('lightbox-titol').textContent =
+    `${tipus === 'Traduïda' ? '✅ Imatge traduïda' : '🖼 Imatge original'}: ${nom}`;
+  document.getElementById('lightbox-peu-text').textContent =
+    tipus === 'Traduïda'
+      ? 'Comprova que el text s\'ha traduït correctament. Si cal, fes modificacions al camp inferior.'
+      : 'Imatge original pujada pel tècnic.';
+
+  const btnDescarrega = document.getElementById('lightbox-descarrega');
+  if (tipus === 'Traduïda' && indexDescarrega !== null) {
+    _lightboxIndexDescarrega = indexDescarrega;
+    btnDescarrega.style.display = 'inline-flex';
+  } else {
+    _lightboxIndexDescarrega = null;
+    btnDescarrega.style.display = 'none';
+  }
+
+  document.getElementById('lightbox-overlay').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function tancaLightbox() {
+  document.getElementById('lightbox-overlay').style.display = 'none';
+  document.getElementById('lightbox-imatge').src = '';
+  document.body.style.overflow = '';
+}
+
+function descarregaDesLightbox() {
+  if (_lightboxIndexDescarrega !== null) {
+    descarregaImatgeIndividual(_lightboxIndexDescarrega);
+  }
+}
+
+// Tanca el lightbox amb Escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') tancaLightbox();
+});
+
+// ═══════════════════════════════════════════════════════
 // SELECTOR DE DOMINI LINGÜÍSTIC — Pestanya Traducció de documents
 // ═══════════════════════════════════════════════════════
 
@@ -1396,4 +1531,148 @@ function actualitzaInfoDomini() {
     badge.style.display = 'inline';
     nota.textContent  = `El domini "${select.value}" encara no té termes al glossari. Pots afegir-ne a la pestanya "Glossaris: actualització".`;
   }
+}
+
+// ═══════════════════════════════════════════════════════
+// PESTANYA TRADUCCIÓ ANGLÈS ↔ VALENCIÀ
+// ═══════════════════════════════════════════════════════
+
+let _anglesOrigen        = 'en'; // 'en' = anglès, 'ca' = valencià
+let _anglesDocSeleccionat  = null;
+let _anglesDocTraduïtBlob  = null;
+let _anglesNomDocTraduït   = '';
+
+function inverteixDireccio() {
+  _anglesOrigen = _anglesOrigen === 'en' ? 'ca' : 'en';
+  const labelOrigen     = document.getElementById('angles-llengua-origen');
+  const labelDesti      = document.getElementById('angles-llengua-destí');
+  const nota            = document.getElementById('angles-direccio-nota');
+  const labelEntrada    = document.getElementById('angles-label-entrada');
+  const labelSortida    = document.getElementById('angles-label-sortida');
+  const placeholderEntrada = document.getElementById('angles-text-entrada');
+
+  if (_anglesOrigen === 'en') {
+    labelOrigen.textContent = 'Anglès';
+    labelDesti.textContent  = 'Valencià';
+    nota.innerHTML = 'Traduint de <strong>anglès</strong> a <strong>valencià</strong>';
+    labelEntrada.textContent = 'Text en anglès';
+    labelSortida.textContent = 'Traducció al valencià';
+    placeholderEntrada.placeholder = 'Introdueix el text en anglès a traduir...';
+  } else {
+    labelOrigen.textContent = 'Valencià';
+    labelDesti.textContent  = 'Anglès';
+    nota.innerHTML = 'Traduint de <strong>valencià</strong> a <strong>anglès</strong>';
+    labelEntrada.textContent = 'Text en valencià';
+    labelSortida.textContent = 'Traducció a l\'anglès';
+    placeholderEntrada.placeholder = 'Introdueix el text en valencià a traduir...';
+  }
+
+  // Neteja les àrees de text
+  document.getElementById('angles-text-entrada').value = '';
+  document.getElementById('angles-text-sortida').value = '';
+  document.getElementById('angles-sortida-accions').style.display = 'none';
+}
+
+async function tradueixTextAngles() {
+  const text = document.getElementById('angles-text-entrada').value.trim();
+  if (!text) {
+    mostraMissatgeAngles('error', 'Introdueix un text per a traduir.');
+    return;
+  }
+  const btn = document.getElementById('btn-traduir-text-angles');
+  btn.disabled = true;
+  btn.textContent = '⏳ Traduint...';
+  actualitzaProgress('angles', 20, 'Preparant la traducció...', '');
+
+  try {
+    // PENDENT D'IMPLEMENTACIÓ: motor EN↔CA
+    actualitzaProgress('angles', 50, 'Traduint el text...', 'Motor EN↔CA en desenvolupament');
+    await new Promise(r => setTimeout(r, 1000)); // Simulació
+    actualitzaProgress('angles', 100, 'Completat', '');
+
+    document.getElementById('angles-text-sortida').value =
+      '[Traducció anglès ↔ valencià en desenvolupament. Properament disponible.]';
+    document.getElementById('angles-sortida-accions').style.display = 'flex';
+    mostraMissatgeAngles('info', 'ℹ️ La traducció anglès ↔ valencià s\'implementarà properament.');
+    setTimeout(() => amagaProgress('angles'), 2000);
+  } catch (e) {
+    mostraMissatgeAngles('error', `Error: ${e.message}`);
+    amagaProgress('angles');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🌐 Traduir text';
+  }
+}
+
+function handleAnglesDocSelect(event) {
+  const fitxer = event.target.files[0];
+  if (!fitxer) return;
+  const ext = fitxer.name.split('.').pop().toLowerCase();
+  if (!['docx', 'pptx'].includes(ext)) {
+    mostraMissatgeAngles('error', 'Només s\'admeten fitxers .docx i .pptx.');
+    return;
+  }
+  _anglesDocSeleccionat = fitxer;
+  _anglesDocTraduïtBlob = null;
+  const icones = { docx: '📝', pptx: '📊' };
+  document.getElementById('angles-doc-icona').textContent = icones[ext] || '📄';
+  document.getElementById('angles-doc-nom').textContent   = fitxer.name;
+  document.getElementById('angles-doc-mida').textContent  =
+    `(${(fitxer.size / 1024).toFixed(0)} KB)`;
+  document.getElementById('angles-doc-info').style.display    = 'flex';
+  document.getElementById('angles-doc-accions').style.display = 'flex';
+  document.getElementById('btn-descarrega-doc-angles').style.display = 'none';
+  event.target.value = '';
+}
+
+function eliminaAnglesDoc() {
+  _anglesDocSeleccionat = null;
+  _anglesDocTraduïtBlob = null;
+  document.getElementById('angles-doc-info').style.display    = 'none';
+  document.getElementById('angles-doc-accions').style.display = 'none';
+  document.getElementById('angles-doc-input').value = '';
+}
+
+async function tradueixDocAngles() {
+  if (!_anglesDocSeleccionat) {
+    mostraMissatgeAngles('error', 'Apuja un document primer.');
+    return;
+  }
+  const btn = document.getElementById('btn-traduir-doc-angles');
+  btn.disabled = true;
+  btn.textContent = '⏳ Traduint...';
+  actualitzaProgress('angles', 10, 'Processant el document...', 'Motor EN↔CA en desenvolupament');
+
+  // PENDENT D'IMPLEMENTACIÓ
+  await new Promise(r => setTimeout(r, 1500));
+  actualitzaProgress('angles', 100, 'Completat', '');
+  mostraMissatgeAngles('info', 'ℹ️ La traducció de documents anglès ↔ valencià s\'implementarà properament.');
+  setTimeout(() => amagaProgress('angles'), 2000);
+  btn.disabled = false;
+  btn.textContent = '🌐 Traduir document';
+}
+
+function descarregaAnglesDoc() {
+  if (!_anglesDocTraduïtBlob) return;
+  const urlBlob = URL.createObjectURL(_anglesDocTraduïtBlob);
+  const a = document.createElement('a');
+  a.href     = urlBlob;
+  a.download = _anglesNomDocTraduït;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(urlBlob);
+}
+
+function copiaAngles() {
+  const text = document.getElementById('angles-text-sortida').value;
+  if (text) navigator.clipboard.writeText(text);
+}
+
+function mostraMissatgeAngles(tipus, text) {
+  const el = document.getElementById('angles-missatge');
+  el.textContent = text;
+  el.className   = `correccio-missatge correccio-missatge-${tipus}`;
+  el.style.display = 'block';
+  if (tipus !== 'info') setTimeout(() => { el.style.display = 'none'; }, 5000);
 }

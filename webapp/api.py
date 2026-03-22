@@ -137,12 +137,15 @@ DIR_GLOSSARIS.mkdir(exist_ok=True)
 
 DOMINIS = [
     "Art i Història de l'Art",
+    "Astronomia",
+    "Altres",
     "Biologia",
     "Ciències Polítiques",
     "Comunicacions institucionals i discursos",
     "Convenis",
     "Convocatòries: cursos, premis, beques, concursos",
     "Dret",
+    "Ecologia i Medi Ambient",
     "Economia",
     "Enginyeries",
     "Farmàcia",
@@ -152,16 +155,40 @@ DOMINIS = [
     "Formació del professorat i Ciències de l'Educació",
     "Geografia",
     "Història i Antropologia",
-    "Informàtica",
+    "Informàtica i Noves Tecnologies",
+    "Logopèdia",
+    "Matemàtiques i Estadística",
     "Medicina i Infermeria",
-    "Medi Ambient",
-    "Música",
+    "Música i Arts Escèniques",
     "Notes de Premsa",
+    "Odontologia",
     "Pedagogia",
     "Psicologia",
     "Química",
     "Salut Laboral i Prevenció de Riscos",
 ]
+
+# Mapa de noms de domini obsolets → nous (per a migració de fitxers TSV)
+_MIGRACIONS_DOMINIS = {
+    "Medi_Ambient": "Ecologia_i_Medi_Ambient",
+    "Música":       "Música_i_Arts_Escèniques",
+    "Informàtica":  "Informàtica_i_Noves_Tecnologies",
+}
+
+
+def _migra_glossaris_antics():
+    """Renombra fitxers de glossari amb noms de domini obsolets."""
+    if not DIR_GLOSSARIS.exists():
+        return
+    for nom_antic, nom_nou in _MIGRACIONS_DOMINIS.items():
+        fitxer_antic = DIR_GLOSSARIS / f"{nom_antic}.tsv"
+        fitxer_nou   = DIR_GLOSSARIS / f"{nom_nou}.tsv"
+        if fitxer_antic.exists() and not fitxer_nou.exists():
+            fitxer_antic.rename(fitxer_nou)
+            log.info("Glossari migrat: %s → %s", fitxer_antic.name, fitxer_nou.name)
+
+
+_migra_glossaris_antics()
 
 
 def nom_fitxer_glossari(domini: str) -> Path:

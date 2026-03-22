@@ -1818,3 +1818,282 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   color: var(--uv-gris, #888);
   font-style: italic;
 }
+
+/* ── Lightbox de previsualització d'imatges ──────────── */
+
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+  padding: 1rem;
+  cursor: zoom-out;
+}
+
+.lightbox-contingut {
+  position: relative;
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  cursor: default;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+}
+
+.lightbox-tancar {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: var(--uv-nav, #003366);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.lightbox-tancar:hover { background: var(--uv-vermell, #c4122f); }
+
+.lightbox-titol {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--uv-nav, #003366);
+  padding-right: 2rem;
+}
+
+.lightbox-imatge {
+  max-width: 80vw;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #ddd);
+}
+
+.lightbox-peu {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.82rem;
+  color: var(--uv-gris, #888);
+}
+
+.imatge-clicable {
+  cursor: zoom-in;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.imatge-clicable:hover {
+  opacity: 0.9;
+  transform: scale(1.02);
+}
+
+/* ── Barres de progrés ───────────────────────────────── */
+
+.progress-container {
+  margin: 1rem 0;
+  padding: 1rem 1.25rem;
+  background: var(--color-surface, #f8f9fa);
+  border: 1px solid var(--color-border, #ddd);
+  border-radius: 8px;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.progress-bar-track {
+  height: 8px;
+  background: #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.4rem;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--uv-blau, #0065a4), var(--uv-nav, #003366));
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.progress-bar-mig {
+  background: linear-gradient(90deg, #f0a500, var(--uv-blau, #0065a4));
+}
+
+.progress-bar-complet {
+  background: linear-gradient(90deg, #28a745, #20c997);
+}
+
+.progress-detall {
+  font-size: 0.78rem;
+  color: var(--uv-gris, #888);
+  font-style: italic;
+}
+
+/* ── Pestanya Traducció anglès ↔ valencià ────────────── */
+
+.angles-container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.angles-header h2 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.angles-descripcio {
+  color: var(--uv-gris, #666);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.angles-direccio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  background: var(--color-surface, #f8f9fa);
+  border: 1px solid var(--color-border, #ddd);
+  border-radius: 10px;
+}
+
+.angles-direccio-selector {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.angles-llengua {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--uv-nav, #003366);
+  min-width: 80px;
+  text-align: center;
+}
+
+.angles-inverteix {
+  background: var(--uv-blau, #0065a4);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 2.5rem;
+  height: 2.5rem;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.angles-inverteix:hover {
+  background: var(--uv-nav, #003366);
+  transform: rotate(180deg);
+}
+
+.angles-direccio-nota {
+  font-size: 0.85rem;
+  color: var(--uv-gris, #666);
+}
+
+.angles-text-seccio h3,
+.angles-doc-seccio h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.angles-text-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 640px) {
+  .angles-text-grid { grid-template-columns: 1fr; }
+}
+
+.angles-text-bloc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.angles-text-bloc label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--uv-gris, #555);
+}
+
+.angles-text-bloc textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border, #ddd);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.angles-sortida-accions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}
+
+.angles-text-accions {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.angles-doc-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.angles-doc-accions {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.angles-nota-implementacio {
+  margin-top: 2rem;
+  padding: 1rem 1.25rem;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: #856404;
+}
