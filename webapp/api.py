@@ -1583,6 +1583,26 @@ def _extrau_paràgrafs_docx(xml_bytes: bytes) -> list[dict]:
     return resultat, arbre
 
 
+def _aplica_highlight_groc_docx(paragraph_el, ns_w: str = _NS_W_DOC) -> None:
+    """
+    Aplica destacat groc (highlight yellow) a tots els runs de text
+    d'un paràgraf Word que ha estat corregit.
+    """
+    from lxml import etree as _et
+    for run in paragraph_el.iter(f"{{{ns_w}}}r"):
+        rPr = run.find(f"{{{ns_w}}}rPr")
+        if rPr is None:
+            rPr = _et.SubElement(run, f"{{{ns_w}}}rPr")
+            run.insert(0, rPr)
+        # Elimina highlight previ si existeix
+        hl_existent = rPr.find(f"{{{ns_w}}}highlight")
+        if hl_existent is not None:
+            rPr.remove(hl_existent)
+        # Afegeix highlight groc
+        highlight = _et.SubElement(rPr, f"{{{ns_w}}}highlight")
+        highlight.set(f"{{{ns_w}}}val", "yellow")
+
+
 def _aplica_correccions_docx(arbre, paràgrafs: list[dict], segments_corregits: list[str]) -> bytes:
     """Substitueix el text de cada paràgraf amb la versió corregida i serialitza."""
     from lxml import etree as _et
@@ -1592,6 +1612,7 @@ def _aplica_correccions_docx(arbre, paràgrafs: list[dict], segments_corregits: 
         antic = p["text"]
         if nou and nou != antic:
             _substitueix_text_runs(p["node"], nou, _NS_W_DOC)
+            _aplica_highlight_groc_docx(p["node"], _NS_W_DOC)
     return _et.tostring(arbre, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
@@ -1610,6 +1631,29 @@ def _extrau_shapes_pptx(xml_bytes: bytes):
     return shapes, arbre
 
 
+def _aplica_highlight_groc_pptx(paragraph_el, ns_a: str = _NS_A_DOC) -> None:
+    """
+    Aplica destacat groc als runs d'un paràgraf PowerPoint corregit.
+    En PPTX s'usa solidFill amb color groc (#FFFF00) a la propietat
+    highlight del run (a:rPr → a:highlight → a:solidFill → a:srgbClr).
+    """
+    from lxml import etree as _et
+    for run in paragraph_el.iter(f"{{{ns_a}}}r"):
+        rPr = run.find(f"{{{ns_a}}}rPr")
+        if rPr is None:
+            rPr = _et.SubElement(run, f"{{{ns_a}}}rPr")
+            run.insert(0, rPr)
+        # Elimina highlight previ si existeix
+        hl_existent = rPr.find(f"{{{ns_a}}}highlight")
+        if hl_existent is not None:
+            rPr.remove(hl_existent)
+        # Afegeix highlight groc com a solidFill
+        highlight = _et.SubElement(rPr, f"{{{ns_a}}}highlight")
+        solidFill = _et.SubElement(highlight, f"{{{ns_a}}}solidFill")
+        srgbClr   = _et.SubElement(solidFill, f"{{{ns_a}}}srgbClr")
+        srgbClr.set("val", "FFFF00")
+
+
 def _aplica_correccions_pptx(arbre, shapes: list[dict],
                                segments_corregits: list[str],
                                offset_inici: int) -> bytes:
@@ -1620,6 +1664,7 @@ def _aplica_correccions_pptx(arbre, shapes: list[dict],
         nou  = segments_corregits[idx_global] if idx_global < len(segments_corregits) else ""
         if nou and nou != shape["text"]:
             _substitueix_text_runs(shape["node"], nou, _NS_A_DOC)
+            _aplica_highlight_groc_pptx(shape["node"], _NS_A_DOC)
     return _et.tostring(arbre, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
@@ -1680,22 +1725,53 @@ async def _corregeix_segments_claude(
             num_lot, len(lot_índexs), lot_índexs[0], lot_índexs[-1],
         )
 
-        prompt_usuari = (
-            "Corregeix i postedita exhaustivament els textos en valencià del JSON següent "
-            "aplicant TOTES les normes dels blocs A, B i C del teu sistema.\n\n"
-            "REGLES CRÍTIQUES DE RESPOSTA:\n"
-            "- Retorna EXACTAMENT el mateix JSON amb les mateixes claus numèriques.\n"
-            "- Si un text ja és correcte, retorna'l IDÈNTIC sense cap canvi.\n"
-            "- NO afegeixis cap text fora del JSON.\n"
-            "- Preserva majúscules inicials, sigles, noms propis, xifres, símbols i puntuació estructural.\n"
-            "- NO canvies la longitud substancialment (±25% màxim).\n"
-            "- Aplica especialment: demostratius reforçats (aquest/aquesta/aquell), "
-            "possessius amb -u- (meua/teua/seua), verbs incoatius (-eix/-isca), "
-            "participis regulars (-it), accentuació general (anglès/francès), "
-            "eliminació de «lo neutre», correccions dels calcs del castellà.\n\n"
-            f"JSON d'entrada:\n{_js.dumps(lot_textos, ensure_ascii=False, indent=2)}\n\n"
-            "Retorna ÚNICAMENT el JSON corregit, sense cap text addicional:"
-        )
+        prompt_usuari = f"""Ets el corrector i posteditor lingüístic expert de la Secció d'Assessorament Lingüístic del SLPL de la Universitat de València.
+
+TASCA: Corregeix i postedita exhaustivament els textos en valencià del JSON aplicant TOTES i CADASCUNA de les normes dels BLOCS A, B i C del teu sistema de forma RIGOROSA i PROFUNDA.
+
+METODOLOGIA OBLIGATÒRIA:
+Abans de corregir cada segment, fes mentalment els passos següents:
+1. Comprèn el significat complet i el context del text.
+2. Analitza TOTES les categories d'errors possibles:
+   a) MORFOLOGIA: demostratius (este→aquest, esta→aquesta, estos→aquests, estes→aquestes, eixe→aqueix), possessius (seva→seua, meva→meua, teva→teua), verbs incoatius (-eix/-isca), participis regulars (-it), numerals (huit→vuit), lèxic preferit (vore→veure, hui→avui, mentres→mentre, servici→servei, vacacions→vacances, desenrotllar→desenvolupar, mitat→meitat)
+   b) ORTOTIPOGRAFIA: accentuació general (anglés→anglès, francés→francès, interés→interès, permés→permès), grafies tl/tll (motlle→motle, espatlla→espatla), majúscules/minúscules de càrrecs i institucions
+   c) SINTAXI (Gramàtica Zero — ESPECIALMENT IMPORTANT):
+      - Gerundi de posterioritat/conseqüència: SEMPRE incorrecte. Si el gerundi expressa una acció posterior o conseqüència del verb principal, cal substituir-lo per "i + verb conjugat" o "per la qual cosa + verb". Exemple: "Va caure trencant-se una cama" → "Va caure i es va trencar una cama"
+      - Gerundi de causa: "En ser tan alt" / "Al no tenir" → "Com que era tan alt" / "Com que no tenia"
+      - Haver-hi en plural: "hi han" → "hi ha", "hi havien molts" → "hi havia molts"
+      - Lo neutre: "lo important" → "allò que és important", "lo millor" → "el millor / allò que és millor"
+      - Algo: sempre incorrecte → "alguna cosa" o "un poc"
+      - Degut a (causa): → "a causa de", "per"
+      - En base a: → "d'acord amb", "a partir de", "sobre la base de"
+      - Anar a + infinitiu per a futur: "anem a fer" → "farem"
+      - Caiguda de preposició davant que: "estic segur de que" → "estic segur que"
+      - Complement directe de persona amb a: "vaig veure al director" → "vaig veure el director"
+      - Pronom en omès: "no tinc" per "no en tinc" quan remet a un CD indeterminat
+      - Pronom hi omès: "no he estat" → "no hi he estat"
+      - Si no / Sinó confosos
+      - Hagués en comptes de hauria en la principal: "no s'hagués perdut" → "no s'hauria perdut"
+      - Malgrat + verb (sense que): "malgrat plovia" → "malgrat que plovia"
+      - Per a què / Perquè confosos
+      - Ordres amb infinitiu: "No fumar" → "No fumeu"
+      - Infinitiu discursiu: "Per comentar..." → "Vull comentar..."
+      - Varis: → "diversos/diverses"
+      - Mentrestant vs mentre
+      - Més aviat vs més bé
+   d) LÈXIC I TERMINOLOGIA: calcs del castellà, barbarismes, falsos amics
+   e) ESTIL ADMINISTRATIU: brevetat, claredat, eliminació d'arcaismes i fórmules calcades del castellà
+3. Aplica TOTES les correccions detectades, no només les més òbvies.
+
+REGLES DE RESPOSTA:
+- Retorna EXACTAMENT el mateix JSON amb les mateixes claus numèriques.
+- Si un text ja és completament correcte, retorna'l IDÈNTIC.
+- NO afegeixis cap text fora del JSON.
+- Preserva noms propis, sigles, xifres i puntuació estructural.
+- NO canvies la longitud substancialment (±25% màxim).
+
+JSON d'entrada:
+{_js.dumps(lot_textos, ensure_ascii=False, indent=2)}
+
+Retorna ÚNICAMENT el JSON corregit:"""
 
         text_resp = ""
         try:
@@ -1814,6 +1890,7 @@ async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                     antic = paràgrafs[i]["text"] if i < len(paràgrafs) else ""
                     if nou and nou != antic:
                         _substitueix_text_runs(p_node, nou, _NS_W_DOC)
+                        _aplica_highlight_groc_docx(p_node, _NS_W_DOC)
                 xml_corregit = _et.tostring(
                     arbre_treballat, xml_declaration=True, encoding="UTF-8", standalone=True
                 )
@@ -1869,6 +1946,7 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                             nou  = corregits[idx_global] if idx_global < len(corregits) else ""
                             if nou and nou != shapes[k]["text"]:
                                 _substitueix_text_runs(p_node, nou, _NS_A_DOC)
+                                _aplica_highlight_groc_pptx(p_node, _NS_A_DOC)
                             k += 1
                 xml_corregit = _et.tostring(
                     arbre_treballat, xml_declaration=True, encoding="UTF-8", standalone=True
@@ -1881,114 +1959,6 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
 
     buf_eixida.seek(0)
     return buf_eixida.read()
-
-
-@app.get("/debug-env", tags=["Diagnòstic"])
-async def debug_env():
-    """Mostra les variables d'entorn relacionades amb les claus API."""
-    import os
-    clau_raw      = _obte_api_key_anthropic()
-    clau_environ  = os.environ.get("ANTHROPIC_API_KEY_CORRECCIO", "").strip().strip("'\"")
-    origen        = "os.environ" if clau_environ else "fitxer .env"
-    return {
-        "clau_present":          bool(clau_raw),
-        "clau_longitud":         len(clau_raw),
-        "clau_prefix":           repr(clau_raw[:20]) if clau_raw else "",
-        "clau_sufix":            repr(clau_raw[-10:]) if clau_raw else "",
-        "comença_sk_ant":        clau_raw.startswith("sk-ant-"),
-        "te_caracters_estranys": any(ord(c) > 127 or ord(c) < 32 for c in clau_raw),
-        "caracters_estranys":    [repr(c) for c in clau_raw if ord(c) > 127 or ord(c) < 32],
-        "origen":                origen,
-        "PYTHONPATH":            os.environ.get("PYTHONPATH", "no definit"),
-        "CWD":                   os.getcwd(),
-        "env_path_calculat":     str(Path(__file__).resolve().parent.parent / ".env"),
-        "env_existeix":          (Path(__file__).resolve().parent.parent / ".env").exists(),
-    }
-
-
-@app.post(
-    "/corregeix-document/test",
-    summary = "Diagnòstic: prova la connexió a Claude Sonnet amb un segment curt",
-    tags    = ["Diagnòstic"],
-)
-async def test_correccio_document():
-    """
-    Endpoint de diagnòstic temporal: comprova que la clau API d'Anthropic és vàlida
-    i que Claude Sonnet respon correctament a una petició de correcció mínima.
-    Retorna el resultat detallat per facilitar la depuració.
-    """
-    import os
-    import anthropic as _ant
-
-    api_key = _obte_api_key_anthropic()
-
-    if not api_key:
-        return {
-            "estat":        "error",
-            "motiu":        "Clau API no configurada",
-            "clau_present": False,
-        }
-
-    try:
-        client   = _ant.Anthropic(api_key=api_key)
-        resposta = client.messages.create(
-            model      = "claude-sonnet-4-6",
-            max_tokens = 200,
-            system     = "Ets un corrector de valencià. Respon sempre en JSON.",
-            messages   = [{
-                "role":    "user",
-                "content": (
-                    'Corregeix: {"0": "Este document es molt interessant."}\n'
-                    "Retorna únicament el JSON corregit."
-                ),
-            }],
-        )
-        text = resposta.content[0].text.strip()
-        # Elimina possibles ```json ... ``` que Claude pot afegir
-        if text.startswith("```"):
-            text = re.sub(r"```(?:json)?\s*", "", text)
-            text = text.replace("```", "").strip()
-        # Neteja encoding UTF-8 mal interpretat com Latin-1
-        if "Ã" in text or "â€" in text:
-            try:
-                text = text.encode("latin-1").decode("utf-8")
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
-        # Extreu i neteja el valor corregit del JSON
-        import json as _json_test
-        try:
-            lot_corregit  = _json_test.loads(text)
-            valor_corregit = lot_corregit.get("0", text)
-            valor_corregit = _neteja_encoding_valor(valor_corregit)
-        except Exception:
-            valor_corregit = text
-        return {
-            "estat":           "ok",
-            "model":           resposta.model,
-            "clau_prefix":     api_key[:12] + "...",
-            "resposta_raw":    text,
-            "valor_corregit":  valor_corregit,
-            "tokens_usats":    resposta.usage.input_tokens + resposta.usage.output_tokens,
-        }
-
-    except _ant.AuthenticationError as exc:
-        return {
-            "estat": "error",
-            "motiu": "Clau API invàlida o caducada",
-            "detall": str(exc),
-        }
-    except _ant.APIError as exc:
-        return {
-            "estat": "error",
-            "motiu": f"Error API Anthropic ({type(exc).__name__})",
-            "detall": str(exc),
-        }
-    except Exception as exc:
-        return {
-            "estat": "error",
-            "motiu": type(exc).__name__,
-            "detall": str(exc),
-        }
 
 
 @app.post(
