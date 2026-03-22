@@ -1623,6 +1623,19 @@ def _aplica_correccions_pptx(arbre, shapes: list[dict],
     return _et.tostring(arbre, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
+def _neteja_encoding_valor(text: str) -> str:
+    """
+    Corregeix caràcters UTF-8 mal interpretats com Latin-1.
+    Exemple: 'Ã©s' → 'és', 'Ã ' → 'à', etc.
+    """
+    if not text:
+        return text
+    try:
+        return text.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+
+
 async def _corregeix_segments_claude(
     segments: list[str],
     api_key: str,
@@ -1719,10 +1732,11 @@ async def _corregeix_segments_claude(
             for i in lot_índexs:
                 clau = str(i)
                 if clau in lot_corregit and isinstance(lot_corregit[clau], str):
-                    if lot_corregit[clau].strip():
-                        if lot_corregit[clau] != segments[i]:
+                    valor = _neteja_encoding_valor(lot_corregit[clau].strip())
+                    if valor:
+                        if valor != segments[i]:
                             canvis += 1
-                        segments_corregits[i] = lot_corregit[clau]
+                        segments_corregits[i] = valor
 
             log.warning("[CORRECCIO] Lot %d OK — %d canvis aplicats", num_lot, canvis)
 
@@ -1940,12 +1954,21 @@ async def test_correccio_document():
                 text = text.encode("latin-1").decode("utf-8")
             except (UnicodeEncodeError, UnicodeDecodeError):
                 pass
+        # Extreu i neteja el valor corregit del JSON
+        import json as _json_test
+        try:
+            lot_corregit  = _json_test.loads(text)
+            valor_corregit = lot_corregit.get("0", text)
+            valor_corregit = _neteja_encoding_valor(valor_corregit)
+        except Exception:
+            valor_corregit = text
         return {
-            "estat":        "ok",
-            "model":        resposta.model,
-            "clau_prefix":  api_key[:12] + "...",
-            "resposta_raw": text,
-            "tokens_usats": resposta.usage.input_tokens + resposta.usage.output_tokens,
+            "estat":           "ok",
+            "model":           resposta.model,
+            "clau_prefix":     api_key[:12] + "...",
+            "resposta_raw":    text,
+            "valor_corregit":  valor_corregit,
+            "tokens_usats":    resposta.usage.input_tokens + resposta.usage.output_tokens,
         }
 
     except _ant.AuthenticationError as exc:
