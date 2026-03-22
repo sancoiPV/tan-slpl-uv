@@ -1583,22 +1583,65 @@ def _extrau_paràgrafs_docx(xml_bytes: bytes) -> list[dict]:
     return resultat, arbre
 
 
-def _aplica_highlight_groc_docx(paragraph_el, ns_w: str = _NS_W_DOC) -> None:
+def _obte_paraules_canviades(text_original: str, text_corregit: str) -> list[str]:
     """
-    Aplica destacat groc (highlight yellow) a tots els runs de text
-    d'un paràgraf Word que ha estat corregit.
+    Compara dos textos paraula per paraula i retorna la llista de paraules
+    que han canviat, han sigut afegides o eliminades al text corregit.
+    Usa difflib per detectar les diferències reals.
+    """
+    import difflib
+    import re as _re
+
+    def tokenitza(text: str) -> list[str]:
+        return _re.findall(r'\S+|\s+', text)
+
+    tokens_orig = tokenitza(text_original)
+    tokens_corr = tokenitza(text_corregit)
+
+    paraules_canviades: set[str] = set()
+    matcher = difflib.SequenceMatcher(None, tokens_orig, tokens_corr, autojunk=False)
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag in ('replace', 'insert'):
+            for token in tokens_corr[j1:j2]:
+                token_net = token.strip()
+                if token_net:
+                    paraules_canviades.add(token_net.lower())
+
+    return list(paraules_canviades)
+
+
+def _aplica_highlight_groc_docx(
+    paragraph_el,
+    text_original: str,
+    text_corregit: str,
+    ns_w: str = _NS_W_DOC,
+) -> None:
+    """
+    Aplica destacat groc SELECTIU (highlight yellow): només als runs que contenen
+    paraules que han canviat respecte del text original.
     """
     from lxml import etree as _et
+
+    paraules_canviades = _obte_paraules_canviades(text_original, text_corregit)
+    if not paraules_canviades:
+        return
+
     for run in paragraph_el.iter(f"{{{ns_w}}}r"):
+        text_run = "".join(t.text for t in run.iter(f"{{{ns_w}}}t") if t.text)
+        if not text_run.strip():
+            continue
+        text_run_lower = text_run.lower()
+        cal_highlight = any(p in text_run_lower for p in paraules_canviades if p)
+        if not cal_highlight:
+            continue
         rPr = run.find(f"{{{ns_w}}}rPr")
         if rPr is None:
             rPr = _et.SubElement(run, f"{{{ns_w}}}rPr")
             run.insert(0, rPr)
-        # Elimina highlight previ si existeix
         hl_existent = rPr.find(f"{{{ns_w}}}highlight")
         if hl_existent is not None:
             rPr.remove(hl_existent)
-        # Afegeix highlight groc
         highlight = _et.SubElement(rPr, f"{{{ns_w}}}highlight")
         highlight.set(f"{{{ns_w}}}val", "yellow")
 
@@ -1612,7 +1655,7 @@ def _aplica_correccions_docx(arbre, paràgrafs: list[dict], segments_corregits: 
         antic = p["text"]
         if nou and nou != antic:
             _substitueix_text_runs(p["node"], nou, _NS_W_DOC)
-            _aplica_highlight_groc_docx(p["node"], _NS_W_DOC)
+            _aplica_highlight_groc_docx(p["node"], antic, nou, _NS_W_DOC)
     return _et.tostring(arbre, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
@@ -1631,23 +1674,37 @@ def _extrau_shapes_pptx(xml_bytes: bytes):
     return shapes, arbre
 
 
-def _aplica_highlight_groc_pptx(paragraph_el, ns_a: str = _NS_A_DOC) -> None:
+def _aplica_highlight_groc_pptx(
+    paragraph_el,
+    text_original: str,
+    text_corregit: str,
+    ns_a: str = _NS_A_DOC,
+) -> None:
     """
-    Aplica destacat groc als runs d'un paràgraf PowerPoint corregit.
-    En PPTX s'usa solidFill amb color groc (#FFFF00) a la propietat
-    highlight del run (a:rPr → a:highlight → a:solidFill → a:srgbClr).
+    Aplica destacat groc SELECTIU en PPTX: només als runs amb paraules canviades.
+    En PPTX s'usa solidFill amb color groc (#FFFF00).
     """
     from lxml import etree as _et
+
+    paraules_canviades = _obte_paraules_canviades(text_original, text_corregit)
+    if not paraules_canviades:
+        return
+
     for run in paragraph_el.iter(f"{{{ns_a}}}r"):
+        text_run = "".join(t.text for t in run.iter(f"{{{ns_a}}}t") if t.text)
+        if not text_run.strip():
+            continue
+        text_run_lower = text_run.lower()
+        cal_highlight = any(p in text_run_lower for p in paraules_canviades if p)
+        if not cal_highlight:
+            continue
         rPr = run.find(f"{{{ns_a}}}rPr")
         if rPr is None:
             rPr = _et.SubElement(run, f"{{{ns_a}}}rPr")
             run.insert(0, rPr)
-        # Elimina highlight previ si existeix
         hl_existent = rPr.find(f"{{{ns_a}}}highlight")
         if hl_existent is not None:
             rPr.remove(hl_existent)
-        # Afegeix highlight groc com a solidFill
         highlight = _et.SubElement(rPr, f"{{{ns_a}}}highlight")
         solidFill = _et.SubElement(highlight, f"{{{ns_a}}}solidFill")
         srgbClr   = _et.SubElement(solidFill, f"{{{ns_a}}}srgbClr")
@@ -1664,7 +1721,7 @@ def _aplica_correccions_pptx(arbre, shapes: list[dict],
         nou  = segments_corregits[idx_global] if idx_global < len(segments_corregits) else ""
         if nou and nou != shape["text"]:
             _substitueix_text_runs(shape["node"], nou, _NS_A_DOC)
-            _aplica_highlight_groc_pptx(shape["node"], _NS_A_DOC)
+            _aplica_highlight_groc_pptx(shape["node"], shape["text"], nou, _NS_A_DOC)
     return _et.tostring(arbre, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
@@ -1727,43 +1784,85 @@ async def _corregeix_segments_claude(
 
         prompt_usuari = f"""Ets el corrector i posteditor lingüístic expert de la Secció d'Assessorament Lingüístic del SLPL de la Universitat de València.
 
-TASCA: Corregeix i postedita exhaustivament els textos en valencià del JSON aplicant TOTES i CADASCUNA de les normes dels BLOCS A, B i C del teu sistema de forma RIGOROSA i PROFUNDA.
+TASCA OBLIGATÒRIA: Analitza en profunditat cadascun dels textos en valencià del JSON i aplica TOTES i CADASCUNA de les normes dels BLOCS A, B i C del teu sistema de forma RIGOROSA, REFLEXIVA i EXHAUSTIVA. No et limites als errors superficials més evidents. Cal detectar i corregir TOTS els errors de tots els nivells.
 
-METODOLOGIA OBLIGATÒRIA:
-Abans de corregir cada segment, fes mentalment els passos següents:
-1. Comprèn el significat complet i el context del text.
-2. Analitza TOTES les categories d'errors possibles:
-   a) MORFOLOGIA: demostratius (este→aquest, esta→aquesta, estos→aquests, estes→aquestes, eixe→aqueix), possessius (seva→seua, meva→meua, teva→teua), verbs incoatius (-eix/-isca), participis regulars (-it), numerals (huit→vuit), lèxic preferit (vore→veure, hui→avui, mentres→mentre, servici→servei, vacacions→vacances, desenrotllar→desenvolupar, mitat→meitat)
-   b) ORTOTIPOGRAFIA: accentuació general (anglés→anglès, francés→francès, interés→interès, permés→permès), grafies tl/tll (motlle→motle, espatlla→espatla), majúscules/minúscules de càrrecs i institucions
-   c) SINTAXI (Gramàtica Zero — ESPECIALMENT IMPORTANT):
-      - Gerundi de posterioritat/conseqüència: SEMPRE incorrecte. Si el gerundi expressa una acció posterior o conseqüència del verb principal, cal substituir-lo per "i + verb conjugat" o "per la qual cosa + verb". Exemple: "Va caure trencant-se una cama" → "Va caure i es va trencar una cama"
-      - Gerundi de causa: "En ser tan alt" / "Al no tenir" → "Com que era tan alt" / "Com que no tenia"
-      - Haver-hi en plural: "hi han" → "hi ha", "hi havien molts" → "hi havia molts"
-      - Lo neutre: "lo important" → "allò que és important", "lo millor" → "el millor / allò que és millor"
-      - Algo: sempre incorrecte → "alguna cosa" o "un poc"
-      - Degut a (causa): → "a causa de", "per"
-      - En base a: → "d'acord amb", "a partir de", "sobre la base de"
-      - Anar a + infinitiu per a futur: "anem a fer" → "farem"
-      - Caiguda de preposició davant que: "estic segur de que" → "estic segur que"
-      - Complement directe de persona amb a: "vaig veure al director" → "vaig veure el director"
-      - Pronom en omès: "no tinc" per "no en tinc" quan remet a un CD indeterminat
-      - Pronom hi omès: "no he estat" → "no hi he estat"
-      - Si no / Sinó confosos
-      - Hagués en comptes de hauria en la principal: "no s'hagués perdut" → "no s'hauria perdut"
-      - Malgrat + verb (sense que): "malgrat plovia" → "malgrat que plovia"
-      - Per a què / Perquè confosos
-      - Ordres amb infinitiu: "No fumar" → "No fumeu"
-      - Infinitiu discursiu: "Per comentar..." → "Vull comentar..."
-      - Varis: → "diversos/diverses"
-      - Mentrestant vs mentre
-      - Més aviat vs més bé
-   d) LÈXIC I TERMINOLOGIA: calcs del castellà, barbarismes, falsos amics
-   e) ESTIL ADMINISTRATIU: brevetat, claredat, eliminació d'arcaismes i fórmules calcades del castellà
-3. Aplica TOTES les correccions detectades, no només les més òbvies.
+METODOLOGIA OBLIGATÒRIA PER A CADA SEGMENT:
+
+FASE 1 — COMPRENSIÓ: Llegeix el text complet, comprèn-ne el significat i el context, identifica el tipus de text (administratiu, acadèmic, informatiu...) i el registre adequat.
+
+FASE 2 — ANÀLISI EXHAUSTIVA. Comprova SISTEMÀTICAMENT i EN ORDRE cada categoria:
+
+**A. MORFOLOGIA (Criteris lingüístics UV)**
+□ Demostratius NO reforçats → reforçats: este→aquest, esta→aquesta, estos→aquests, estes→aquestes, eixe→aqueix, eixa→aqueixa, eixos→aqueixos, eixes→aqueixes
+□ Possessius amb -v- → amb -u-: seva/seves→seua/seues, meva/meves→meua/meues, teva/teves→teua/teues
+□ Verbs incoatius: servix→serveix, servixen→serveixen, servisca→servisca (ja correcte), servixca→servisca
+□ Participis irregulars → regulars: complert→complit, ofert→oferit, establert→establit, omplert→omplit, sofert→sofrit, suplert→suplit
+□ Participi de ser: estat→sigut (preferible)
+□ Participis -nyut → -ngut: pertanyut→pertangut, planyut→plangut
+□ Infinitius: tindre→tenir, vindre→venir, caber→cabre, caler→caldre, doler→doldre, valer→valdre
+□ Numerals: huit→vuit, díhuit→divuit, dèsset→disset, dènou→dinou
+□ Ordinals: quint→cinquè, sext→sisè, dècim→desè
+□ Gènere dos/dues: dos llibres / dues taules
+□ Plurals -ns→-s: hòmens→homes, jóvens→joves, màrgens→marges, térmens→termes
+□ Plurals -sc/-st/-xt/-ig → -os: discs→discos, gusts→gustos, texts→textos, roigs→rojos (excepte raigs X, tests)
+□ Femení de professions: -a (advocada, arquitecta, ministra, presidenta)
+
+**B. ORTOTIPOGRAFIA (Criteris lingüístics UV)**
+□ Accentuació sistema GENERAL (no occidental): anglés→anglès, francés→francès, interés→interès, permés→permès, compromés→compromès, cortés→cortès; ordinals: cinqué→cinquè, sisé→sisè; substantius: café→cafè, comité→comitè, mercé→mercè; infinitius: conéixer→conèixer, meréixer→merèixer, véncer→vèncer; imperfets: féiem→fèiem, déiem→dèiem; 3a plural 2a conj.: aprén→aprèn, comprén→comprèn, depén→depèn (EXCEPCIÓ: atén, entén, pretén, encén → accent agut)
+□ Grafies tl/tll: motlle→motle, espatlla→espatla, vetllar→vetlar (EXCEPCIÓ: bitllet, rotllo, butlletí, ratlla)
+□ Majúscules/minúscules de càrrecs (minúscula), institucions (majúscula), dies/mesos (minúscula)
+□ Dates: format "Localitat, dia de mes de any" (sense article davant l'any, mesos en minúscula)
+□ Xifres: coma decimal (43,3), punt de milers (2.076.000)
+□ Apòstrof davant sigles: NO apostrofar davant alfabètiques (la UPV, el ISBN); SÍ davant sil·làbiques (l'IVA, l'UJI)
+
+**C. SINTAXI — GRAMÀTICA ZERO (ESPECIALMENT IMPORTANT)**
+□ GERUNDI DE POSTERIORITAT/CONSEQÜÈNCIA: SEMPRE INCORRECTE. Detecta qualsevol gerundi que expressi una acció posterior o una conseqüència del verb principal i substitueix-lo.
+  - "Va arribar a casa, trobant la porta oberta" → "Va arribar a casa i va trobar la porta oberta"
+  - "Ha perdut molts partits, duent l'equip al descens" → "Ha perdut molts partits i ha dut l'equip al descens"
+  - Clau: si NO pots posar el gerundi al principi de la frase mantenint el mateix sentit, és de posterioritat → incorrecte
+□ GERUNDI DE CAUSA (en/al + infinitiu): "En ser tan alt" / "Al no tenir" → "Com que era tan alt" / "Com que no tenia"
+□ HAVER-HI en plural: hi han→hi ha, hi havien molts→hi havia molts, hi hauran→hi haurà
+□ LO NEUTRE: lo important→allò que és important / el més important, lo millor→el millor / allò que és millor, no saps lo brut→no saps com és de brut
+□ ALGO: sempre incorrecte → alguna cosa (indeterminat) / un poc (quantitatiu) / quelcom (formal)
+□ CAIGUDA DE PREPOSICIÓ davant que: estic segur de que→estic segur que, confiem en que→confiem que, la idea de que→la idea que
+□ CD DE PERSONA amb a: vaig veure al director→vaig veure el director, cita a Marx→cita Marx
+□ PRONOM EN omès: "No tinc" (quan remet a un CD indeterminat) → "No en tinc"
+□ PRONOM HI omès: "No he estat mai allà" → "No hi he estat mai"
+□ DEGUT A (causa): degut a la pluja→a causa de la pluja / per la pluja
+□ EN BASE A: en base al reglament→d'acord amb el reglament / a partir del reglament
+□ ANAR A + INFINITIU per a futur: anem a comentar→comentarem, va a fer→farà
+□ HAGUÉS en comptes de HAURIA (principal condicional): no s'hagués perdut→no s'hauria perdut
+□ MALGRAT sense que davant verb: malgrat plovia→malgrat que plovia
+□ PER A QUÈ/PERQUÈ: us hem citat per a què digueu→perquè digueu
+□ ORDRES/INSTRUCCIONS amb infinitiu: No fumar→No fumeu, Veure l'annex→Vegeu l'annex
+□ INFINITIU DISCURSIU: Per comentar...→Vull comentar... / Cal comentar...
+□ SI NO/SINÓ confosos: no era llest sino astut→sinó astut
+□ VARIS: varis errors→diversos errors, varies persones→diverses persones
+□ MENTRE/MENTRESTANT: interval temporal → mentrestant
+□ MÉS BÉ/MÉS AVIAT: és més bé un pobre xicot→és més aviat un pobre xicot
+
+**D. LÈXIC I TERMINOLOGIA (Criteris lingüístics UV)**
+□ hui→avui, vore→veure, mentres→mentre, servici→servei, vacacions→vacances, desenrotllar→desenvolupar, ferramenta→eina (figurat), mitat→meitat, sendemà→endemà, juí→judici, perjuí→perjudici
+□ Topònims: Orihuela→Oriola, Zaragoza→Saragossa, Cádiz→Cadis, London→Londres
+□ Calcs lèxics del castellà i barbarismes
+
+**E. ESTIL ADMINISTRATIU (Manual de documents i llenguatge administratius)**
+□ Arcaismes i calcs: "en base a"→"d'acord amb", "a nivell de"→"a escala de", "degut a"→"a causa de", "al respecte"→"respecte a això"
+□ Tractament: VÓS (no vostè) en documents formals
+□ Claredat i brevetat: eliminar redundàncies, parelles de sinònims, fórmules telegràfiques
+□ Fraseologia genuïna: si escau, d'ara endavant, cal, per endavant, d'acord amb, als efectes oportuns
+□ Terminologia administrativa: emplenar (NO "cumplimentar"), termini (NO "plazo"), la persona interessada, notificar algú (NO "notificar a algú")
+
+FASE 3 — CORRECCIÓ: Aplica TOTES les correccions detectades. No deixis passar cap error per menor que semble.
+
+FASE 4 — VERIFICACIÓ: Rellegeix el text corregit i comprova que:
+a) No has introduït nous errors
+b) El significat original es manté
+c) El registre és l'adequat per al context
 
 REGLES DE RESPOSTA:
 - Retorna EXACTAMENT el mateix JSON amb les mateixes claus numèriques.
-- Si un text ja és completament correcte, retorna'l IDÈNTIC.
+- Si un text ja és completament correcte, retorna'l IDÈNTIC sense cap canvi.
 - NO afegeixis cap text fora del JSON.
 - Preserva noms propis, sigles, xifres i puntuació estructural.
 - NO canvies la longitud substancialment (±25% màxim).
@@ -1890,7 +1989,7 @@ async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                     antic = paràgrafs[i]["text"] if i < len(paràgrafs) else ""
                     if nou and nou != antic:
                         _substitueix_text_runs(p_node, nou, _NS_W_DOC)
-                        _aplica_highlight_groc_docx(p_node, _NS_W_DOC)
+                        _aplica_highlight_groc_docx(p_node, antic, nou, _NS_W_DOC)
                 xml_corregit = _et.tostring(
                     arbre_treballat, xml_declaration=True, encoding="UTF-8", standalone=True
                 )
@@ -1945,8 +2044,9 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                             idx_global = inici + k
                             nou  = corregits[idx_global] if idx_global < len(corregits) else ""
                             if nou and nou != shapes[k]["text"]:
+                                text_original_shape = shapes[k]["text"]
                                 _substitueix_text_runs(p_node, nou, _NS_A_DOC)
-                                _aplica_highlight_groc_pptx(p_node, _NS_A_DOC)
+                                _aplica_highlight_groc_pptx(p_node, text_original_shape, nou, _NS_A_DOC)
                             k += 1
                 xml_corregit = _et.tostring(
                     arbre_treballat, xml_declaration=True, encoding="UTF-8", standalone=True
