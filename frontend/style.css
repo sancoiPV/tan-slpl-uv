@@ -1,17 +1,25 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Sora:wght@300;400;600;700&display=swap');
 
-/* ─── CANVI 1 · Paleta corporativa UV ─────────────────────────────────────── */
+/* ─── Paleta corporativa UV + variables de disseny ──────────────────────── */
 :root {
-  --uv-taronja: #F5A800;
-  --uv-nav:     #1B2A4A;
-  --uv-blau:    #0070AB;
-  --uv-blanc:   #FFFFFF;
-  --uv-gris:    #F5F5F5;
-  --uv-gris-m:  #666666;
-  --uv-brd:     #E0E0E0;
-  --uv-txt:     #1A1A1A;
+  /* Colors corporatius */
+  --uv-vermell:  #c4122f;
+  --uv-taronja:  #F5A800;
+  --uv-nav:      #003366;
+  --uv-blau:     #0065a4;
+  --uv-blanc:    #FFFFFF;
+  --uv-gris:     #F5F5F5;
+  --uv-gris-m:   #666666;
+  --uv-brd:      #E0E0E0;
+  --uv-txt:      #1A1A1A;
+  /* Tipografia */
   --mono: 'IBM Plex Mono', monospace;
   --sans: 'Sora', sans-serif;
+  /* Utilitats */
+  --brd-r:       10px;
+  --transition:  .22s ease;
+  --shadow-sm:   0 2px 6px rgba(0,0,0,.10);
+  --shadow-md:   0 6px 20px rgba(0,0,0,.15);
 }
 
 /* ─── Reset ────────────────────────────────────────────────────────────────── */
@@ -2096,4 +2104,228 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   border-radius: 8px;
   font-size: 0.88rem;
   color: #856404;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CANVI 3 · CAPÇALERA, NAVEGACIÓ I ESTRUCTURA NOVA
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Capçalera principal ────────────────────────────────────────────────── */
+.tan-header {
+  background: linear-gradient(135deg, var(--uv-nav) 0%, var(--uv-blau) 60%, #0080c8 100%);
+  position: relative;
+  z-index: 100;
+  box-shadow: var(--shadow-md);
+}
+
+.tan-header-contingut {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 28px 10px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* ── Bloc esquerre: logo TAN ────────────────────────────────────────────── */
+.tan-header-esquerra {
+  flex: 0 0 auto;
+}
+
+.tan-logo-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tan-logo-icona {
+  font-size: 2rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(245, 168, 0, 0.7));
+  animation: pulsaLlamp 2.5s ease-in-out infinite;
+}
+
+@keyframes pulsaLlamp {
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(245,168,0,.7)); }
+  50%       { filter: drop-shadow(0 0 18px rgba(245,168,0,1)); }
+}
+
+.tan-logo-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.tan-logo-nom {
+  font-size: 1.85rem;
+  font-weight: 700;
+  color: var(--uv-taronja);
+  letter-spacing: .08em;
+  font-family: var(--sans);
+}
+
+.tan-logo-subtitol {
+  font-size: 0.65rem;
+  color: rgba(255,255,255,.70);
+  letter-spacing: .04em;
+  font-family: var(--sans);
+  white-space: nowrap;
+}
+
+/* ── Bloc central: institució ───────────────────────────────────────────── */
+.tan-header-centre {
+  flex: 1;
+  text-align: center;
+}
+
+.tan-header-slogan {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tan-slogan-text {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgba(255,255,255,.92);
+  letter-spacing: .02em;
+}
+
+.tan-slogan-uv {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,.55);
+  letter-spacing: .03em;
+}
+
+/* ── Bloc dret: animació neural + claus ─────────────────────────────────── */
+.tan-header-dreta {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tan-neural-visual {
+  width: 64px;
+  height: 48px;
+  flex-shrink: 0;
+  opacity: .75;
+}
+
+.tan-neural-visual svg {
+  width: 100%;
+  height: 100%;
+}
+
+.btn-claus-api {
+  background: rgba(255,255,255,.12);
+  color: rgba(255,255,255,.90);
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--sans);
+  transition: background var(--transition), border-color var(--transition);
+  white-space: nowrap;
+}
+
+.btn-claus-api:hover {
+  background: rgba(255,255,255,.22);
+  border-color: rgba(255,255,255,.55);
+}
+
+/* ── Barra de navegació enganxosa ───────────────────────────────────────── */
+.tan-nav {
+  background: rgba(0, 25, 55, .85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  padding: 0 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+
+.tan-nav::-webkit-scrollbar { display: none; }
+
+.tan-nav .nav-btn,
+.tan-nav .tab-btn {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,.72);
+  padding: 11px 18px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 3px solid transparent;
+  font-family: var(--sans);
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: .01em;
+}
+
+.tan-nav .nav-btn:hover,
+.tan-nav .tab-btn:hover {
+  color: #fff;
+  background: rgba(255,255,255,.09);
+}
+
+.tan-nav .nav-btn.act,
+.tan-nav .tab-btn.act {
+  color: var(--uv-taronja);
+  border-bottom-color: var(--uv-taronja);
+  font-weight: 700;
+  background: rgba(245,168,0,.08);
+}
+
+/* ── Wrapper principal de contingut ────────────────────────────────────── */
+.tan-main {
+  min-height: calc(100vh - 200px);
+  padding-bottom: 2rem;
+}
+
+/* ── Peu de pàgina ─────────────────────────────────────────────────────── */
+.tan-footer {
+  background: var(--uv-nav);
+  color: rgba(255,255,255,.55);
+  text-align: center;
+  padding: 14px 24px;
+  font-size: 0.75rem;
+  border-top: 1px solid rgba(255,255,255,.08);
+  line-height: 1.7;
+}
+
+.tan-footer a {
+  color: var(--uv-taronja);
+  text-decoration: none;
+}
+
+.tan-footer a:hover {
+  text-decoration: underline;
+}
+
+/* ── Responsiu per a la capçalera nova ─────────────────────────────────── */
+@media (max-width: 780px) {
+  .tan-header-contingut {
+    padding: 10px 16px 8px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .tan-header-centre { order: 3; flex: 1 1 100%; }
+  .tan-header-dreta  { gap: 8px; }
+  .tan-neural-visual { width: 44px; height: 34px; }
+  .tan-logo-nom      { font-size: 1.5rem; }
+  .tan-nav .nav-btn,
+  .tan-nav .tab-btn  { font-size: 12px; padding: 9px 11px; }
+}
+
+@media (max-width: 480px) {
+  .tan-header-centre { display: none; }
+  .btn-claus-api     { font-size: 0.75rem; padding: 6px 10px; }
 }

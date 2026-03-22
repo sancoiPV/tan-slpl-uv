@@ -1677,3 +1677,59 @@ function mostraMissatgeAngles(tipus, text) {
   el.style.display = 'block';
   if (tipus !== 'info') setTimeout(() => { el.style.display = 'none'; }, 5000);
 }
+
+// ═══════════════════════════════════════════════════════
+// ÀUDIO: RETROALIMENTACIÓ SONORA (CANVI 4)
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Reprodueix un so de retroalimentació discret via Web Audio API.
+ * @param {string} tipus - 'clic' | 'ok' | 'error'
+ */
+function reprodueixBeep(tipus) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (tipus === 'clic') {
+      osc.type      = 'sine';
+      osc.frequency.setValueAtTime(660, ctx.currentTime);
+      gain.gain.setValueAtTime(0.07, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.08);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.08);
+    } else if (tipus === 'ok') {
+      osc.type      = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.28);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.28);
+    } else if (tipus === 'error') {
+      osc.type      = 'sawtooth';
+      osc.frequency.setValueAtTime(220, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 0.25);
+      gain.gain.setValueAtTime(0.07, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25);
+    }
+    osc.onended = () => ctx.close();
+  } catch (_) {
+    // Navegadors sense Web Audio API — silenci
+  }
+}
+
+// Clic suau en tots els botons i pestanyes
+document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button, .nav-btn, .tab-btn, .btn-tradueix, .btn-apujar');
+    if (btn && !btn.disabled) {
+      reprodueixBeep('clic');
+    }
+  });
+});

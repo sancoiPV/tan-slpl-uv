@@ -13,29 +13,64 @@
 </head>
 <body>
 
-<!-- ═══ CANVI 2 · Capçalera redissenyada ═══════════════════════════════════ -->
-<header class="header">
-  <!-- Fila superior: tres blocs -->
-  <div class="header-top">
-    <span class="header-servei">Servei de Llengües i Política Lingüística</span>
-    <span class="header-uv">UNIVERSITAT DE VALÈNCIA</span>
-    <span class="header-seccio">Assessorament Lingüístic</span>
+<!-- ═══ Capçalera TAN renovada ════════════════════════════════════════════ -->
+<header class="tan-header">
+  <div class="tan-header-contingut">
+    <!-- Bloc esquerre: logotip TAN -->
+    <div class="tan-header-esquerra">
+      <div class="tan-logo-area">
+        <div class="tan-logo-icona">⚡</div>
+        <div class="tan-logo-text">
+          <span class="tan-logo-nom">TAN</span>
+          <span class="tan-logo-subtitol">Motor de Traducció Automàtica Neuronal</span>
+        </div>
+      </div>
+    </div>
+    <!-- Bloc central: institució -->
+    <div class="tan-header-centre">
+      <div class="tan-header-slogan">
+        <span class="tan-slogan-text">Servei de Llengües i Política Lingüística</span>
+        <span class="tan-slogan-uv">Universitat de València · Assessorament Lingüístic</span>
+      </div>
+    </div>
+    <!-- Bloc dret: visualització neuronal + Claus API -->
+    <div class="tan-header-dreta">
+      <div class="tan-neural-visual">
+        <div class="tan-neural-node n1"></div>
+        <div class="tan-neural-node n2"></div>
+        <div class="tan-neural-node n3"></div>
+        <div class="tan-neural-node n4"></div>
+        <div class="tan-neural-node n5"></div>
+        <svg class="tan-neural-lines" viewBox="0 0 120 60">
+          <line x1="10" y1="15" x2="50" y2="30" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+          <line x1="10" y1="45" x2="50" y2="30" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+          <line x1="50" y1="10" x2="80" y2="20" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+          <line x1="50" y1="30" x2="80" y2="20" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+          <line x1="50" y1="30" x2="80" y2="45" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+          <line x1="50" y1="50" x2="80" y2="45" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+          <line x1="80" y1="20" x2="110" y2="30" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+          <line x1="80" y1="45" x2="110" y2="30" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+        </svg>
+      </div>
+      <button class="btn-claus-api" id="btn-claus-api"
+              onclick="obreModalClausAPI()"
+              title="Gestiona les claus API de Gemini i Anthropic">
+        🔑 Claus API
+      </button>
+    </div>
   </div>
-  <!-- CANVI 4 · 5 pestanyes -->
-  <nav class="nav">
+  <!-- Barra de navegació de pestanyes -->
+  <nav class="tan-nav" id="tan-nav">
     <button class="nav-btn act" onclick="mostra('traduccio-text',this)">Traducció de text</button>
     <button class="nav-btn" onclick="mostra('traduccio-docs',this)">Traducció de documents</button>
     <button class="nav-btn" onclick="mostra('correccio-docs',this)">Correcció/postedició de documents en valencià</button>
     <button class="nav-btn" onclick="mostra('imatges',this)">Traducció d'imatges amb text</button>
     <button class="tab-btn" data-tab="glossaris" onclick="activaTab('glossaris')">📚 Glossaris: actualització</button>
     <button class="tab-btn" data-tab="traduccio-angles" onclick="activaTab('traduccio-angles')">🌐 EN ↔ VA</button>
-    <button class="btn-claus-api" id="btn-claus-api"
-            onclick="obreModalClausAPI()"
-            title="Gestiona les claus API de Gemini i Anthropic">
-      🔑 Claus API
-    </button>
   </nav>
 </header>
+
+<div class="tan-main">
 
 <!-- Barra d'estat global (sota nav) -->
 <div class="status-bar">
@@ -678,6 +713,15 @@
 
   </div>
 </div>
+
+</div><!-- /.tan-main -->
+
+<footer class="tan-footer">
+  <strong>Motor TAN</strong> · Servei de Llengües i Política Lingüística ·
+  <a href="https://www.uv.es/slpl" target="_blank" rel="noopener">Universitat de València</a>
+  · Assessorament Lingüístic<br>
+  Traducció automàtica neuronal castellà → valencià normatiu universitari
+</footer>
 
 <script src="app.js"></script>
 
