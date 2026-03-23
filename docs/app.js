@@ -212,8 +212,8 @@ async function seleccionaFitxer(fitxer, mode) {
   if (!['docx', 'pptx'].includes(ext)) {
     alert('Format no suportat. Usa .docx o .pptx'); return;
   }
-  if (fitxer.size > 20 * 1024 * 1024) {
-    alert('El fitxer supera el límit de 20 MB'); return;
+  if (fitxer.size > 150 * 1024 * 1024) {
+    alert('El fitxer supera el límit de 150 MB'); return;
   }
 
   // Guarda referència al fitxer actual
@@ -1119,8 +1119,8 @@ function handleDocumentSelect(event) {
     event.target.value = '';
     return;
   }
-  if (fitxer.size > 20 * 1024 * 1024) {
-    mostraMissatgeCorreccio('error', 'El fitxer supera el límit de 20 MB.');
+  if (fitxer.size > 150 * 1024 * 1024) {
+    mostraMissatgeCorreccio('error', 'El fitxer supera el límit de 150 MB.');
     event.target.value = '';
     return;
   }

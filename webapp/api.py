@@ -128,7 +128,7 @@ def _obte_api_key_gemini() -> str:
 # ─── Constants ────────────────────────────────────────────────────────────────
 VERSIO          = "1.0"
 MODEL_ID        = "projecte-aina/aina-translator-es-ca"
-MAX_MIDA_FITXER = 20 * 1024 * 1024          # 20 MB en bytes
+MAX_MIDA_FITXER = 150 * 1024 * 1024         # 150 MB en bytes
 EXTENSIONS_OK   = {".docx", ".pptx"}
 
 # ─── Glossaris ────────────────────────────────────────────────────────────────
@@ -583,7 +583,7 @@ async def tradueix(peticio: PeticioTradueix) -> RespostaTradueix:
     tags    = ["Traducció"],
 )
 async def tradueix_document(
-    fitxer:  UploadFile = File(..., description="Fitxer .docx o .pptx (màx. 20 MB)."),
+    fitxer:  UploadFile = File(..., description="Fitxer .docx o .pptx (màx. 150 MB)."),
     mode:    str        = Form(default="traduccio", description="'traduccio' o 'correccio'"),
     domini:  str        = Form(default="", description="Domini lingüístic per aplicar el glossari."),
 ) -> StreamingResponse:
@@ -611,7 +611,7 @@ async def tradueix_document(
         raise HTTPException(
             status_code = 413,
             detail      = (
-                f"El fitxer supera la mida màxima de 20 MB "
+                f"El fitxer supera la mida màxima de 150 MB "
                 f"({len(contingut) / 1_048_576:.1f} MB rebuts)."
             ),
         )
@@ -1675,8 +1675,11 @@ async def corregeix(peticio: PeticioCorreccio) -> RespostaCorreccio:
 # ─── Correcció de documents DOCX / PPTX ───────────────────────────────────────
 
 # Namespaces XML Word / PowerPoint (locals a aquest mòdul)
-_NS_W_DOC = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-_NS_A_DOC = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_NS_W_DOC    = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_NS_A_DOC    = "http://schemas.openxmlformats.org/drawingml/2006/main"
+# Namespaces de fórmules i equacions matemàtiques
+_NS_MATH_DOC = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+_NS_VML_DOC  = "urn:schemas-microsoft-com:vml"
 
 # Fitxers XML que cal processar dins un DOCX
 _FITXERS_XML_DOCX_FIXES = {
@@ -1881,6 +1884,55 @@ def _aplica_text_marcat(runs_info: list, text_corregit: str, ns_t: str) -> bool:
     return True
 
 
+def _paràgraf_conté_formula(paragraph_el) -> bool:
+    """
+    Detecta si un paràgraf DOCX conté fórmules o equacions matemàtiques:
+    - OMML (equacions natives Word 2007+): <m:oMath>, <m:oMathPara>
+    - Objectes OLE (Equation Editor antic): <w:object>
+    - Imatges VML (equacions com a imatges): <w:pict>
+    - Camps de fórmula Word: <w:instrText> amb operadors EQ/\\F/\\I/\\R
+    Aquests paràgrafs s'exclouen de la correcció automàtica per evitar
+    que la substitució de text destruïsca l'estructura XML de l'equació.
+    """
+    ns_w = _NS_W_DOC
+    ns_m = _NS_MATH_DOC
+    # OMML — equacions natives de Word 2007+
+    if paragraph_el.find(f".//{{{ns_m}}}oMath") is not None:
+        return True
+    if paragraph_el.find(f".//{{{ns_m}}}oMathPara") is not None:
+        return True
+    # Objectes OLE incrustats (Equation Editor 3.x)
+    if paragraph_el.find(f".//{{{ns_w}}}object") is not None:
+        return True
+    # Imatges VML (equacions rasteritzades)
+    if paragraph_el.find(f".//{{{ns_w}}}pict") is not None:
+        return True
+    # Camps de fórmula Word (instrText amb operadors matemàtics)
+    for instr in paragraph_el.iter(f"{{{ns_w}}}instrText"):
+        if instr.text and any(
+            s in instr.text.upper() for s in ('EQ ', '\\F(', '\\I(', '\\R(')
+        ):
+            return True
+    return False
+
+
+def _shape_conté_formula_pptx(txBody_el) -> bool:
+    """
+    Detecta si un cos de text PPTX (<a:txBody>) conté fórmules matemàtiques.
+    - OMML incrustat dins DrawingML: <m:oMath>
+    - graphicData amb URI de matemàtiques
+    """
+    ns_m = _NS_MATH_DOC
+    ns_a = _NS_A_DOC
+    if txBody_el.find(f".//{{{ns_m}}}oMath") is not None:
+        return True
+    for gd in txBody_el.iter(f"{{{ns_a}}}graphicData"):
+        uri = gd.get("uri") or ""
+        if "math" in uri.lower():
+            return True
+    return False
+
+
 def _extrau_paràgrafs_docx(xml_bytes: bytes) -> tuple[list[dict], object]:
     """
     Analitza el XML de Word i retorna (paràgrafs, arbre):
@@ -1898,7 +1950,11 @@ def _extrau_paràgrafs_docx(xml_bytes: bytes) -> tuple[list[dict], object]:
     for i, p in enumerate(arbre.iter(f"{{{_NS_W_DOC}}}p")):
         text        = _obte_text_paràgraf_doc(p, _NS_W_DOC)
         text_marcat, _ = _extrau_text_amb_marcadors_docx(p)
-        resultat.append({"index": i, "text": text, "text_marcat": text_marcat, "node": p})
+        té_formula  = _paràgraf_conté_formula(p)
+        resultat.append({
+            "index": i, "text": text, "text_marcat": text_marcat,
+            "té_formula": té_formula, "node": p,
+        })
     return resultat, arbre
 
 
@@ -2030,10 +2086,14 @@ def _extrau_shapes_pptx(xml_bytes: bytes) -> tuple[list[dict], object]:
     arbre  = _et.fromstring(xml_bytes)
     shapes = []
     for si, txBody in enumerate(arbre.iter(f"{{{_NS_A_DOC}}}txBody")):
+        té_formula_shape = _shape_conté_formula_pptx(txBody)
         for pi, p in enumerate(txBody.iter(f"{{{_NS_A_DOC}}}p")):
             text        = _obte_text_paràgraf_doc(p, _NS_A_DOC)
             text_marcat, _ = _extrau_text_amb_marcadors_pptx(p)
-            shapes.append({"si": si, "pi": pi, "text": text, "text_marcat": text_marcat, "node": p})
+            shapes.append({
+                "si": si, "pi": pi, "text": text, "text_marcat": text_marcat,
+                "té_formula": té_formula_shape, "node": p,
+            })
     return shapes, arbre
 
 
@@ -2200,6 +2260,7 @@ async def _corregeix_segments_claude(
     api_key: str,
     mida_lot: int = 3,
     segments_marcats: list[str] | None = None,
+    segments_amb_formula: list[bool] | None = None,
 ) -> list[str]:
     """
     Envia segments de text a Claude Sonnet per a correcció normativa en lots.
@@ -2207,9 +2268,10 @@ async def _corregeix_segments_claude(
     de totes les normes del valencià universitari (UV).
     Retorna la llista de segments corregits conservant l'ordre i els índexs.
 
-    segments_marcats: si s'especifica, els valors JSON enviats a Claude contenen
-    marcadors ⟦N⟧ entre runs. Claude rep la instrucció de preservar-los per poder
-    reinjectar el text corregit run a run conservant la tipografia original.
+    segments_marcats    : si s'especifica, els valors JSON enviats a Claude
+                          contenen marcadors ⟦N⟧ entre runs.
+    segments_amb_formula: si s'especifica, els segments True s'exclouen de la
+                          correcció automàtica per preservar equacions OMML/OLE.
     """
     import anthropic as _ant
     import json as _js
@@ -2220,6 +2282,12 @@ async def _corregeix_segments_claude(
     índexs_a_corregir = [
         i for i, s in enumerate(segments)
         if s and s.strip() and len(s.strip()) > 3
+        # Exclou segments que contenen fórmules matemàtiques
+        and not (
+            segments_amb_formula
+            and i < len(segments_amb_formula)
+            and segments_amb_formula[i]
+        )
     ]
 
     log.warning(
@@ -2593,6 +2661,7 @@ async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
     """
     tots_segments: list[str]         = []
     tots_segments_marcats: list[str] = []
+    tots_segments_formula: list[bool] = []
     mapa_fitxer: dict[str, tuple]    = {}
 
     # ── Passada 1: extrau tots els segments de text ───────────────────────────
@@ -2607,6 +2676,7 @@ async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                     for p in paràgrafs:
                         tots_segments.append(p["text"])
                         tots_segments_marcats.append(p["text_marcat"])
+                        tots_segments_formula.append(p.get("té_formula", False))
                     mapa_fitxer[nom] = (paràgrafs, arbre, inici, xml_bytes)
                 except Exception as exc:
                     log.warning("Error extraient paràgrafs de '%s': %s", nom, exc)
@@ -2614,7 +2684,9 @@ async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
 
     # ── Corregeix tots els segments en lots de 3 (CANVI 3) ────────────────────
     corregits = await _corregeix_segments_claude(
-        tots_segments, api_key, segments_marcats=tots_segments_marcats
+        tots_segments, api_key,
+        segments_marcats=tots_segments_marcats,
+        segments_amb_formula=tots_segments_formula,
     )
 
     # ── Passada 2: reconstrueix el ZIP ────────────────────────────────────────
@@ -2672,9 +2744,10 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
     Estratègia (CANVI 1+2+3): equivalent a _processa_docx_correccio però per a PPTX.
     Usa marcadors ⟦N⟧ per reinjectar el text corregit run a run (DrawingML).
     """
-    tots_segments: list[str]         = []
-    tots_segments_marcats: list[str] = []
-    mapa_fitxer: dict[str, tuple]    = {}
+    tots_segments: list[str]          = []
+    tots_segments_marcats: list[str]  = []
+    tots_segments_formula: list[bool] = []
+    mapa_fitxer: dict[str, tuple]     = {}
 
     # ── Passada 1: extrau tots els segments ───────────────────────────────────
     with zipfile.ZipFile(io.BytesIO(fitxer_bytes)) as zin:
@@ -2688,6 +2761,7 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                     for s in shapes:
                         tots_segments.append(s["text"])
                         tots_segments_marcats.append(s["text_marcat"])
+                        tots_segments_formula.append(s.get("té_formula", False))
                     mapa_fitxer[nom] = (shapes, inici, xml_bytes)
                 except Exception as exc:
                     log.warning("Error extraient shapes de '%s': %s", nom, exc)
@@ -2695,7 +2769,9 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
 
     # ── Corregeix en lots de 3 (CANVI 3) ──────────────────────────────────────
     corregits = await _corregeix_segments_claude(
-        tots_segments, api_key, segments_marcats=tots_segments_marcats
+        tots_segments, api_key,
+        segments_marcats=tots_segments_marcats,
+        segments_amb_formula=tots_segments_formula,
     )
 
     # ── Passada 2: reconstrueix el ZIP ────────────────────────────────────────
@@ -2791,7 +2867,7 @@ async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
         raise HTTPException(
             status_code=413,
             detail=(
-                f"El fitxer supera el límit de 20 MB "
+                f"El fitxer supera el límit de 150 MB "
                 f"({len(contingut) / 1_048_576:.1f} MB rebuts)."
             ),
         )

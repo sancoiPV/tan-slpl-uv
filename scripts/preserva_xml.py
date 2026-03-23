@@ -32,8 +32,9 @@ log = logging.getLogger(__name__)
 
 # ── Namespaces XML de Word i PowerPoint ─────────────────────────────────────
 
-NS_W     = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
-NS_A     = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+NS_W      = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+NS_A      = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+NS_MATH_PX = 'http://schemas.openxmlformats.org/officeDocument/2006/math'
 NS_R     = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 NS_P     = 'http://schemas.openxmlformats.org/presentationml/2006/main'
 NS_PIC   = 'http://schemas.openxmlformats.org/drawingml/2006/picture'
@@ -260,6 +261,29 @@ def _obte_text_node(t_node: etree._Element) -> str:
     if t_node.get(_XML_SPACE_ATTR) == 'preserve':
         return ' '
     return ''
+
+
+def _te_formula(element: etree._Element) -> bool:
+    """
+    Detecta si un element (paràgraf <w:p> o <a:p>) conté fórmules matemàtiques
+    que no haurien de ser traduïdes ni modificades:
+    - OMML nativa (Word 2007+): <m:oMath>, <m:oMathPara>
+    - Equation Editor antic (OLE): <w:object>
+    - Equacions com a imatge VML: <w:pict>
+    Retorna True si cal ometre el paràgraf de la traducció.
+    """
+    # OMML — equacions natives de Word 2007+
+    if element.find(f'.//{{{NS_MATH_PX}}}oMath') is not None:
+        return True
+    if element.find(f'.//{{{NS_MATH_PX}}}oMathPara') is not None:
+        return True
+    # Objectes OLE (Equation Editor 3.x)
+    if element.find(f'.//{{{NS_W}}}object') is not None:
+        return True
+    # Equacions rasteritzades com a imatge VML
+    if element.find(f'.//{{{NS_W}}}pict') is not None:
+        return True
+    return False
 
 
 def obte_text_paragraf(p_node: etree._Element, ns_t: str) -> str:
@@ -629,6 +653,10 @@ def tradueix_document(
                     # ── Bucle principal: estratègia híbrida v6 ───────────────
                     for p_node in arbre.iter(tag_para):
                         if es_dins_imatge(p_node):
+                            continue
+
+                        # Omiteix paràgrafs amb fórmules/equacions matemàtiques
+                        if _te_formula(p_node):
                             continue
 
                         text_complet = obte_text_paragraf(p_node, ns_text)
