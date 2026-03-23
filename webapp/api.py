@@ -1269,6 +1269,36 @@ C7. TRACTAMENT INSTITUCIONAL. La Universitat de València (no *l'Universitat);
 C8. CITACIÓ DE NORMATIVA. "D'acord amb l'article 5 de la Llei…" (amb article determinat davant «article»).
 
 ════════════════════════════════════════════════════════════════
+BLOC D — NOVETATS IEC 2016-2023 (GIEC, OIEC, GEIEC, GBU)
+════════════════════════════════════════════════════════════════
+
+D1. ACCENT DIACRÍTIC REDUÏT (OIEC 2017):
+    · Sistema diacrític REDUÏT a 15 mots: bé/be, déu/deu, és/es, mà/ma, més/mes, món/mon,
+      pèl/pel, sé/se, sí/si, sòl/sol, són/son, té/te, ús/us, déus/deus, béns/bens, pèls/pels,
+      sís/sis, sòls/sols — aplica'ls correctament
+    · NO porten accent diacrític (elimina'ls si hi eren): bota, coc, dona (verb donar),
+      feu (verb fer), fora, soc (verb ser), sec, seu (greix)
+
+D2. ERRADICAR S'ESCRIU AMB ERR- (OIEC 2017):
+    · eradicar → erradicar, eradicació → erradicació
+
+D3. FORMES NO ACCEPTABLES RECENTS (IEC GBU):
+    · "don Pere" / "dona Montserrat" → "el senyor Pere" / "la senyora Montserrat"
+    · Verbs psicològics: "li va afectar" → "la va afectar"; "em donen por" → "em fan por"
+    · Tenir de + infinitiu: "tenim de fer" → "hem de fer"
+    · "pròpia/propi" en lloc de "mateixa/mateix": "la pròpia directora" → "la mateixa directora"
+
+D4. ORACIONS COPULATIVES — SER vs ESTAR (recordatori):
+    · En registres formals NO usar restar per a durada d'estat: "restarà tancat" → "estarà tancat"
+
+D5. ORDRE DEL SINTAGMA NOMINAL (IEC GIEC) — ESPECIALMENT IMPORTANT:
+    · Ordre habitual en català: SUBSTANTIU + ADJECTIU ("una reunió important", "un informe detallat")
+    · Detecta i corregeix anteposicions calcades del castellà:
+      "el proper curs" → "el curs vinent", "la present comunicació" → "la comunicació present",
+      "la corresponent documentació" → "la documentació corresponent",
+      "l'esmentada resolució" → "la resolució esmentada"
+
+════════════════════════════════════════════════════════════════
 INSTRUCCIONS DE RESPOSTA
 ════════════════════════════════════════════════════════════════
 
@@ -1741,20 +1771,43 @@ def _extrau_paràgrafs_docx(xml_bytes: bytes) -> list[dict]:
     return resultat, arbre
 
 
-def _obte_paraules_canviades(text_original: str, text_corregit: str) -> list[str]:
+def _obte_paraules_canviades(text_original: str, text_corregit: str) -> set[str]:
     """
-    Compara dos textos paraula per paraula i retorna la llista de paraules
-    que han canviat, han sigut afegides o eliminades al text corregit.
-    Usa difflib per detectar les diferències reals.
+    Compara dos textos i retorna el conjunt de paraules canviades al text corregit.
+    Usa difflib amb comparació token a token per màxima precisió.
+    Retorna un conjunt buit si els textos són idèntics o molt similars.
     """
     import difflib
     import re as _re
 
-    def tokenitza(text: str) -> list[str]:
-        return _re.findall(r'\S+|\s+', text)
+    if not text_original or not text_corregit:
+        return set()
 
-    tokens_orig = tokenitza(text_original)
-    tokens_corr = tokenitza(text_corregit)
+    # Normalitza espais per a la comparació
+    orig_net = text_original.strip()
+    corr_net = text_corregit.strip()
+
+    # Si els textos són idèntics, no hi ha res a destacar
+    if orig_net == corr_net:
+        return set()
+
+    # Calcula la similitud: si és massa alta, probablement és el mateix text
+    similitud = difflib.SequenceMatcher(None, orig_net, corr_net).ratio()
+    if similitud > 0.98:
+        return set()
+
+    # Tokenitza preservant la puntuació com a tokens separats
+    def tokenitza(text: str) -> list[str]:
+        return _re.findall(
+            r"[A-Za-zÀ-ÿàáâãäåæçèéêëìíîïðñòóôõöùúûüýÿ·']+|[^\s\w]|\d+|\S",
+            text,
+        )
+
+    tokens_orig = tokenitza(orig_net)
+    tokens_corr = tokenitza(corr_net)
+
+    if not tokens_orig or not tokens_corr:
+        return set()
 
     paraules_canviades: set[str] = set()
     matcher = difflib.SequenceMatcher(None, tokens_orig, tokens_corr, autojunk=False)
@@ -1763,10 +1816,18 @@ def _obte_paraules_canviades(text_original: str, text_corregit: str) -> list[str
         if tag in ('replace', 'insert'):
             for token in tokens_corr[j1:j2]:
                 token_net = token.strip()
-                if token_net:
+                # Inclou només paraules reals (no puntuació aïllada)
+                if (
+                    token_net
+                    and len(token_net) > 1
+                    and _re.search(
+                        r'[A-Za-zÀ-ÿàáâãäåæçèéêëìíîïðñòóôõöùúûüýÿ]',
+                        token_net,
+                    )
+                ):
                     paraules_canviades.add(token_net.lower())
 
-    return list(paraules_canviades)
+    return paraules_canviades
 
 
 def _aplica_highlight_groc_docx(
@@ -1776,23 +1837,33 @@ def _aplica_highlight_groc_docx(
     ns_w: str = _NS_W_DOC,
 ) -> None:
     """
-    Aplica destacat groc SELECTIU (highlight yellow): només als runs que contenen
-    paraules que han canviat respecte del text original.
+    Aplica destacat groc SELECTIU: només als runs que contenen paraules que han
+    canviat realment respecte de l'original.
+    Usa comparació per paraula completa (\b) per evitar falsos positius
+    de subcadena (p. ex. "el" no ha de destacar "el" dins "elegir").
     """
+    import re as _re
     from lxml import etree as _et
 
     paraules_canviades = _obte_paraules_canviades(text_original, text_corregit)
     if not paraules_canviades:
         return
 
+    # Patró per a paraules completes (no subcadenes)
+    patró_paraules = _re.compile(
+        r'\b(' + '|'.join(_re.escape(p) for p in paraules_canviades) + r')\b',
+        _re.IGNORECASE,
+    )
+
     for run in paragraph_el.iter(f"{{{ns_w}}}r"):
         text_run = "".join(t.text for t in run.iter(f"{{{ns_w}}}t") if t.text)
         if not text_run.strip():
             continue
-        text_run_lower = text_run.lower()
-        cal_highlight = any(p in text_run_lower for p in paraules_canviades if p)
-        if not cal_highlight:
+
+        # Comprova si alguna paraula canviada coincideix com a paraula completa
+        if not patró_paraules.search(text_run):
             continue
+
         rPr = run.find(f"{{{ns_w}}}rPr")
         if rPr is None:
             rPr = _et.SubElement(run, f"{{{ns_w}}}rPr")
@@ -1839,23 +1910,30 @@ def _aplica_highlight_groc_pptx(
     ns_a: str = _NS_A_DOC,
 ) -> None:
     """
-    Aplica destacat groc SELECTIU en PPTX: només als runs amb paraules canviades.
+    Aplica destacat groc SELECTIU en PPTX per paraules canviades exactes.
     En PPTX s'usa solidFill amb color groc (#FFFF00).
+    Usa comparació per paraula completa (\b) per evitar falsos positius.
     """
+    import re as _re
     from lxml import etree as _et
 
     paraules_canviades = _obte_paraules_canviades(text_original, text_corregit)
     if not paraules_canviades:
         return
 
+    patró_paraules = _re.compile(
+        r'\b(' + '|'.join(_re.escape(p) for p in paraules_canviades) + r')\b',
+        _re.IGNORECASE,
+    )
+
     for run in paragraph_el.iter(f"{{{ns_a}}}r"):
         text_run = "".join(t.text for t in run.iter(f"{{{ns_a}}}t") if t.text)
         if not text_run.strip():
             continue
-        text_run_lower = text_run.lower()
-        cal_highlight = any(p in text_run_lower for p in paraules_canviades if p)
-        if not cal_highlight:
+
+        if not patró_paraules.search(text_run):
             continue
+
         rPr = run.find(f"{{{ns_a}}}rPr")
         if rPr is None:
             rPr = _et.SubElement(run, f"{{{ns_a}}}rPr")
@@ -1940,90 +2018,248 @@ async def _corregeix_segments_claude(
             num_lot, len(lot_índexs), lot_índexs[0], lot_índexs[-1],
         )
 
-        prompt_usuari = f"""Ets el corrector i posteditor lingüístic expert de la Secció d'Assessorament Lingüístic del SLPL de la Universitat de València.
+        prompt_usuari = f"""Ets el corrector i posteditor lingüístic expert del SLPL de la Universitat de València. La teua tasca és aplicar una correcció i postedició EXHAUSTIVA, RIGOROSA i SISTEMÀTICA al text en valencià, basant-te en els quatre corpus normatius del teu sistema (Blocs A, B, C i D).
 
-TASCA OBLIGATÒRIA: Analitza en profunditat cadascun dels textos en valencià del JSON i aplica TOTES i CADASCUNA de les normes dels BLOCS A, B i C del teu sistema de forma RIGOROSA, REFLEXIVA i EXHAUSTIVA. No et limites als errors superficials més evidents. Cal detectar i corregir TOTS els errors de tots els nivells.
+METODOLOGIA OBLIGATÒRIA — ANALITZA EN ORDRE CADA CATEGORIA:
 
-METODOLOGIA OBLIGATÒRIA PER A CADA SEGMENT:
+════════════════════════════════════════════════════════════
+BLOC A — MORFOLOGIA (Criteris lingüístics UV + IEC GIEC/OIEC 2016-2023)
+════════════════════════════════════════════════════════════
 
-FASE 1 — COMPRENSIÓ: Llegeix el text complet, comprèn-ne el significat i el context, identifica el tipus de text (administratiu, acadèmic, informatiu...) i el registre adequat.
+A1. DEMOSTRATIUS — usa SEMPRE les formes reforçades en registre formal escrit:
+□ este/esta/estos/estes → aquest/aquesta/aquests/aquestes (1r grau)
+□ eixe/eixa/eixos/eixes → aqueix/aqueixa/aqueixos/aqueixes (2n grau)
+□ allò que és bo → (mai "lo bo") [vg. A8 Lo neutre]
 
-FASE 2 — ANÀLISI EXHAUSTIVA. Comprova SISTEMÀTICAMENT i EN ORDRE cada categoria:
+A2. POSSESSIUS — formes amb -u- obligatòries:
+□ seva/seves → seua/seues
+□ meva/meves → meua/meues
+□ teva/teves → teua/teues
+□ Evita possessiu innecessari: "la biblioteca obre l'horari" (NO "el seu horari")
+□ Evita possessiu amb parts del cos en CD agentiu: "va alçar el cap" (NO "el seu cap")
+□ Evita possessiu amb noms de parentiu si el referent és clar: "acompanya el marit" (NO "el seu marit")
 
-**A. MORFOLOGIA (Criteris lingüístics UV)**
-□ Demostratius NO reforçats → reforçats: este→aquest, esta→aquesta, estos→aquests, estes→aquestes, eixe→aqueix, eixa→aqueixa, eixos→aqueixos, eixes→aqueixes
-□ Possessius amb -v- → amb -u-: seva/seves→seua/seues, meva/meves→meua/meues, teva/teves→teua/teues
-□ Verbs incoatius: servix→serveix, servixen→serveixen, servisca→servisca (ja correcte), servixca→servisca
-□ Participis irregulars → regulars: complert→complit, ofert→oferit, establert→establit, omplert→omplit, sofert→sofrit, suplert→suplit
+A3. VERBS INCOATIUS — present indicatiu i subjuntiu:
+□ Indicatiu: servisc/serveixes/serveix/servim/serviu/serveixen (NO servix/servixen)
+□ Subjuntiu: servisca/servisques/servisca/servim/serviu/servisquen (NO servixca/servixquen)
+
+A4. PARTICIPIS — formes regulars preferibles:
+□ complert→complit, ofert→oferit, establert→establit, omplert→omplit, sofert→sofrit, suplert→suplit
+□ pertanyut→pertangut, planyut→plangut
 □ Participi de ser: estat→sigut (preferible)
-□ Participis -nyut → -ngut: pertanyut→pertangut, planyut→plangut
-□ Infinitius: tindre→tenir, vindre→venir, caber→cabre, caler→caldre, doler→doldre, valer→valdre
-□ Numerals: huit→vuit, díhuit→divuit, dèsset→disset, dènou→dinou
-□ Ordinals: quint→cinquè, sext→sisè, dècim→desè
-□ Gènere dos/dues: dos llibres / dues taules
-□ Plurals -ns→-s: hòmens→homes, jóvens→joves, màrgens→marges, térmens→termes
-□ Plurals -sc/-st/-xt/-ig → -os: discs→discos, gusts→gustos, texts→textos, roigs→rojos (excepte raigs X, tests)
-□ Femení de professions: -a (advocada, arquitecta, ministra, presidenta)
 
-**B. ORTOTIPOGRAFIA (Criteris lingüístics UV)**
-□ Accentuació sistema GENERAL (no occidental): anglés→anglès, francés→francès, interés→interès, permés→permès, compromés→compromès, cortés→cortès; ordinals: cinqué→cinquè, sisé→sisè; substantius: café→cafè, comité→comitè, mercé→mercè; infinitius: conéixer→conèixer, meréixer→merèixer, véncer→vèncer; imperfets: féiem→fèiem, déiem→dèiem; 3a plural 2a conj.: aprén→aprèn, comprén→comprèn, depén→depèn (EXCEPCIÓ: atén, entén, pretén, encén → accent agut)
-□ Grafies tl/tll: motlle→motle, espatlla→espatla, vetllar→vetlar (EXCEPCIÓ: bitllet, rotllo, butlletí, ratlla)
-□ Majúscules/minúscules de càrrecs (minúscula), institucions (majúscula), dies/mesos (minúscula)
-□ Dates: format "Localitat, dia de mes de any" (sense article davant l'any, mesos en minúscula)
-□ Xifres: coma decimal (43,3), punt de milers (2.076.000)
-□ Apòstrof davant sigles: NO apostrofar davant alfabètiques (la UPV, el ISBN); SÍ davant sil·làbiques (l'IVA, l'UJI)
+A5. INFINITIUS:
+□ tindre→tenir, vindre→venir, caber→cabre, caler→caldre, doler→doldre, valer→valdre
 
-**C. SINTAXI — GRAMÀTICA ZERO (ESPECIALMENT IMPORTANT)**
-□ GERUNDI DE POSTERIORITAT/CONSEQÜÈNCIA: SEMPRE INCORRECTE. Detecta qualsevol gerundi que expressi una acció posterior o una conseqüència del verb principal i substitueix-lo.
-  - "Va arribar a casa, trobant la porta oberta" → "Va arribar a casa i va trobar la porta oberta"
-  - "Ha perdut molts partits, duent l'equip al descens" → "Ha perdut molts partits i ha dut l'equip al descens"
-  - Clau: si NO pots posar el gerundi al principi de la frase mantenint el mateix sentit, és de posterioritat → incorrecte
-□ GERUNDI DE CAUSA (en/al + infinitiu): "En ser tan alt" / "Al no tenir" → "Com que era tan alt" / "Com que no tenia"
-□ HAVER-HI en plural: hi han→hi ha, hi havien molts→hi havia molts, hi hauran→hi haurà
-□ LO NEUTRE: lo important→allò que és important / el més important, lo millor→el millor / allò que és millor, no saps lo brut→no saps com és de brut
-□ ALGO: sempre incorrecte → alguna cosa (indeterminat) / un poc (quantitatiu) / quelcom (formal)
-□ CAIGUDA DE PREPOSICIÓ davant que: estic segur de que→estic segur que, confiem en que→confiem que, la idea de que→la idea que
-□ CD DE PERSONA amb a: vaig veure al director→vaig veure el director, cita a Marx→cita Marx
-□ PRONOM EN omès: "No tinc" (quan remet a un CD indeterminat) → "No en tinc"
-□ PRONOM HI omès: "No he estat mai allà" → "No hi he estat mai"
-□ DEGUT A (causa): degut a la pluja→a causa de la pluja / per la pluja
-□ EN BASE A: en base al reglament→d'acord amb el reglament / a partir del reglament
-□ ANAR A + INFINITIU per a futur: anem a comentar→comentarem, va a fer→farà
-□ HAGUÉS en comptes de HAURIA (principal condicional): no s'hagués perdut→no s'hauria perdut
-□ MALGRAT sense que davant verb: malgrat plovia→malgrat que plovia
-□ PER A QUÈ/PERQUÈ: us hem citat per a què digueu→perquè digueu
-□ ORDRES/INSTRUCCIONS amb infinitiu: No fumar→No fumeu, Veure l'annex→Vegeu l'annex
-□ INFINITIU DISCURSIU: Per comentar...→Vull comentar... / Cal comentar...
-□ SI NO/SINÓ confosos: no era llest sino astut→sinó astut
-□ VARIS: varis errors→diversos errors, varies persones→diverses persones
-□ MENTRE/MENTRESTANT: interval temporal → mentrestant
-□ MÉS BÉ/MÉS AVIAT: és més bé un pobre xicot→és més aviat un pobre xicot
+A6. NUMERALS:
+□ huit→vuit, díhuit→divuit, dèsset→disset, dènou→dinou
+□ quint→cinquè, sext→sisè, dècim→desè
+□ dos/dues: concorda en gènere
 
-**D. LÈXIC I TERMINOLOGIA (Criteris lingüístics UV)**
-□ hui→avui, vore→veure, mentres→mentre, servici→servei, vacacions→vacances, desenrotllar→desenvolupar, ferramenta→eina (figurat), mitat→meitat, sendemà→endemà, juí→judici, perjuí→perjudici
-□ Topònims: Orihuela→Oriola, Zaragoza→Saragossa, Cádiz→Cadis, London→Londres
-□ Calcs lèxics del castellà i barbarismes
+A7. PLURALS:
+□ -ns→-s en registre formal: hòmens→homes, jóvens→joves, màrgens→marges, térmens→termes
+□ -sc/-st/-xt/-ig: discos, gustos, textos, rojos (EXCEPCIÓ: raigs X, tests)
+□ Femení professions amb -a: advocada, arquitecta, ministra, presidenta
 
-**E. ESTIL ADMINISTRATIU (Manual de documents i llenguatge administratius)**
-□ Arcaismes i calcs: "en base a"→"d'acord amb", "a nivell de"→"a escala de", "degut a"→"a causa de", "al respecte"→"respecte a això"
-□ Tractament: VÓS (no vostè) en documents formals
-□ Claredat i brevetat: eliminar redundàncies, parelles de sinònims, fórmules telegràfiques
-□ Fraseologia genuïna: si escau, d'ara endavant, cal, per endavant, d'acord amb, als efectes oportuns
-□ Terminologia administrativa: emplenar (NO "cumplimentar"), termini (NO "plazo"), la persona interessada, notificar algú (NO "notificar a algú")
+A8. ACCENTUACIÓ — sistema GENERAL (no occidental):
+□ anglés→anglès, francés→francès, interés→interès, permés→permès, compromés→compromès
+□ ordinals: cinqué→cinquè, sisé→sisè
+□ substantius: café→cafè, comité→comitè, mercé→mercè
+□ infinitius: conéixer→conèixer, meréixer→merèixer, véncer→vèncer
+□ imperfets ind.: féiem→fèiem, déiem→dèiem
+□ 3a pl. 2a conj.: aprén→aprèn, comprén→comprèn, depén→depèn
+□ EXCEPCIÓ accent agut: atén, entén, pretén, encén (precedits de t/c)
+□ EXCEPCIÓ accent agut: congrés/congressos, exprés, procés, progrés (però interès/interessos)
+□ Accents diacrítics (IEC OIEC 2017): sé/se, és/es, més/mes, bé/be, té/te, sí/si, mà/ma, món/mon, pèl/pel, déu/deu, sòl/sol, són/son, mén/men, bés/bes, mós/mos — aplica'ls correctament
+□ NO porten accent diacrític: dona (verb donar), feu (verb fer), sec, fora, soc (verb ser)
 
-FASE 3 — CORRECCIÓ: Aplica TOTES les correccions detectades. No deixis passar cap error per menor que semble.
+A9. GRAFIES:
+□ tl/tll: motle (NO motlle), espatla (NO espatlla), vetlar (NO vetllar)
+□ EXCEPCIÓ sempre tll: bitllet, rotllo, butlletí, ratlla i derivats
 
-FASE 4 — VERIFICACIÓ: Rellegeix el text corregit i comprova que:
-a) No has introduït nous errors
-b) El significat original es manté
-c) El registre és l'adequat per al context
+A10. ALTERNANCES VOCÀLIQUES (Criteris UV):
+□ a/e: nadar (NO nedar), nàixer (NO néixer), traure (NO treure), xarrar (NO xerrar)
+□ e/o: fenoll (NO fonoll), redó (NO rodó), renyó (NO ronyó), arredonir (NO arrodonir)
 
-REGLES DE RESPOSTA:
+════════════════════════════════════════════════════════════
+BLOC B — SINTAXI (Gramàtica Zero + IEC GIEC 2016-2023)
+════════════════════════════════════════════════════════════
+
+B1. ORDRE DEL SINTAGMA NOMINAL (SN) — CRITERI IEC GIEC:
+□ En català l'ordre habitual és SUBSTANTIU + ADJECTIU: "una reunió important", "un informe detallat"
+□ L'ordre ADJECTIU + SUBSTANTIU (calc del castellà) és incorrecte en la majoria de contextos
+□ Detecta i corregeix: "el proper curs"→"el curs vinent/proper", "la present comunicació"→"la comunicació present", "la corresponent documentació"→"la documentació corresponent", "l'esmentada resolució"→"la resolució esmentada"
+□ Excepció: "el mateix informe" (demostratiu amb valor d'identitat), "certes persones" (cert en sentit d'indefinit)
+
+B2. GERUNDI DE POSTERIORITAT/CONSEQÜÈNCIA — SEMPRE INCORRECTE:
+□ "Va caure trencant-se una cama" → "Va caure i es va trencar una cama"
+□ "Va dimitir, provocant una crisi" → "Va dimitir, la qual cosa va provocar una crisi"
+□ GERUNDI DE CAUSA (IEC GIEC): "En ser tan alt" / "Al no tenir" → "Com que era tan alt" / "Com que no tenia"
+
+B3. HAVER-HI — SEMPRE EN SINGULAR I AMB HI:
+□ "hi han molts errors" → "hi ha molts errors"
+□ "hi havien" → "hi havia"
+□ "ha hagut" → "hi ha hagut"
+
+B4. LO NEUTRE — SEMPRE INCORRECTE EN REGISTRES FORMALS:
+□ "lo important" → "allò que és important" / "el més important"
+□ "lo bo" → "allò que és bo" / "el bo"
+□ "lo que fas" → "el que fas" / "allò que fas"
+
+B5. ALGO — SEMPRE INCORRECTE:
+□ algo (valor indeterminat) → "alguna cosa"
+□ algo (valor quantitatiu) → "un poc" / "una mica"
+□ algo (valor formal) → "quelcom"
+
+B6. CAIGUDA DE PREPOSICIÓ DAVANT QUE:
+□ "estic segur de que" → "estic segur que"
+□ "confiem en que" → "confiem que"
+□ "la idea de que" → "la idea que"
+□ "el fet de que" → "el fet que"
+
+B7. COMPLEMENT DIRECTE DE PERSONA AMB A:
+□ "vaig veure al director" → "vaig veure el director"
+□ "l'article cita a Marx" → "l'article cita Marx"
+
+B8. PRONOM EN OBLIGATORI:
+□ "no tinc" (referit a CD indeterminat) → "no en tinc"
+□ "me vaig" → "me'n vaig"
+
+B9. PRONOM HI OBLIGATORI:
+□ "no he estat mai allà" → "no hi he estat mai"
+□ "s'ha referit a ell" → "s'hi ha referit"
+
+B10. DEGUT A (CAUSA) — INCORRECTE:
+□ "degut a la pluja" → "a causa de la pluja" / "per la pluja"
+□ "degut a que" → "perquè" / "a causa que"
+
+B11. EN BASE A — EVITAR:
+□ "en base al reglament" → "d'acord amb el reglament" / "a partir del reglament"
+
+B12. ANAR A + INFINITIU PER A FUTUR (IEC GIEC):
+□ "anem a comentar" → "comentarem"
+□ "va a fer" → "farà"
+□ "la sessió va a començar" → "la sessió està a punt de començar" / "la sessió començarà"
+
+B13. CONDICIONAL INCORRECTE (IEC GIEC):
+□ "el diagnòstic indica que la lesió seria greu" → "que la lesió és greu"
+
+B14. FUTUR AMB VALOR DE PROBABILITAT (IEC GIEC):
+□ "tindrà gana" (probabilitat) → "deu tenir gana" / "potser té gana"
+
+B15. SUBJUNTIU INCORRECTE DESPRÉS D'ADVERBIS DE DUBTE (IEC GIEC):
+□ "potser siga" → "potser és" (potser + indicatiu en registres formals)
+□ EXCEPCIÓ: "pot ser que" + subjuntiu és correcte
+
+B16. ÚS NO ACCEPTABLE DE MATEIX (IEC GIEC):
+□ "els resultats de les mateixes" → "els seus resultats"
+□ "la pròpia senyora Pia" → "la mateixa senyora Pia" / "la senyora Pia mateixa"
+
+B17. HAGUÉS en comptes de HAURIA (principal condicional):
+□ "no s'hagués perdut" → "no s'hauria perdut"
+
+B18. MALGRAT + VERB sense QUE:
+□ "malgrat plovia" → "malgrat que plovia"
+
+B19. PER A QUÈ / PERQUÈ:
+□ "us hem citat per a que digueu" → "perquè digueu"
+
+B20. ORDRES/INSTRUCCIONS amb infinitiu:
+□ "No fumar" → "No fumeu"; "Veure l'annex" → "Vegeu l'annex"
+
+B21. SI NO / SINÓ:
+□ "no era llest sino astut" → "sinó astut" (adversativa)
+
+B22. VARIS — SEMPRE INCORRECTE:
+□ "varis errors" → "diversos errors"
+
+B23. LOCALITZACIÓ A / EN:
+□ A + noms propis i article determinat: "visc a Alacant", "treballe al camp"
+□ EN en la resta: "en alguna platja", "en una plaça"
+
+B24. MÉS BÉ / MÉS AVIAT:
+□ "és més bé un pobre xicot" → "és més aviat un pobre xicot"
+
+════════════════════════════════════════════════════════════
+BLOC C — LÈXIC I ESTIL ADMINISTRATIU (Manual de documents UV + Criteris UV)
+════════════════════════════════════════════════════════════
+
+C1. LÈXIC PREFERIT:
+□ hui→avui, vore→veure, mentres→mentre, servici→servei, vacacions→vacances
+□ desenrotllar→desenvolupar, ferramenta→eina (figurat), mitat→meitat, sendemà→endemà
+□ juí→judici, perjuí→perjudici, vàries→diverses, xicotet/menut→petit (davant nom)
+
+C2. TOPÒNIMS — forma tradicional valenciana:
+□ Orihuela→Oriola, Zaragoza→Saragossa, Cádiz→Cadis, London→Londres
+
+C3. TRACTAMENT PERSONAL — VÓS (preferible en documents formals):
+□ Evitar vostè en documents administratius formals
+□ NO "don Pere" / "dona Montserrat" → "el senyor Pere" / "la senyora Montserrat"
+
+C4. FÓRMULES ADMINISTRATIVES — eliminar arcaismes i calcs:
+□ "en base a" → "d'acord amb"; "a nivell de" → "a escala de"; "degut a" → "a causa de"
+□ "al respecte" → "respecte a això"; "dur a terme" → "realitzar" / "fer"
+□ "si escau", "d'ara endavant", "cal", "per endavant", "d'acord amb", "als efectes oportuns"
+□ "la persona interessada" (NO "el/la interesado/a"); "quan pertoque" (NO "en su día")
+
+C5. MAJÚSCULES I MINÚSCULES:
+□ Càrrecs: MINÚSCULA (rector/a, conseller/a, president/a)
+□ Institucions: MAJÚSCULA (la Universitat de València, la Generalitat)
+□ Documents oficials: MAJÚSCULA inicial (la Llei orgànica 6/2001)
+□ Dies, mesos, estacions: MINÚSCULA; Gentilicis: MINÚSCULA
+
+C6. ESTIL:
+□ Frases màx. 3 línies; eliminar redundàncies i parelles de sinònims innecessàries
+□ Usar formes actives i directes en lloc de passives
+
+C7. ABREVIACIONS:
+□ Ordinals: 1r, 2n, 3r, 4t, 5è (NO 1º, 2º)
+□ Sigles: NO apostrofar davant alfabètiques (la UPV); SÍ davant sil·làbiques (l'IVA)
+□ Xifres: COMA decimal (43,3); PUNT de milers (2.076.000)
+
+C8. LLENGUATGE IGUALITARI:
+□ Col·lectius genèrics: l'alumnat, el professorat, la persona interessada
+□ Càrrecs: adaptar al gènere real (la rectora, la ministra, la degana)
+
+════════════════════════════════════════════════════════════
+BLOC D — NOVETATS IEC 2016-2023 (GIEC, OIEC, GEIEC, GBU)
+════════════════════════════════════════════════════════════
+
+D1. ACCENT DIACRÍTIC REDUÏT (OIEC 2017):
+□ Accent diacrític REDUÏT a 15 mots: bé/be, déu/deu, és/es, mà/ma, més/mes, món/mon, pèl/pel, sé/se, sí/si, sòl/sol, són/son, té/te, ús/us, déus/deus, béns/bens, pèls/pels, sís/sis, sòls/sols
+□ NO porten accent diacrític (cal eliminar-los si hi eren): bota, coc, dona (verb), feu (verb), fora, soc (verb ser), sec
+
+D2. ERRADICAR S'ESCRIU AMB ERR- (OIEC 2017):
+□ eradicar → erradicar, eradicació → erradicació
+
+D3. FORMES NO ACCEPTABLES RECENTS (IEC GBU):
+□ "don Pere" / "dona Montserrat" → "el senyor Pere" / "la senyora Montserrat"
+□ Verbs psicològics: "li va afectar" → "la va afectar"; "les aranyes em donen por" → "em fan por"
+□ Tenir de + infinitiu: "tenim de fer" → "hem de fer"
+□ "pròpia" en lloc de "mateixa": "la pròpia directora" → "la mateixa directora" / "la directora mateixa"
+
+D4. ORACIONS COPULATIVES — SER vs ESTAR:
+□ Ser: propietats inherents, identitat, classificació ("és alta", "és metge")
+□ Estar: estats contingents, localitzacions ("està content", "està a casa")
+□ En registres formals NO usar restar per a durada d'un estat: "restarà tancat" → "estarà tancat"
+
+D5. CONCORDANÇA NOMINAL EN APOSICIÓ (IEC GIEC):
+□ Noms fixats en aposició → sense concordança en registres formals: "les dates límit", "els episodis pilot"
+
+════════════════════════════════════════════════════════════
+INSTRUCCIONS DE RESPOSTA
+════════════════════════════════════════════════════════════
+
+IMPORTANT: Per a dubtes tipogràfics específics aplica sempre els criteris de l'Optimot i del Manual d'estil de les universitats valencianes.
+
+REGLES:
 - Retorna EXACTAMENT el mateix JSON amb les mateixes claus numèriques.
 - Si un text ja és completament correcte, retorna'l IDÈNTIC sense cap canvi.
 - NO afegeixis cap text fora del JSON.
 - Preserva noms propis, sigles, xifres i puntuació estructural.
 - NO canvies la longitud substancialment (±25% màxim).
+- Aplica TOTES les correccions detectades, incloent les subtils (ordre SN, accentuació, possessius, majúscules/minúscules).
+- Si detects un error però no n'estàs segur de la correcció exacta, aplica la forma més segura i normativa.
 
 JSON d'entrada:
 {_js.dumps(lot_textos, ensure_ascii=False, indent=2)}
