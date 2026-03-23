@@ -1770,6 +1770,27 @@ def _text_pla(text: str) -> str:
     return _re.sub(r'\u27e6\d+\u27e7', '', text)
 
 
+def _runs_son_dins_formula(run_el, paragraph_el) -> bool:
+    """
+    Comprova si un run és descendent d'un element de fórmula dins del paràgraf.
+    Usat per saltar runs de dins de <m:oMath>, <m:oMathPara>, <w:object> i <w:pict>
+    en l'extracció de text, de forma que les fórmules queden intactes.
+    """
+    ns_m = _NS_MATH_DOC
+    ns_w = _NS_W_DOC
+    formules = (
+        list(paragraph_el.iter(f"{{{ns_m}}}oMath")) +
+        list(paragraph_el.iter(f"{{{ns_m}}}oMathPara")) +
+        list(paragraph_el.iter(f"{{{ns_w}}}object")) +
+        list(paragraph_el.iter(f"{{{ns_w}}}pict"))
+    )
+    for formula_el in formules:
+        for desc in formula_el.iter():
+            if desc is run_el:
+                return True
+    return False
+
+
 def _extrau_text_amb_marcadors_docx(paragraph_el) -> tuple[str, list]:
     """
     Extreu el text del paràgraf DOCX inserint marcadors ⟦N⟧ al principi de cada run.
@@ -1778,13 +1799,17 @@ def _extrau_text_amb_marcadors_docx(paragraph_el) -> tuple[str, list]:
       text_marcat: "⟦0⟧text_run0⟦1⟧text_run1..." per enviar a Claude
       runs_info  : [{"idx": N, "node": element_run, "text": text_run}]
 
-    Si Claude preserva els marcadors al corregir, el text es pot reinjectar
-    run a run conservant la tipografia (negreta, cursiva, color...) original.
+    Els runs que formen part d'elements de fórmula (<m:oMath>, <w:object>,
+    <w:pict>) s'ometen: el seu text no s'envia a Claude i l'estructura
+    de l'equació es conserva intacta.
     """
     ns_w = _NS_W_DOC
     runs_info = []
     parts = []
     for idx, run in enumerate(paragraph_el.iter(f"{{{ns_w}}}r")):
+        # Salta els runs dins d'elements de fórmula (OMML, OLE, VML)
+        if _runs_son_dins_formula(run, paragraph_el):
+            continue
         text_run = "".join(
             t.text if t.text is not None
             else (" " if t.get(_XML_SPACE) == "preserve" else "")
@@ -1795,15 +1820,36 @@ def _extrau_text_amb_marcadors_docx(paragraph_el) -> tuple[str, list]:
     return "".join(parts), runs_info
 
 
+def _runs_son_dins_formula_pptx(run_el, txBody_el) -> bool:
+    """
+    Comprova si un run de PPTX és descendent d'un element de fórmula OMML.
+    Rep el <a:txBody> pare per poder cercar <m:oMath> dins d'ell.
+    """
+    ns_m = _NS_MATH_DOC
+    for formula_el in txBody_el.iter(f"{{{ns_m}}}oMath"):
+        for desc in formula_el.iter():
+            if desc is run_el:
+                return True
+    return False
+
+
 def _extrau_text_amb_marcadors_pptx(paragraph_el) -> tuple[str, list]:
     """
     Equivalent de _extrau_text_amb_marcadors_docx per a paràgrafs PPTX (<a:p>).
     Usa l'espai de noms DrawingML (_NS_A_DOC).
+
+    Els runs dins d'elements de fórmula OMML (<m:oMath>) s'ometen
+    per preservar les equacions intactes.
     """
     ns_a = _NS_A_DOC
     runs_info = []
     parts = []
+    # Obté el <a:txBody> pare per poder comprovar fórmules OMML
+    txBody_el = paragraph_el.getparent()
     for idx, run in enumerate(paragraph_el.iter(f"{{{ns_a}}}r")):
+        # Salta runs dins de fórmules OMML (si el txBody és accessible)
+        if txBody_el is not None and _runs_son_dins_formula_pptx(run, txBody_el):
+            continue
         text_run = "".join(
             t.text if t.text is not None
             else (" " if t.get(_XML_SPACE) == "preserve" else "")
@@ -1817,7 +1863,10 @@ def _extrau_text_amb_marcadors_pptx(paragraph_el) -> tuple[str, list]:
 def _aplica_text_run_simple(run_info: dict, text_nou: str, ns_t: str) -> None:
     """
     Posa text_nou al primer <w:t>/<a:t> del run i buida la resta.
-    Gestiona xml:space="preserve" per a espais inicials, finals i interns.
+    Posa SEMPRE xml:space="preserve" si hi ha text (no sols quan hi ha espais
+    marginals): això evita que alguns parsers XML col·lapsen espais interns
+    quan el run conté text que comença o acaba sense espai però ve seguit/precedit
+    per espais procedents d'un run adjacent.
     """
     from lxml import etree as _et
     run = run_info["node"]
@@ -1825,15 +1874,18 @@ def _aplica_text_run_simple(run_info: dict, text_nou: str, ns_t: str) -> None:
     if not nodes_t:
         nou_t = _et.SubElement(run, f"{{{ns_t}}}t")
         nou_t.text = text_nou
-        if text_nou and (' ' in text_nou or '\t' in text_nou or '\n' in text_nou):
+        if text_nou:
             nou_t.set(_XML_SPACE, "preserve")
         return
     primer = nodes_t[0]
     primer.text = text_nou
-    if text_nou and (' ' in text_nou or '\t' in text_nou or '\n' in text_nou):
+    if text_nou:
+        # Sempre preserve: protegeix espais inicials, finals I interns
         primer.set(_XML_SPACE, "preserve")
-    elif _XML_SPACE in primer.attrib:
-        del primer.attrib[_XML_SPACE]
+    else:
+        # Text buit: elimina preserve (evita nodes preserve sense contingut)
+        if _XML_SPACE in primer.attrib:
+            del primer.attrib[_XML_SPACE]
     for node in nodes_t[1:]:
         node.text = ""
         if _XML_SPACE in node.attrib:
@@ -1882,6 +1934,82 @@ def _aplica_text_marcat(runs_info: list, text_corregit: str, ns_t: str) -> bool:
         _aplica_text_run_simple(run_info, text_nou, ns_t)
 
     return True
+
+
+def _reconstrueix_text_marcat(
+    text_marcat_orig: str,
+    text_pla_orig: str,
+    text_pla_corr: str,
+) -> str:
+    """
+    Reconstrueix el text marcat corregit distribuint text_pla_corr entre els
+    segments del text_marcat_orig de forma proporcional.
+
+    Quan Claude NO preserva els marcadors ⟦N⟧, aquesta funció permet intentar
+    projectar la correcció sobre el text original marcat perquè la distribució
+    de text entre runs siga raonable (en lloc de posar tot al primer run).
+
+    La distribució segueix la proporció de caràcters del segment original.
+    Els espais inter-segments s'inclouen al segment actual per evitar que
+    desapareguen quan es buiden els nodes t dels runs posteriors.
+    """
+    import re as _re
+
+    if not text_marcat_orig or not text_pla_corr:
+        return text_pla_corr
+
+    patró_marc = _re.compile(r'(\u27e6\d+\u27e7)')
+    parts_orig = patró_marc.split(text_marcat_orig)
+
+    textos_orig: list[str] = []
+    marcadors:   list[str] = []
+    for part in parts_orig:
+        if patró_marc.match(part):
+            marcadors.append(part)
+        else:
+            textos_orig.append(part)
+
+    if len(textos_orig) <= 1:
+        return text_pla_corr
+
+    total_orig = sum(len(t) for t in textos_orig)
+    if total_orig == 0:
+        return text_pla_corr
+
+    textos_corr: list[str] = []
+    restant = text_pla_corr
+
+    for idx, text_seg_orig in enumerate(textos_orig):
+        if idx == len(textos_orig) - 1:
+            textos_corr.append(restant)
+            break
+
+        if not text_seg_orig:
+            textos_corr.append("")
+            continue
+
+        proporcio = len(text_seg_orig) / total_orig
+        n = max(0, round(len(text_pla_corr) * proporcio))
+
+        # Ajusta al límit de paraula i inclou l'espai separador en el segment
+        # actual per garantir que no es perd quan el run adjacent es buida
+        if 0 < n < len(restant):
+            while n < len(restant) and restant[n] not in (' ', '\t', '\n'):
+                n += 1
+            if n < len(restant) and restant[n] == ' ':
+                n += 1   # Inclou l'espai en el fragment actual
+
+        fragment = restant[:n]
+        restant  = restant[n:]
+        textos_corr.append(fragment)
+
+    # Reconstrueix intercalant marcadors
+    resultat = ""
+    for idx, text in enumerate(textos_corr):
+        resultat += text
+        if idx < len(marcadors):
+            resultat += marcadors[idx]
+    return resultat
 
 
 def _paràgraf_conté_formula(paragraph_el) -> bool:

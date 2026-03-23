@@ -563,6 +563,103 @@ def tradueix_i_preserva_format(
             )
 
 
+# ── Helpers per a paràgrafs amb fórmules ─────────────────────────────────────
+
+def _te_formula_run(run_el: etree._Element, paragraph_el: etree._Element) -> bool:
+    """
+    Comprova si un run concret és descendent d'un element de fórmula dins del
+    paràgraf. Usat per ometre els runs de fórmules en la traducció parcial.
+    """
+    formules = (
+        list(paragraph_el.iter(f'{{{NS_MATH_PX}}}oMath')) +
+        list(paragraph_el.iter(f'{{{NS_W}}}object')) +
+        list(paragraph_el.iter(f'{{{NS_W}}}pict'))
+    )
+    for formula in formules:
+        for desc in formula.iter():
+            if desc is run_el:
+                return True
+    return False
+
+
+def _tradueix_runs_fora_formula(
+    paragraph_el: etree._Element,
+    funcio_traduccio: 'Callable[[str], str]',
+) -> None:
+    """
+    Tradueix ÚNICAMENT els runs de text d'un paràgraf que conté fórmules,
+    deixant intactes els elements de fórmula i tots els seus fills.
+    Modifica el paràgraf in-place.
+
+    Estratègia:
+    1. Recull els runs fills directes del paràgraf que NO estan dins de fórmules.
+    2. Concatena el seu text i el tradueix com una unitat.
+    3. Distribueix el text traduït proporcionalment entre els runs originals.
+    """
+    xml_space = _XML_SPACE_ATTR
+    tag_r = f'{{{NS_W}}}r'
+    tag_t = f'{{{NS_W}}}t'
+
+    # Obté els runs fora de fórmules (fills directes o via hyperlink)
+    runs_text: list[tuple] = []
+    for run in paragraph_el.iter(tag_r):
+        if _te_formula_run(run, paragraph_el):
+            continue
+        t_nodes = [c for c in run if c.tag == tag_t]
+        text_run = ''.join(_obte_text_node(t) for t in t_nodes)
+        if text_run.strip():
+            runs_text.append((run, t_nodes, text_run))
+
+    if not runs_text:
+        return
+
+    # Tradueix el text concatenat
+    text_complet = ' '.join(tr[2] for tr in runs_text)
+    try:
+        text_traduit = funcio_traduccio(text_complet)
+    except Exception as exc:
+        log.warning(f'Error traduint runs fora de fórmula: {exc!r} — manté original')
+        return
+
+    if not text_traduit or text_traduit.strip() == text_complet.strip():
+        return
+
+    # Distribueix el text traduït proporcionalment entre els runs originals
+    total_orig = sum(len(tr[2]) for tr in runs_text)
+    restant = text_traduit
+
+    for i, (run, t_nodes, text_orig) in enumerate(runs_text):
+        if not t_nodes:
+            continue
+
+        if i == len(runs_text) - 1:
+            text_run_trad = restant
+        elif total_orig == 0:
+            text_run_trad = text_orig
+        else:
+            proporcio = len(text_orig) / total_orig
+            n = max(1, round(len(text_traduit) * proporcio))
+            # Ajusta al límit de paraula i inclou l'espai en el fragment actual
+            while n < len(restant) and restant[n - 1] not in (' ', '\t'):
+                n += 1
+            if n < len(restant) and restant[n - 1] == ' ':
+                pass   # L'espai ja és a restant[:n]
+            elif n < len(restant) and restant[n] == ' ':
+                n += 1  # Avança per incloure l'espai
+            text_run_trad = restant[:n]
+            restant       = restant[n:]
+
+        t_nodes[0].text = text_run_trad
+        if text_run_trad:
+            t_nodes[0].set(xml_space, 'preserve')
+        elif xml_space in t_nodes[0].attrib:
+            del t_nodes[0].attrib[xml_space]
+        for t in t_nodes[1:]:
+            t.text = ''
+            if xml_space in t.attrib:
+                del t.attrib[xml_space]
+
+
 # ── Forçar idioma ca-ES ──────────────────────────────────────────────────────
 
 def forta_llengua_catala_docx(xml_str: str) -> str:
@@ -655,8 +752,10 @@ def tradueix_document(
                         if es_dins_imatge(p_node):
                             continue
 
-                        # Omiteix paràgrafs amb fórmules/equacions matemàtiques
+                        # Paràgrafs amb fórmules: tradueix ÚNICAMENT els runs
+                        # de text fora de les fórmules, preservant l'equació
                         if _te_formula(p_node):
+                            _tradueix_runs_fora_formula(p_node, funcio_traduccio)
                             continue
 
                         text_complet = obte_text_paragraf(p_node, ns_text)
