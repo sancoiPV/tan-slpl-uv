@@ -244,6 +244,24 @@ def es_dins_imatge(node: etree._Element) -> bool:
 # Extracció de text per a filtratge
 # ═══════════════════════════════════════════════════════════════════════════════
 
+_XML_SPACE_ATTR = '{http://www.w3.org/XML/1998/namespace}space'
+
+
+def _obte_text_node(t_node: etree._Element) -> str:
+    """
+    Retorna el text d'un node <w:t> o <a:t> respectant xml:space='preserve'.
+    - Si t_node.text no és None, retorna'l directament (pot ser buit '').
+    - Si t_node.text és None però el node té xml:space='preserve', retorna ' '.
+      Açò cobrix el cas de nodes creats sense text però marcats com a espai.
+    - Altrament retorna ''.
+    """
+    if t_node.text is not None:
+        return t_node.text
+    if t_node.get(_XML_SPACE_ATTR) == 'preserve':
+        return ' '
+    return ''
+
+
 def obte_text_paragraf(p_node: etree._Element, ns_t: str) -> str:
     """
     Extreu el text pla d'un node de paràgraf XML concatenant tots els
@@ -251,8 +269,9 @@ def obte_text_paragraf(p_node: etree._Element, ns_t: str) -> str:
     """
     parts = []
     for t in p_node.iter(f'{{{ns_t}}}t'):
-        if t.text:
-            parts.append(t.text)
+        val = _obte_text_node(t)
+        if val:
+            parts.append(val)
     return ''.join(parts).strip()
 
 
@@ -393,8 +412,9 @@ def tradueix_i_preserva_format(
         return
 
     # Text complet del paràgraf per a context i validació
+    # _obte_text_node() respecta xml:space='preserve' amb text None
     text_complet = ''.join(
-        ''.join((c.text or '') for c in run if c.tag == tag_t)
+        ''.join(_obte_text_node(c) for c in run if c.tag == tag_t)
         for run in runs
     ).strip()
 
@@ -420,16 +440,20 @@ def tradueix_i_preserva_format(
                 t_primer[0].set(xml_space, 'preserve')
                 for t in t_primer[1:]:
                     t.text = ''
+                    if xml_space in t.attrib:
+                        del t.attrib[xml_space]
             else:
                 nou_t = etree.SubElement(runs[0], tag_t)
                 nou_t.text = text_traduit
                 nou_t.set(xml_space, 'preserve')
 
-            # Buida els runs addicionals (conserva <w:rPr>)
+            # Buida els runs addicionals i neteja xml:space (conserva <w:rPr>)
             for run in runs[1:]:
                 for t in run:
                     if t.tag == tag_t:
                         t.text = ''
+                        if xml_space in t.attrib:
+                            del t.attrib[xml_space]
 
         except Exception as e:
             log.warning(f'Error traduint paràgraf simple: {e!r}')
@@ -440,8 +464,9 @@ def tradueix_i_preserva_format(
 
     for fmt_key, runs_segment in segments:
         # Text del segment (tots els runs concatenats)
+        # _obte_text_node() respecta xml:space='preserve' amb text None
         text_segment = ''.join(
-            ''.join((c.text or '') for c in run if c.tag == tag_t)
+            ''.join(_obte_text_node(c) for c in run if c.tag == tag_t)
             for run in runs_segment
         )
         text_segment_net = text_segment.strip()
@@ -470,7 +495,7 @@ def tradueix_i_preserva_format(
             # Distribueix les paraules de la traducció entre els runs del segment
             paraules   = text_traduit.split()
             longituds  = [
-                max(len(''.join((c.text or '') for c in r if c.tag == tag_t)), 1)
+                max(len(''.join(_obte_text_node(c) for c in r if c.tag == tag_t)), 1)
                 for r in runs_segment
             ]
             total_long = sum(longituds)
@@ -501,6 +526,8 @@ def tradueix_i_preserva_format(
                     t_nodes[0].set(xml_space, 'preserve')
                     for t in t_nodes[1:]:
                         t.text = ''
+                        if xml_space in t.attrib:
+                            del t.attrib[xml_space]
                 elif fragment.strip():
                     nou_t = etree.SubElement(run, tag_t)
                     nou_t.text = fragment

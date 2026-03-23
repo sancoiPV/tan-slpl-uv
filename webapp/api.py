@@ -1667,11 +1667,19 @@ _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 
 
 def _obte_text_paràgraf_doc(p_node, ns_t: str) -> str:
-    """Concatena el text de tots els nodes <w:t>/<a:t> fills del paràgraf."""
+    """
+    Concatena el text de tots els nodes <w:t>/<a:t> fills del paràgraf.
+    Respecta xml:space='preserve': si un node té l'atribut però text None,
+    contribueix un espai (pot ocórrer en alguns documents Word/PPTX).
+    Usat tant per a DOCX (ns_t = NS_W) com per a PPTX (ns_t = NS_A).
+    """
     parts = []
     for t in p_node.iter(f"{{{ns_t}}}t"):
-        if t.text:
+        if t.text is not None:
             parts.append(t.text)
+        elif t.get(_XML_SPACE) == "preserve":
+            # Node marcat com a preserve però sense text: representa un espai
+            parts.append(" ")
     return "".join(parts)
 
 
@@ -1680,10 +1688,17 @@ def _substitueix_text_runs(p_node, text_nou: str, ns_t: str) -> None:
     Distribueix text_nou entre els nodes <w:t>/<a:t> del paràgraf preservant
     tots els atributs de format (rPr, pPr, etc.).
     Tot el text va al primer node t; la resta queden buits.
+    Afegeix xml:space="preserve" a qualsevol node que continga espais per
+    evitar que Word/PowerPoint elimine silenciosament espais inicials, finals
+    o interns (p. ex. espai entre paraules quan tot el text va al primer run).
     """
-    nodes_t = [n for n in p_node.iter(f"{{{ns_t}}}t") if n.text is not None]
+    # Inclou nodes amb text no None I nodes buits sense fills (poden rebre text)
+    nodes_t = [
+        n for n in p_node.iter(f"{{{ns_t}}}t")
+        if n.text is not None or len(n) == 0
+    ]
     if not nodes_t:
-        # Si no hi havia text, crea un node t dins del primer run si existeix
+        # Si no hi havia cap node t, crea'n un dins del primer run
         tag_r   = f"{{{ns_t}}}r" if ns_t else f"{{{_NS_W_DOC}}}r"
         primers = list(p_node.iter(tag_r))
         if primers:
@@ -1693,11 +1708,23 @@ def _substitueix_text_runs(p_node, text_nou: str, ns_t: str) -> None:
             nou.set(_XML_SPACE, "preserve")
         return
 
-    nodes_t[0].text = text_nou
-    if text_nou and (text_nou[:1] == " " or text_nou[-1:] == " "):
-        nodes_t[0].set(_XML_SPACE, "preserve")
+    # Posa tot el text al primer node
+    primer = nodes_t[0]
+    primer.text = text_nou
+    # xml:space="preserve" cal sempre que hi haja qualsevol espai al text:
+    # espais inicials/finals (obligatori per l'estàndard OOXML) però també
+    # espais interns (defensiu: evita que alguns parsers XML col·lapsen
+    # whitespace al reserialitzar el document).
+    if text_nou and (' ' in text_nou or '\t' in text_nou or '\n' in text_nou):
+        primer.set(_XML_SPACE, "preserve")
+    elif _XML_SPACE in primer.attrib:
+        del primer.attrib[_XML_SPACE]
+
+    # Buida els nodes restants i neteja l'atribut preserve (no en necessiten)
     for node in nodes_t[1:]:
         node.text = ""
+        if _XML_SPACE in node.attrib:
+            del node.attrib[_XML_SPACE]
 
 
 def _extrau_paràgrafs_docx(xml_bytes: bytes) -> list[dict]:
