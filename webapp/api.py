@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 api.py
@@ -1757,17 +1757,148 @@ def _substitueix_text_runs(p_node, text_nou: str, ns_t: str) -> None:
             del node.attrib[_XML_SPACE]
 
 
-def _extrau_paràgrafs_docx(xml_bytes: bytes) -> list[dict]:
+# ── Marcadors de run ⟦N⟧ ─────────────────────────────────────────────────────
+# Usem els caràcters Unicode U+27E6/U+27E7 (⟦⟧) perquè no apareixen
+# en text normal i Claude els preserva sense interpretar-los.
+
+def _text_pla(text: str) -> str:
+    """Elimina marcadors ⟦N⟧ del text (resultat pla sense indicadors de run)."""
+    import re as _re
+    return _re.sub(r'\u27e6\d+\u27e7', '', text)
+
+
+def _extrau_text_amb_marcadors_docx(paragraph_el) -> tuple[str, list]:
     """
-    Analitza el XML de Word i retorna la llista de paràgrafs:
-    [{index, text, node}] (índex del paràgraf dins el document).
+    Extreu el text del paràgraf DOCX inserint marcadors ⟦N⟧ al principi de cada run.
+
+    Retorna (text_marcat, runs_info):
+      text_marcat: "⟦0⟧text_run0⟦1⟧text_run1..." per enviar a Claude
+      runs_info  : [{"idx": N, "node": element_run, "text": text_run}]
+
+    Si Claude preserva els marcadors al corregir, el text es pot reinjectar
+    run a run conservant la tipografia (negreta, cursiva, color...) original.
+    """
+    ns_w = _NS_W_DOC
+    runs_info = []
+    parts = []
+    for idx, run in enumerate(paragraph_el.iter(f"{{{ns_w}}}r")):
+        text_run = "".join(
+            t.text if t.text is not None
+            else (" " if t.get(_XML_SPACE) == "preserve" else "")
+            for t in run.iter(f"{{{ns_w}}}t")
+        )
+        runs_info.append({"idx": idx, "node": run, "text": text_run})
+        parts.append(f"\u27e6{idx}\u27e7{text_run}")
+    return "".join(parts), runs_info
+
+
+def _extrau_text_amb_marcadors_pptx(paragraph_el) -> tuple[str, list]:
+    """
+    Equivalent de _extrau_text_amb_marcadors_docx per a paràgrafs PPTX (<a:p>).
+    Usa l'espai de noms DrawingML (_NS_A_DOC).
+    """
+    ns_a = _NS_A_DOC
+    runs_info = []
+    parts = []
+    for idx, run in enumerate(paragraph_el.iter(f"{{{ns_a}}}r")):
+        text_run = "".join(
+            t.text if t.text is not None
+            else (" " if t.get(_XML_SPACE) == "preserve" else "")
+            for t in run.iter(f"{{{ns_a}}}t")
+        )
+        runs_info.append({"idx": idx, "node": run, "text": text_run})
+        parts.append(f"\u27e6{idx}\u27e7{text_run}")
+    return "".join(parts), runs_info
+
+
+def _aplica_text_run_simple(run_info: dict, text_nou: str, ns_t: str) -> None:
+    """
+    Posa text_nou al primer <w:t>/<a:t> del run i buida la resta.
+    Gestiona xml:space="preserve" per a espais inicials, finals i interns.
     """
     from lxml import etree as _et
-    arbre   = _et.fromstring(xml_bytes)
+    run = run_info["node"]
+    nodes_t = list(run.iter(f"{{{ns_t}}}t"))
+    if not nodes_t:
+        nou_t = _et.SubElement(run, f"{{{ns_t}}}t")
+        nou_t.text = text_nou
+        if text_nou and (' ' in text_nou or '\t' in text_nou or '\n' in text_nou):
+            nou_t.set(_XML_SPACE, "preserve")
+        return
+    primer = nodes_t[0]
+    primer.text = text_nou
+    if text_nou and (' ' in text_nou or '\t' in text_nou or '\n' in text_nou):
+        primer.set(_XML_SPACE, "preserve")
+    elif _XML_SPACE in primer.attrib:
+        del primer.attrib[_XML_SPACE]
+    for node in nodes_t[1:]:
+        node.text = ""
+        if _XML_SPACE in node.attrib:
+            del node.attrib[_XML_SPACE]
+
+
+def _aplica_text_marcat(runs_info: list, text_corregit: str, ns_t: str) -> bool:
+    """
+    Intenta aplicar text_corregit (que pot contenir marcadors ⟦N⟧) als runs.
+    Vàlid per a DOCX (ns_t=_NS_W_DOC) i PPTX (ns_t=_NS_A_DOC).
+
+    Si el text conté marcadors ⟦N⟧ coherents amb runs_info, distribueix cada
+    fragment al run corresponent (preservant la tipografia run a run).
+
+    Retorna True si s'han aplicat els marcadors; False si cal usar el mètode
+    de fallback (_substitueix_text_runs / text al primer run).
+    """
+    import re as _re
+    if not runs_info:
+        return False
+
+    # Cerca marcadors ⟦N⟧ al text corregit
+    marcadors = list(_re.finditer(r'\u27e6(\d+)\u27e7', text_corregit))
+    if not marcadors:
+        return False  # Claude no ha preservat els marcadors → usa fallback
+
+    # Comprova coherència mínima: els índexs han d'estar presents
+    índexs_marcats = {int(m.group(1)) for m in marcadors}
+    índexs_esperats = {r["idx"] for r in runs_info}
+    # Accepta si almenys la meitat dels runs esperats apareix com a marcador
+    coincidències = índexs_marcats & índexs_esperats
+    if len(coincidències) < max(1, len(índexs_esperats) // 2):
+        return False
+
+    # Mapa índex → text del run (de la posició del marcador fins al següent o fi)
+    marcadors_ord = sorted(marcadors, key=lambda m: int(m.group(1)))
+    textos_per_run: dict[int, str] = {}
+    for i, m in enumerate(marcadors_ord):
+        fi = marcadors_ord[i + 1].start() if i + 1 < len(marcadors_ord) else len(text_corregit)
+        textos_per_run[int(m.group(1))] = text_corregit[m.end():fi]
+
+    # Aplica a cada run (si un run no té marcador, conserva el text original)
+    for run_info in runs_info:
+        idx = run_info["idx"]
+        text_nou = textos_per_run.get(idx, run_info["text"])
+        _aplica_text_run_simple(run_info, text_nou, ns_t)
+
+    return True
+
+
+def _extrau_paràgrafs_docx(xml_bytes: bytes) -> tuple[list[dict], object]:
+    """
+    Analitza el XML de Word i retorna (paràgrafs, arbre):
+      paràgrafs: [{index, text, text_marcat, node}]
+      arbre    : l'arbre lxml parsejat (per reutilitzar-lo si cal)
+
+    text_marcat conté el text amb marcadors ⟦N⟧ entre runs, que es pot enviar
+    a Claude per a que corregisca preservant els límits de run.
+    NOTA: els nodes emmagatzemats a "node" pertanyen a aquest arbre (passada 1);
+    en passada 2 se'n crea un de nou amb _et.fromstring(xml_original).
+    """
+    from lxml import etree as _et
+    arbre    = _et.fromstring(xml_bytes)
     resultat = []
     for i, p in enumerate(arbre.iter(f"{{{_NS_W_DOC}}}p")):
-        text = _obte_text_paràgraf_doc(p, _NS_W_DOC)
-        resultat.append({"index": i, "text": text, "node": p})
+        text        = _obte_text_paràgraf_doc(p, _NS_W_DOC)
+        text_marcat, _ = _extrau_text_amb_marcadors_docx(p)
+        resultat.append({"index": i, "text": text, "text_marcat": text_marcat, "node": p})
     return resultat, arbre
 
 
@@ -1888,18 +2019,21 @@ def _aplica_correccions_docx(arbre, paràgrafs: list[dict], segments_corregits: 
     return _et.tostring(arbre, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
-def _extrau_shapes_pptx(xml_bytes: bytes):
+def _extrau_shapes_pptx(xml_bytes: bytes) -> tuple[list[dict], object]:
     """
     Analitza el XML d'una diapositiva PPTX i retorna:
-    (shapes, arbre) on shapes = [{shape_idx, par_idx, text, node}]
+    (shapes, arbre) on shapes = [{si, pi, text, text_marcat, node}]
+
+    text_marcat conté el text amb marcadors ⟦N⟧ entre runs (igual que en DOCX).
     """
     from lxml import etree as _et
-    arbre   = _et.fromstring(xml_bytes)
-    shapes  = []
+    arbre  = _et.fromstring(xml_bytes)
+    shapes = []
     for si, txBody in enumerate(arbre.iter(f"{{{_NS_A_DOC}}}txBody")):
         for pi, p in enumerate(txBody.iter(f"{{{_NS_A_DOC}}}p")):
-            text = _obte_text_paràgraf_doc(p, _NS_A_DOC)
-            shapes.append({"si": si, "pi": pi, "text": text, "node": p})
+            text        = _obte_text_paràgraf_doc(p, _NS_A_DOC)
+            text_marcat, _ = _extrau_text_amb_marcadors_pptx(p)
+            shapes.append({"si": si, "pi": pi, "text": text, "text_marcat": text_marcat, "node": p})
     return shapes, arbre
 
 
@@ -1961,6 +2095,93 @@ def _aplica_correccions_pptx(arbre, shapes: list[dict],
     return _et.tostring(arbre, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
+def _aplica_highlight_groc_per_run_docx(
+    runs_info: list,
+    text_pla_orig: str,
+    text_pla_corr: str,
+) -> None:
+    """
+    Aplica destacat groc SELECTIU per run (DOCX): comprova el text actual de cada
+    run i destaca únicament els que contenen paraules canviades respecte a l'original.
+    Més precís que _aplica_highlight_groc_docx (paràgraf sencer) perquè conserva
+    el format del text no modificat i minimitza els falsos positius.
+    """
+    import re as _re
+    from lxml import etree as _et
+
+    paraules_canviades = _obte_paraules_canviades(text_pla_orig, text_pla_corr)
+    if not paraules_canviades:
+        return
+
+    patró = _re.compile(
+        r'\b(' + '|'.join(_re.escape(p) for p in paraules_canviades) + r')\b',
+        _re.IGNORECASE,
+    )
+    ns_w = _NS_W_DOC
+
+    for run_info in runs_info:
+        run = run_info["node"]
+        # Llig el text actual del run (post-correcció)
+        text_run = "".join(
+            t.text if t.text else ""
+            for t in run.iter(f"{{{ns_w}}}t")
+        )
+        if not text_run.strip() or not patró.search(text_run):
+            continue
+        rPr = run.find(f"{{{ns_w}}}rPr")
+        if rPr is None:
+            rPr = _et.SubElement(run, f"{{{ns_w}}}rPr")
+            run.insert(0, rPr)
+        hl = rPr.find(f"{{{ns_w}}}highlight")
+        if hl is not None:
+            rPr.remove(hl)
+        hl = _et.SubElement(rPr, f"{{{ns_w}}}highlight")
+        hl.set(f"{{{ns_w}}}val", "yellow")
+
+
+def _aplica_highlight_groc_per_run_pptx(
+    runs_info: list,
+    text_pla_orig: str,
+    text_pla_corr: str,
+) -> None:
+    """
+    Aplica destacat groc SELECTIU per run (PPTX): usa solidFill #FFFF00 per als
+    runs de DrawingML que contenen paraules canviades.
+    """
+    import re as _re
+    from lxml import etree as _et
+
+    paraules_canviades = _obte_paraules_canviades(text_pla_orig, text_pla_corr)
+    if not paraules_canviades:
+        return
+
+    patró = _re.compile(
+        r'\b(' + '|'.join(_re.escape(p) for p in paraules_canviades) + r')\b',
+        _re.IGNORECASE,
+    )
+    ns_a = _NS_A_DOC
+
+    for run_info in runs_info:
+        run = run_info["node"]
+        text_run = "".join(
+            t.text if t.text else ""
+            for t in run.iter(f"{{{ns_a}}}t")
+        )
+        if not text_run.strip() or not patró.search(text_run):
+            continue
+        rPr = run.find(f"{{{ns_a}}}rPr")
+        if rPr is None:
+            rPr = _et.SubElement(run, f"{{{ns_a}}}rPr")
+            run.insert(0, rPr)
+        hl = rPr.find(f"{{{ns_a}}}highlight")
+        if hl is not None:
+            rPr.remove(hl)
+        hl = _et.SubElement(rPr, f"{{{ns_a}}}highlight")
+        solidFill = _et.SubElement(hl, f"{{{ns_a}}}solidFill")
+        srgbClr   = _et.SubElement(solidFill, f"{{{ns_a}}}srgbClr")
+        srgbClr.set("val", "FFFF00")
+
+
 def _neteja_encoding_valor(text: str) -> str:
     """
     Corregeix caràcters UTF-8 mal interpretats com Latin-1.
@@ -1977,13 +2198,18 @@ def _neteja_encoding_valor(text: str) -> str:
 async def _corregeix_segments_claude(
     segments: list[str],
     api_key: str,
-    mida_lot: int = 15,
+    mida_lot: int = 3,
+    segments_marcats: list[str] | None = None,
 ) -> list[str]:
     """
     Envia segments de text a Claude Sonnet per a correcció normativa en lots.
     Usa PROMPT_CORRECCIO_SISTEMA com a system prompt per garantir l'aplicació
     de totes les normes del valencià universitari (UV).
     Retorna la llista de segments corregits conservant l'ordre i els índexs.
+
+    segments_marcats: si s'especifica, els valors JSON enviats a Claude contenen
+    marcadors ⟦N⟧ entre runs. Claude rep la instrucció de preservar-los per poder
+    reinjectar el text corregit run a run conservant la tipografia original.
     """
     import anthropic as _ant
     import json as _js
@@ -2010,7 +2236,12 @@ async def _corregeix_segments_claude(
 
     for inici in range(0, len(índexs_a_corregir), mida_lot):
         lot_índexs = índexs_a_corregir[inici: inici + mida_lot]
-        lot_textos = {str(i): segments[i] for i in lot_índexs}
+        # Si tenim segments marcats (amb ⟦N⟧), els enviem a Claude per preservar runs
+        usa_marcadors = segments_marcats is not None and len(segments_marcats) == len(segments)
+        lot_textos = {
+            str(i): (segments_marcats[i] if usa_marcadors else segments[i])
+            for i in lot_índexs
+        }
         num_lot    = inici // mida_lot + 1
 
         log.warning(
@@ -2018,7 +2249,18 @@ async def _corregeix_segments_claude(
             num_lot, len(lot_índexs), lot_índexs[0], lot_índexs[-1],
         )
 
-        prompt_usuari = f"""Ets el corrector i posteditor lingüístic expert del SLPL de la Universitat de València. La teua tasca és aplicar una correcció i postedició EXHAUSTIVA, RIGOROSA i SISTEMÀTICA al text en valencià, basant-te en els quatre corpus normatius del teu sistema (Blocs A, B, C i D).
+        instruccions_marcadors = (
+            "\n\nATENCIÓ — MARCADORS DE FORMAT ⟦N⟧:\n"
+            "Els textos contenen marcadors ⟦0⟧, ⟦1⟧, ⟦2⟧... que delimiten fragments "
+            "de text amb tipografia diferent (negreta, cursiva, color, etc.).\n"
+            "REGLA CRÍTICA: PRESERVA els marcadors EXACTAMENT on estan, sense moure'ls, "
+            "duplicar-los ni eliminar-los. Corregeix ÚNICAMENT el text que hi ha entre "
+            "els marcadors. Exemple:\n"
+            "  Entrada : ⟦0⟧Este ⟦1⟧text servix d'exemple\n"
+            "  Sortida : ⟦0⟧Aquest ⟦1⟧text serveix d'exemple\n"
+        ) if usa_marcadors else ""
+
+        prompt_usuari = f"""Ets el corrector i posteditor lingüístic expert del SLPL de la Universitat de València. La teua tasca és aplicar una correcció i postedició EXHAUSTIVA, RIGOROSA i SISTEMÀTICA al text en valencià, basant-te en els quatre corpus normatius del teu sistema (Blocs A, B, C i D).{instruccions_marcadors}
 
 METODOLOGIA OBLIGATÒRIA — ANALITZA EN ORDRE CADA CATEGORIA:
 
@@ -2340,8 +2582,17 @@ Retorna ÚNICAMENT el JSON corregit:"""
 
 
 async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
-    """Corregeix un DOCX i retorna el DOCX corregit preservant el format."""
+    """Corregeix un DOCX i retorna el DOCX corregit preservant el format.
+
+    Estratègia (CANVI 1+2+3):
+    - Passada 1: extrau text pla + text marcat (⟦N⟧ per run) de cada paràgraf.
+    - Envia lots de 3 segments a Claude amb instruccions de preservar marcadors.
+    - Passada 2: per cada paràgraf, intenta reinjectar el text corregit run a run
+      (si Claude ha preservat els marcadors). Si no, usa el mètode de fallback
+      (_substitueix_text_runs). Destaca per run quan els marcadors s'han preservat.
+    """
     tots_segments: list[str]         = []
+    tots_segments_marcats: list[str] = []
     mapa_fitxer: dict[str, tuple]    = {}
 
     # ── Passada 1: extrau tots els segments de text ───────────────────────────
@@ -2355,13 +2606,16 @@ async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                     inici = len(tots_segments)
                     for p in paràgrafs:
                         tots_segments.append(p["text"])
+                        tots_segments_marcats.append(p["text_marcat"])
                     mapa_fitxer[nom] = (paràgrafs, arbre, inici, xml_bytes)
                 except Exception as exc:
                     log.warning("Error extraient paràgrafs de '%s': %s", nom, exc)
                     mapa_fitxer[nom] = None
 
-    # ── Corregeix tots els segments de cop ────────────────────────────────────
-    corregits = await _corregeix_segments_claude(tots_segments, api_key)
+    # ── Corregeix tots els segments en lots de 3 (CANVI 3) ────────────────────
+    corregits = await _corregeix_segments_claude(
+        tots_segments, api_key, segments_marcats=tots_segments_marcats
+    )
 
     # ── Passada 2: reconstrueix el ZIP ────────────────────────────────────────
     buf_eixida = io.BytesIO()
@@ -2370,20 +2624,34 @@ async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
         for nom in zin.namelist():
             if nom in mapa_fitxer and mapa_fitxer[nom] is not None:
                 paràgrafs, arbre, inici, xml_original = mapa_fitxer[nom]
-                # Construeix llista de segments corregits amb índex global
-                segs_fitxer = corregits[inici: inici + len(paràgrafs)]
-                # Reconstrueix els índexs locals: paràgraf[k].index → segs_fitxer[k]
+                segs_fitxer  = corregits[inici: inici + len(paràgrafs)]
                 segs_per_idx = {p["index"]: segs_fitxer[k] for k, p in enumerate(paràgrafs)}
-                # Crea un nou arbre per a aquest fitxer (reutilitza el ja parsejat)
-                # Aplica: substitueix segs_per_idx[index] per cada paràgraf
+
                 from lxml import etree as _et
                 arbre_treballat = _et.fromstring(xml_original)
                 for i, p_node in enumerate(arbre_treballat.iter(f"{{{_NS_W_DOC}}}p")):
                     nou = segs_per_idx.get(i, "")
-                    antic = paràgrafs[i]["text"] if i < len(paràgrafs) else ""
-                    if nou and nou != antic:
-                        _substitueix_text_runs(p_node, nou, _NS_W_DOC)
-                        _aplica_highlight_groc_docx(p_node, antic, nou, _NS_W_DOC)
+                    if i >= len(paràgrafs) or not nou:
+                        continue
+                    antic = paràgrafs[i]["text"]
+                    # Compara el text pla (sense marcadors) amb l'original
+                    if _text_pla(nou) == antic:
+                        continue
+
+                    # CANVI 1: Extrau runs_info del nou arbre (frescos, sense refs. mortes)
+                    _, runs_info = _extrau_text_amb_marcadors_docx(p_node)
+                    aplicat = _aplica_text_marcat(runs_info, nou, _NS_W_DOC)
+
+                    if aplicat:
+                        # CANVI 2: Destaca per run (més precís)
+                        nou_pla = _text_pla(nou)
+                        _aplica_highlight_groc_per_run_docx(runs_info, antic, nou_pla)
+                    else:
+                        # Fallback: tot el text al primer run
+                        nou_pla = _text_pla(nou)
+                        _substitueix_text_runs(p_node, nou_pla, _NS_W_DOC)
+                        _aplica_highlight_groc_docx(p_node, antic, nou_pla, _NS_W_DOC)
+
                 xml_corregit = _et.tostring(
                     arbre_treballat, xml_declaration=True, encoding="UTF-8", standalone=True
                 )
@@ -2399,9 +2667,14 @@ async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
 
 
 async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
-    """Corregeix un PPTX i retorna el PPTX corregit preservant el format."""
-    tots_segments: list[str]       = []
-    mapa_fitxer: dict[str, tuple]  = {}
+    """Corregeix un PPTX i retorna el PPTX corregit preservant el format.
+
+    Estratègia (CANVI 1+2+3): equivalent a _processa_docx_correccio però per a PPTX.
+    Usa marcadors ⟦N⟧ per reinjectar el text corregit run a run (DrawingML).
+    """
+    tots_segments: list[str]         = []
+    tots_segments_marcats: list[str] = []
+    mapa_fitxer: dict[str, tuple]    = {}
 
     # ── Passada 1: extrau tots els segments ───────────────────────────────────
     with zipfile.ZipFile(io.BytesIO(fitxer_bytes)) as zin:
@@ -2414,13 +2687,16 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                     inici = len(tots_segments)
                     for s in shapes:
                         tots_segments.append(s["text"])
+                        tots_segments_marcats.append(s["text_marcat"])
                     mapa_fitxer[nom] = (shapes, inici, xml_bytes)
                 except Exception as exc:
                     log.warning("Error extraient shapes de '%s': %s", nom, exc)
                     mapa_fitxer[nom] = None
 
-    # ── Corregeix ─────────────────────────────────────────────────────────────
-    corregits = await _corregeix_segments_claude(tots_segments, api_key)
+    # ── Corregeix en lots de 3 (CANVI 3) ──────────────────────────────────────
+    corregits = await _corregeix_segments_claude(
+        tots_segments, api_key, segments_marcats=tots_segments_marcats
+    )
 
     # ── Passada 2: reconstrueix el ZIP ────────────────────────────────────────
     buf_eixida = io.BytesIO()
@@ -2434,14 +2710,28 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                 k = 0
                 for txBody in arbre_treballat.iter(f"{{{_NS_A_DOC}}}txBody"):
                     for p_node in txBody.iter(f"{{{_NS_A_DOC}}}p"):
-                        if k < len(shapes):
-                            idx_global = inici + k
-                            nou  = corregits[idx_global] if idx_global < len(corregits) else ""
-                            if nou and nou != shapes[k]["text"]:
-                                text_original_shape = shapes[k]["text"]
-                                _substitueix_text_runs(p_node, nou, _NS_A_DOC)
-                                _aplica_highlight_groc_pptx(p_node, text_original_shape, nou, _NS_A_DOC)
-                            k += 1
+                        if k >= len(shapes):
+                            break
+                        idx_global = inici + k
+                        nou  = corregits[idx_global] if idx_global < len(corregits) else ""
+                        antic = shapes[k]["text"]
+
+                        if nou and _text_pla(nou) != antic:
+                            # CANVI 1: Extrau runs_info frescos i intenta aplicar marcadors
+                            _, runs_info = _extrau_text_amb_marcadors_pptx(p_node)
+                            aplicat = _aplica_text_marcat(runs_info, nou, _NS_A_DOC)
+
+                            if aplicat:
+                                # CANVI 2: Destaca per run
+                                nou_pla = _text_pla(nou)
+                                _aplica_highlight_groc_per_run_pptx(runs_info, antic, nou_pla)
+                            else:
+                                # Fallback
+                                nou_pla = _text_pla(nou)
+                                _substitueix_text_runs(p_node, nou_pla, _NS_A_DOC)
+                                _aplica_highlight_groc_pptx(p_node, antic, nou_pla, _NS_A_DOC)
+                        k += 1
+
                 xml_corregit = _et.tostring(
                     arbre_treballat, xml_declaration=True, encoding="UTF-8", standalone=True
                 )
