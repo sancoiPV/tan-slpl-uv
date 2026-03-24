@@ -378,24 +378,39 @@ def _get_model():
 
 
 def _tradueix_text(text: str) -> str:
-    """Tradueix un text castellà→català usant el model AINA."""
+    """Tradueix un text castella->catala oracio per oracio."""
     tokenizer, model = _get_model()
-    preparat = f">>ca<< {text}"
-    entrades = tokenizer(
-        [preparat],
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=512,
-    )
-    sortides = model.generate(
-        **entrades,
-        num_beams=4,
-        max_length=512,
-        early_stopping=True,
-    )
-    return tokenizer.decode(sortides[0], skip_special_tokens=True)
-
+    # Divideix per paragrafs
+    paragrafs = text.split("\n")
+    resultats = []
+    for paragraf in paragrafs:
+        paragraf = paragraf.strip()
+        if not paragraf:
+            resultats.append("")
+            continue
+        # Divideix per oracions (punt/interrogant/exclamacio + espai)
+        oracions = re.split(r"(?<=[.?!])\s+", paragraf)
+        traduccions = []
+        for oracio in oracions:
+            oracio = oracio.strip()
+            if not oracio:
+                continue
+            entrades = tokenizer(
+                [oracio],
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=512,
+            )
+            sortides = model.generate(
+                **entrades,
+                num_beams=4,
+                max_length=512,
+                early_stopping=True,
+            )
+            traduccions.append(tokenizer.decode(sortides[0], skip_special_tokens=True))
+        resultats.append(" ".join(traduccions))
+    return "\n".join(resultats)
 
 def _compta_paraules(text: str) -> int:
     """Retorna el nombre de paraules d'un text."""
