@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 server_portatil.py
 ------------------
@@ -21,7 +21,7 @@ import logging
 from flask import Flask, request, jsonify
 
 # --- Configuració de rutes ---
-MODEL_DIR = r"C:\Users\santi\OneDrive\Documents\SLPL\taneu\aina-translator-es-ca"
+MODEL_DIR = r"C:\Users\Santiago Colomer\tan-slpl-uv\models\opus-mt-es-ca-ct2"
 PORT      = 5001
 
 # --- Paràmetres CTranslate2 (optimitzats per i7-1255U, 10 nuclis) ---
@@ -334,3 +334,4 @@ if __name__ == "__main__":
 
     # Inicia Flask (debug=False per a producció)
     app.run(host="127.0.0.1", port=PORT, debug=False, threaded=True)
+

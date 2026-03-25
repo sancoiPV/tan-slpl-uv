@@ -24,6 +24,7 @@ const ENDPOINTS = [
 ];
 
 const TIMEOUT_MS = 2000;
+const TIMEOUT_TRANSLATE_MS = 30000;  // traduccio: el model pot trigar
 const TIMEOUT_AVANCAT_MS = 5000; // uvicorn/ngrok: pot trigar a carregar el model
 let activeEndpoint = null;
 
@@ -101,19 +102,20 @@ async function detectActiveEndpoint() {
   return null;
 }
 
-async function translate(text, src = 'es', tgt = 'ca') {
+async function translate(text, src = 'es', tgt = 'ca', _reintent = 0) {
+  if (_reintent > 2) throw new Error('No s\'ha pogut connectar al servidor despres de 3 intents.');
   if (!activeEndpoint) {
     const detected = await detectActiveEndpoint();
     if (!detected) {
       throw new Error(
-        'No s\'ha pogut connectar a cap servidor de traducció. ' +
+        'No s\'ha pogut connectar a cap servidor de traduccio. ' +
         'Comprova la VPN o activa el motor local.'
       );
     }
   }
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_TRANSLATE_MS);
     const response = await fetch(activeEndpoint.url + activeEndpoint.translate, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -121,12 +123,12 @@ async function translate(text, src = 'es', tgt = 'ca') {
       signal: controller.signal,
     });
     clearTimeout(timer);
-    if (!response.ok) throw new Error('Error del servidor');
+    if (!response.ok) throw new Error('Error del servidor: ' + response.status);
     const data = await response.json();
     return data.translation;
   } catch (err) {
     activeEndpoint = null;
-    return await translate(text, src, tgt);
+    return await translate(text, src, tgt, _reintent + 1);
   }
 }
 
