@@ -13,7 +13,7 @@
  * @param {File} file  Fitxer PPTX seleccionat per l'usuari
  * @returns {Promise<{
  *   totalSlides: number,
- *   totalWords:  number,   // diapositives + notes
+ *   totalWords:  number,   // paraules de diapositives + paraules de notes
  *   visible: { count, words, withNotes, withNotesWords },
  *   hidden:  { count, words, withNotes, withNotesWords },
  *   notes:   { count, words },
@@ -71,37 +71,48 @@ async function analyzePptx(file) {
     const rootTagMatch = slideXml.match(/<p:sld\b([^>]*)>/);
     const isHidden = rootTagMatch ? /\bshow="0"/.test(rootTagMatch[1]) : false;
 
-    // Compta paraules del text de la diapositiva (àrea de presentació)
+    // Compta paraules del contingut de la diapositiva (àrea de presentació)
     const slideWords = _countWordsInXml(slideXml);
 
-    // Obté paraules de les notes i si existeixen amb contingut real
+    // Obté paraules de les notes i si hi ha text real escrit per l'usuari
     const { hasNotes, noteWords } = await _obteNotesInfo(zip, slidePath);
 
     slides.push({ path: slidePath, isHidden, slideWords, noteWords, hasNotes });
   }
 
   // ── 4. Agrupa per visibles / ocultes
-  const visibleSlides = slides.filter(s => !s.isHidden);
-  const hiddenSlides  = slides.filter(s =>  s.isHidden);
+  const visibleSlides      = slides.filter(s => !s.isHidden);
+  const hiddenSlides       = slides.filter(s =>  s.isHidden);
+  const visibleWithNotes   = visibleSlides.filter(s => s.hasNotes);
+  const hiddenWithNotes    = hiddenSlides.filter(s => s.hasNotes);
 
   // ── 5. Agrega estadístiques globals
   return {
     totalSlides: slides.length,
+    // Total inclou paraules de diapositives + paraules de notes del presentador
     totalWords: slides.reduce((sum, s) => sum + s.slideWords + s.noteWords, 0),
     visible: {
       count:          visibleSlides.length,
+      // Paraules del CONTINGUT de les diapositives visibles (NO notes)
       words:          visibleSlides.reduce((sum, s) => sum + s.slideWords, 0),
-      withNotes:      visibleSlides.filter(s => s.hasNotes).length,
-      withNotesWords: visibleSlides.filter(s => s.hasNotes).reduce((sum, s) => sum + s.slideWords, 0)
+      // Nombre de diapositives visibles que tenen notes reals
+      withNotes:      visibleWithNotes.length,
+      // Paraules del CONTINGUT de les diapositives visibles que tenen notes (NO les notes en si)
+      withNotesWords: visibleWithNotes.reduce((sum, s) => sum + s.slideWords, 0)
     },
     hidden: {
       count:          hiddenSlides.length,
+      // Paraules del CONTINGUT de les diapositives ocultes (NO notes)
       words:          hiddenSlides.reduce((sum, s) => sum + s.slideWords, 0),
-      withNotes:      hiddenSlides.filter(s => s.hasNotes).length,
-      withNotesWords: hiddenSlides.filter(s => s.hasNotes).reduce((sum, s) => sum + s.slideWords, 0)
+      // Nombre de diapositives ocultes que tenen notes reals
+      withNotes:      hiddenWithNotes.length,
+      // Paraules del CONTINGUT de les diapositives ocultes que tenen notes (NO les notes en si)
+      withNotesWords: hiddenWithNotes.reduce((sum, s) => sum + s.slideWords, 0)
     },
     notes: {
-      count: slides.filter(s => s.hasNotes).length,
+      // Total de diapositives amb notes reals (visibles + ocultes)
+      count: visibleWithNotes.length + hiddenWithNotes.length,
+      // Total de paraules de TOTES les notes del presentador
       words: slides.reduce((sum, s) => sum + s.noteWords, 0)
     },
     slides
@@ -109,8 +120,16 @@ async function analyzePptx(file) {
 }
 
 /**
- * Obté informació de les notes d'una diapositiva: si existeixen i quantes paraules contenen.
- * Utilitza el fitxer .rels de la diapositiva per localitzar el notesSlide.
+ * Obté informació de les notes d'una diapositiva.
+ * Retorna { hasNotes, noteWords } on:
+ *   - hasNotes: true NOMÉS si el cos de notes conté text real escrit per l'usuari
+ *   - noteWords: recompte de paraules del text real (excloent camps automàtics i placeholders)
+ *
+ * Filtra estrictament:
+ *   - NOMÉS processa shapes amb placeholder de tipus "body" (on l'usuari escriu)
+ *   - EXCLOU shapes de sistema: sldNum, dt, sldImg, hdr, ftr, title
+ *   - EXCLOU elements <a:fld> (camps automàtics com número de diapositiva)
+ *   - EXCLOU shapes sense placeholder (no rellevants per a les notes)
  *
  * @param {JSZip} zip
  * @param {string} slidePath  Ruta completa al ZIP (p.ex. 'ppt/slides/slide1.xml')
@@ -138,13 +157,79 @@ async function _obteNotesInfo(zip, slidePath) {
 
   const notesXml = await notesFile.async('text');
 
-  // Extreu text de les notes (els números de pàgina automàtics van dins <a:fld>,
-  // no dins <a:t>, de manera que no s'inclouen en el recompte)
-  const notesText = _extractTextFromXml(notesXml).trim();
+  // Extreu NOMÉS el text del cos de les notes (shape body, sense camps automàtics)
+  const notesText = _extrauTextNotes(notesXml).trim();
   if (!notesText) return { hasNotes: false, noteWords: 0 };
 
   const noteWords = countWords(notesText);
   return { hasNotes: noteWords > 0, noteWords };
+}
+
+/**
+ * Extreu el text real del cos de les notes d'un notesSlide XML.
+ *
+ * Regles de filtratge (seguint l'especificació OOXML):
+ *   1. Usa DOMParser amb namespaces eliminats per a parseig robust.
+ *   2. Itera els <sp> (shapes) del document.
+ *   3. Busca el placeholder (<ph>) dins de <nvSpPr><nvPr>.
+ *   4. Si no hi ha <ph>: DESCARTA el shape (no és un placeholder de notes).
+ *   5. Si hi ha <ph> amb type= "sldNum", "dt", "sldImg", "hdr", "ftr", "title": DESCARTA.
+ *   6. Si hi ha <ph> amb type="body" o sense type (placeholder de cos): PROCESSA.
+ *   7. Dins del shape processat: extreu text de <r><t> però IGNORA <fld> (camps automàtics).
+ *
+ * @param {string} notesXmlStr  Contingut del fitxer notesSlideN.xml
+ * @returns {string}  Text pla real de les notes
+ */
+function _extrauTextNotes(notesXmlStr) {
+  // Elimina namespaces per facilitar els selectors CSS (querySelector no suporta bé ns)
+  const cleaned = notesXmlStr
+    .replace(/\s+xmlns(?::[a-zA-Z0-9]+)?="[^"]*"/g, '')
+    .replace(/([a-zA-Z0-9]+):/g, '');
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(cleaned, 'application/xml');
+
+  // Comprova errors de parseig
+  const parseError = doc.querySelector('parsererror');
+  if (parseError) return '';
+
+  let notesText = '';
+
+  const shapes = doc.querySelectorAll('sp');
+  shapes.forEach(shape => {
+    // Comprova si el shape té un placeholder (<ph> dins de nvSpPr > nvPr)
+    const ph = shape.querySelector('nvSpPr nvPr ph');
+    if (!ph) {
+      // Shape sense placeholder: no és rellevant per a les notes → descarta
+      return;
+    }
+
+    const phType = ph.getAttribute('type');
+
+    // Descarta placeholders del sistema (no escrits per l'usuari)
+    const tipusSistema = ['sldNum', 'dt', 'sldImg', 'hdr', 'ftr', 'title'];
+    if (phType && tipusSistema.includes(phType)) {
+      return;
+    }
+
+    // Processa NOMÉS placeholders de cos: type="body" o sense type (notes body, idx="1")
+    // Extreu text de runs (<r><t>) però EXCLOU camps automàtics (<fld>)
+    const paragraphs = shape.querySelectorAll('p');
+    paragraphs.forEach(p => {
+      // Processa els runs normals (r → t), no els camps (fld)
+      const runs = p.querySelectorAll('r');
+      runs.forEach(r => {
+        // Comprova que el run NO és fill d'un camp automàtic
+        if (r.closest('fld')) return;
+        const tNodes = r.querySelectorAll('t');
+        tNodes.forEach(t => {
+          notesText += t.textContent + ' ';
+        });
+      });
+    });
+  });
+
+  return notesText;
 }
 
 /**
@@ -174,7 +259,8 @@ function _resolveRelPath(basePath, relTarget) {
 }
 
 /**
- * Extreu text pla dels elements <a:t> d'un XML OOXML.
+ * Extreu text pla dels elements <a:t> d'un XML OOXML (per a diapositives).
+ * Nota: per a les notes s'usa _extrauTextNotes() que filtra per shape body.
  *
  * @param {string} xmlStr
  * @returns {string}
@@ -185,7 +271,7 @@ function _extractTextFromXml(xmlStr) {
 }
 
 /**
- * Compta les paraules del text contingut en un fragment d'XML OOXML.
+ * Compta les paraules del text contingut en un fragment d'XML OOXML (per a diapositives).
  *
  * @param {string} xmlStr
  * @returns {number}
@@ -207,14 +293,19 @@ function countWords(text) {
 
 /**
  * Renderitza una taula d'estadístiques PPTX dins el contenidor indicat.
- * Format:
- *   Secció                             | Diapositives | Paraules
- *   Diapositives no ocultes            |     68       |  2.835
- *   — de les quals amb notes           |     65       |  2.690
- *   Diapositives ocultes               |     16       |    683
- *   — de les quals amb notes           |     14       |    655
- *   Notes a peu de diapositiva (total) |     79       | 10.688
- *   TOTAL                              |     84       | 14.206
+ *
+ * Format de la taula (6 files de dades + capçalera):
+ *   Secció                              | Diapositives | Paraules
+ *   ─────────────────────────────────────────────────────────────
+ *   Diapositives visibles               |      68      |  2.835
+ *   — de les quals amb notes            |      65      |  2.690 (contingut de les 65)
+ *   Diapositives ocultes                |      16      |    683
+ *   — de les quals amb notes            |      14      |    655 (contingut de les 14)
+ *   Notes a peu de diapositiva (total)  |      79      | 10.688 (text real de les notes)
+ *   TOTAL                               |      84      | 14.206
+ *
+ * NOTA: Les files "— de les quals amb notes" mostren les paraules del CONTINGUT
+ * d'eixes diapositives, NO les paraules de les notes. Les notes van a la seua pròpia fila.
  *
  * @param {{totalSlides, totalWords, visible, hidden, notes}} stats
  * @param {HTMLElement|string} container  Element DOM o ID de l'element contenidor
@@ -228,59 +319,64 @@ function renderPptxStats(stats, container, filename) {
 
   const fmt = n => n.toLocaleString('ca-ES');
 
-  // Files de diapositives ocultes (s'oculten si no n'hi ha cap)
+  // Estils de cel·la comuns (explícits per assegurar visibilitat independentment del CSS global)
+  const tdBase  = 'border:1px solid #999;padding:5px 10px;';
+  const tdCentr = tdBase + 'text-align:center;';
+  const tdItal  = tdBase + 'padding-left:25px;font-style:italic;color:#555;';
+
+  // Files de diapositives ocultes (s'amaguen si count === 0)
   const hiddenRows = stats.hidden.count > 0 ? `
           <tr>
-            <td>Diapositives ocultes</td>
-            <td style="text-align:center;">${fmt(stats.hidden.count)}</td>
-            <td style="text-align:center;">${fmt(stats.hidden.words)}</td>
+            <td style="${tdBase}">Diapositives ocultes</td>
+            <td style="${tdCentr}">${fmt(stats.hidden.count)}</td>
+            <td style="${tdCentr}">${fmt(stats.hidden.words)}</td>
           </tr>
           <tr>
-            <td style="padding-left:1.4em; font-style:italic; color:#555;">
-              — de les quals amb notes
-            </td>
-            <td style="text-align:center;">${fmt(stats.hidden.withNotes)}</td>
-            <td style="text-align:center;">${fmt(stats.hidden.withNotesWords)}</td>
+            <td style="${tdItal}">— de les quals amb notes</td>
+            <td style="${tdCentr}">${fmt(stats.hidden.withNotes)}</td>
+            <td style="${tdCentr}">${fmt(stats.hidden.withNotesWords)}</td>
           </tr>` : '';
 
+  const tdTotal = 'border:1px solid #999;border-top:2px solid #333;padding:5px 10px;font-weight:bold;';
+  const tdTotalC = tdTotal + 'text-align:center;';
+
   el.innerHTML = `
-    <div class="pptx-stats-card">
-      <div class="pptx-stats-header">
-        <span class="pptx-stats-icon">📊</span>
-        <span class="pptx-stats-title">${_escapeHtml(filename)}</span>
-        <span class="pptx-stats-total-badge">${fmt(stats.totalSlides)} diapositives</span>
-      </div>
-      <table class="pptx-stats-table">
+    <div style="margin-top:12px;">
+      <h4 style="margin-bottom:8px;font-size:14px;">
+        📊 ${_escapeHtml(filename)}
+        <span style="font-weight:normal;font-size:0.9em;color:#666;">
+          (${fmt(stats.totalSlides)} diapositives en total)
+        </span>
+      </h4>
+      <table style="max-width:580px;border-collapse:collapse;font-size:13px;margin-top:6px;">
         <thead>
-          <tr>
-            <th>Secció</th>
-            <th style="text-align:center;">Diapositives</th>
-            <th style="text-align:center;">Paraules</th>
+          <tr style="background-color:#f0f0f0;">
+            <th style="${tdBase}text-align:left;">Secció</th>
+            <th style="${tdCentr}">Diapositives</th>
+            <th style="${tdCentr}">Paraules</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td>Diapositives no ocultes</td>
-            <td style="text-align:center;">${fmt(stats.visible.count)}</td>
-            <td style="text-align:center;">${fmt(stats.visible.words)}</td>
+            <td style="${tdBase}">Diapositives visibles</td>
+            <td style="${tdCentr}">${fmt(stats.visible.count)}</td>
+            <td style="${tdCentr}">${fmt(stats.visible.words)}</td>
           </tr>
           <tr>
-            <td style="padding-left:1.4em; font-style:italic; color:#555;">
-              — de les quals amb notes
-            </td>
-            <td style="text-align:center;">${fmt(stats.visible.withNotes)}</td>
-            <td style="text-align:center;">${fmt(stats.visible.withNotesWords)}</td>
+            <td style="${tdItal}">— de les quals amb notes</td>
+            <td style="${tdCentr}">${fmt(stats.visible.withNotes)}</td>
+            <td style="${tdCentr}">${fmt(stats.visible.withNotesWords)}</td>
           </tr>
           ${hiddenRows}
           <tr>
-            <td>Notes a peu de diapositiva (total)</td>
-            <td style="text-align:center;">${fmt(stats.notes.count)}</td>
-            <td style="text-align:center;">${fmt(stats.notes.words)}</td>
+            <td style="${tdBase}">Notes a peu de diapositiva (total)</td>
+            <td style="${tdCentr}">${fmt(stats.notes.count)}</td>
+            <td style="${tdCentr}">${fmt(stats.notes.words)}</td>
           </tr>
-          <tr class="pptx-stats-total-row">
-            <td><strong>TOTAL</strong></td>
-            <td style="text-align:center;"><strong>${fmt(stats.totalSlides)}</strong></td>
-            <td style="text-align:center;"><strong>${fmt(stats.totalWords)}</strong></td>
+          <tr style="background-color:#f5f5f5;">
+            <td style="${tdTotal}">TOTAL</td>
+            <td style="${tdTotalC}">${fmt(stats.totalSlides)}</td>
+            <td style="${tdTotalC}">${fmt(stats.totalWords)}</td>
           </tr>
         </tbody>
       </table>
