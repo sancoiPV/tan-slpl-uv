@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TAN · SLPL · Universitat de València</title>
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+</head>
+<body>
+<header class="header">
+  <div class="header-inner">
+    <div>
+      <span class="logo-tan">TAN</span>
+      <span class="logo-slpl">SLPL · Universitat de València</span>
+    </div>
+    <div class="status">
+      <div class="dot" id="dot"></div>
+      <span class="status-txt" id="statusTxt">Comprovant...</span>
+    </div>
+  </div>
+  <nav class="nav">
+    <button class="nav-btn act" onclick="mostra('text',this)">Tradueix text</button>
+    <button class="nav-btn" onclick="mostra('fitxer',this)">Tradueix fitxer</button>
+    <button class="nav-btn" onclick="mostra('stats',this)">Estadístiques</button>
+  </nav>
+</header>
+<section class="seccio vis" id="s-text">
+  <div class="mode-toggle">
+    <button class="mode-btn act" id="mT" onclick="setMode('traduccio')">Traducció</button>
+    <button class="mode-btn" id="mC" onclick="setMode('correccio')">Correcció en valencià</button>
+  </div>
+  <div class="panells">
+    <div class="panell-esquerre">
+      <div class="panell-cap">
+        <span class="idioma">Castellà</span>
+        <span class="comptador" id="comp">0 paraules</span>
+      </div>
+      <textarea class="textarea" id="origen"
+        placeholder="Escriu o enganxa el text en castellà..."
+        oninput="actualComp()"></textarea>
+      <div class="accions">
+        <button class="btn-sec" onclick="neteja()">Neteja</button>
+      </div>
+    </div>
+    <div class="central">
+      <button class="btn-tradueix" id="btnT" onclick="tradueixText()">
+        <span id="btnLbl">→ Traduïx</span>
+      </button>
+    </div>
+    <div class="panell-dret">
+      <div class="panell-cap">
+        <span class="idioma">Valencià UV</span>
+        <span class="temps" id="temps"></span>
+      </div>
+      <textarea class="textarea traduit" id="desti" readonly
+        placeholder="La traducció apareixerà ací..."></textarea>
+      <div class="accions">
+        <button class="btn-sec" onclick="edita()">✏️ Edita</button>
+        <button class="btn-sec" onclick="copia()">📋 Copia</button>
+        <button class="btn-desa" id="btnDesa" style="display:none"
+          onclick="desaPost()">💾 Desa postedició</button>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="seccio" id="s-fitxer">
+  <div class="mode-toggle">
+    <button class="mode-btn act" id="mFT" onclick="setModeFitxer('traduccio')">Traducció</button>
+    <button class="mode-btn" id="mFC" onclick="setModeFitxer('correccio')">Correcció en valencià</button>
+  </div>
+  <div class="dropzone" id="drop"
+    ondragover="event.preventDefault()"
+    ondrop="onDrop(event)"
+    onclick="document.getElementById('inp').click()">
+    <div class="drop-icon">📄</div>
+    <div class="drop-titol">Arrossega el document ací</div>
+    <div class="drop-sub">o fes clic per seleccionar · .docx i .pptx · màx. 20 MB</div>
+    <input type="file" id="inp" accept=".docx,.pptx" style="display:none"
+      onchange="processaFitxer(this.files[0])">
+  </div>
+  <div class="progres-cont" id="progCont">
+    <div class="progres-lbl" id="progLbl">Processant...</div>
+    <div class="progres-bar"><div class="progres-fill"></div></div>
+  </div>
+  <div class="resultat-card" id="resCard">
+    <div class="res-icona" id="resIco">📄</div>
+    <div class="res-info">
+      <div class="res-nom" id="resNom"></div>
+      <div class="res-det" id="resDet"></div>
+    </div>
+    <button class="btn-descarrega" id="btnDesc">⬇️ Descarrega</button>
+  </div>
+</section>
+<section class="seccio" id="s-stats">
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-lbl">Paraules avui</div>
+      <div class="stat-val" id="stP">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-lbl">Fitxers avui</div>
+      <div class="stat-val" id="stF">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-lbl">Postedicions</div>
+      <div class="stat-val" id="stPo">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-lbl">Estat motor</div>
+      <div class="stat-val" id="stE" style="font-size:22px">—</div>
+    </div>
+  </div>
+</section>
+<script src="app.js"></script>
+</body>
+</html>

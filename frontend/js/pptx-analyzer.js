@@ -7,16 +7,17 @@
 'use strict';
 
 /**
- * Analitza un fitxer PPTX i retorna estadístiques de diapositives i paraules.
+ * Analitza un fitxer PPTX i retorna estadístiques detallades de diapositives i paraules.
+ * Les paraules de les notes del presentador s'inclouen en el total global.
  *
  * @param {File} file  Fitxer PPTX seleccionat per l'usuari
  * @returns {Promise<{
  *   totalSlides: number,
- *   visible:     number,
- *   hidden:      number,
- *   withNotes:   number,
- *   totalWords:  number,
- *   slides:      Array<{path:string, isHidden:boolean, words:number, hasNotes:boolean}>
+ *   totalWords:  number,   // diapositives + notes
+ *   visible: { count, words, withNotes, withNotesWords },
+ *   hidden:  { count, words, withNotes, withNotesWords },
+ *   notes:   { count, words },
+ *   slides:  Array<{path, isHidden, slideWords, noteWords, hasNotes}>
  * }>}
  */
 async function analyzePptx(file) {
@@ -45,9 +46,9 @@ async function analyzePptx(file) {
 
   const rIdToPath = {};
   const relPattern = /Id="(rId\d+)"[^>]*Target="([^"]+)"/g;
-  let m;
-  while ((m = relPattern.exec(presRelsXml)) !== null) {
-    const [, id, target] = m;
+  let rm;
+  while ((rm = relPattern.exec(presRelsXml)) !== null) {
+    const [, id, target] = rm;
     // Filtra únicament diapositives (exclou slideMaster, slideLayout, etc.)
     if (/slides\/slide\d+\.xml$/.test(target)) {
       // Target és relatiu a ppt/; convertim a ruta completa al ZIP
@@ -70,40 +71,57 @@ async function analyzePptx(file) {
     const rootTagMatch = slideXml.match(/<p:sld\b([^>]*)>/);
     const isHidden = rootTagMatch ? /\bshow="0"/.test(rootTagMatch[1]) : false;
 
-    // Compta paraules del text de la diapositiva (text de l'àrea de presentació)
-    const words = _countWordsInXml(slideXml);
+    // Compta paraules del text de la diapositiva (àrea de presentació)
+    const slideWords = _countWordsInXml(slideXml);
 
-    // Detecta notes: comprova el fitxer .rels de la diapositiva
-    const hasNotes = await _detectaNotes(zip, slidePath);
+    // Obté paraules de les notes i si existeixen amb contingut real
+    const { hasNotes, noteWords } = await _obteNotesInfo(zip, slidePath);
 
-    slides.push({ path: slidePath, isHidden, words, hasNotes });
+    slides.push({ path: slidePath, isHidden, slideWords, noteWords, hasNotes });
   }
 
-  // ── 4. Agrega estadístiques globals
-  const totalSlides = slides.length;
-  const visible     = slides.filter(s => !s.isHidden).length;
-  const hidden      = slides.filter(s =>  s.isHidden).length;
-  const withNotes   = slides.filter(s =>  s.hasNotes).length;
-  const totalWords  = slides.reduce((acc, s) => acc + s.words, 0);
+  // ── 4. Agrupa per visibles / ocultes
+  const visibleSlides = slides.filter(s => !s.isHidden);
+  const hiddenSlides  = slides.filter(s =>  s.isHidden);
 
-  return { totalSlides, visible, hidden, withNotes, totalWords, slides };
+  // ── 5. Agrega estadístiques globals
+  return {
+    totalSlides: slides.length,
+    totalWords: slides.reduce((sum, s) => sum + s.slideWords + s.noteWords, 0),
+    visible: {
+      count:          visibleSlides.length,
+      words:          visibleSlides.reduce((sum, s) => sum + s.slideWords, 0),
+      withNotes:      visibleSlides.filter(s => s.hasNotes).length,
+      withNotesWords: visibleSlides.filter(s => s.hasNotes).reduce((sum, s) => sum + s.slideWords, 0)
+    },
+    hidden: {
+      count:          hiddenSlides.length,
+      words:          hiddenSlides.reduce((sum, s) => sum + s.slideWords, 0),
+      withNotes:      hiddenSlides.filter(s => s.hasNotes).length,
+      withNotesWords: hiddenSlides.filter(s => s.hasNotes).reduce((sum, s) => sum + s.slideWords, 0)
+    },
+    notes: {
+      count: slides.filter(s => s.hasNotes).length,
+      words: slides.reduce((sum, s) => sum + s.noteWords, 0)
+    },
+    slides
+  };
 }
 
 /**
- * Comprova si una diapositiva té notes amb contingut de text real.
+ * Obté informació de les notes d'una diapositiva: si existeixen i quantes paraules contenen.
  * Utilitza el fitxer .rels de la diapositiva per localitzar el notesSlide.
  *
  * @param {JSZip} zip
  * @param {string} slidePath  Ruta completa al ZIP (p.ex. 'ppt/slides/slide1.xml')
- * @returns {Promise<boolean>}
+ * @returns {Promise<{hasNotes: boolean, noteWords: number}>}
  */
-async function _detectaNotes(zip, slidePath) {
-  // Nom del fitxer de diapositiva sense directori (p.ex. 'slide1.xml')
-  const slideName   = slidePath.split('/').pop();
+async function _obteNotesInfo(zip, slidePath) {
+  const slideName     = slidePath.split('/').pop();
   const notesRelsPath = `ppt/slides/_rels/${slideName}.rels`;
 
   const notesRelsFile = zip.file(notesRelsPath);
-  if (!notesRelsFile) return false;
+  if (!notesRelsFile) return { hasNotes: false, noteWords: 0 };
 
   const notesRelsXml = await notesRelsFile.async('text');
 
@@ -111,22 +129,22 @@ async function _detectaNotes(zip, slidePath) {
   const notesRelMatch = notesRelsXml.match(
     /Type="[^"]*\/notesSlide"[^>]*Target="([^"]+)"/
   );
-  if (!notesRelMatch) return false;
+  if (!notesRelMatch) return { hasNotes: false, noteWords: 0 };
 
   // Resol la ruta relativa del notesSlide respecte a la diapositiva
   const notesPath = _resolveRelPath(slidePath, notesRelMatch[1]);
   const notesFile = zip.file(notesPath);
-  if (!notesFile) return false;
+  if (!notesFile) return { hasNotes: false, noteWords: 0 };
 
   const notesXml = await notesFile.async('text');
 
-  // Comprova que hi ha text real a les notes (els números de pàgina automàtics
-  // van dins <a:fld>, no dins <a:t>, de manera que no es compten aquí)
-  const textNodes = notesXml.match(/<a:t[^>]*>([^<]+)<\/a:t>/g) || [];
-  return textNodes.some(node => {
-    const contingut = node.replace(/<[^>]+>/g, '').trim();
-    return contingut.length > 0;
-  });
+  // Extreu text de les notes (els números de pàgina automàtics van dins <a:fld>,
+  // no dins <a:t>, de manera que no s'inclouen en el recompte)
+  const notesText = _extractTextFromXml(notesXml).trim();
+  if (!notesText) return { hasNotes: false, noteWords: 0 };
+
+  const noteWords = countWords(notesText);
+  return { hasNotes: noteWords > 0, noteWords };
 }
 
 /**
@@ -189,9 +207,16 @@ function countWords(text) {
 
 /**
  * Renderitza una taula d'estadístiques PPTX dins el contenidor indicat.
+ * Format:
+ *   Secció                             | Diapositives | Paraules
+ *   Diapositives no ocultes            |     68       |  2.835
+ *   — de les quals amb notes           |     65       |  2.690
+ *   Diapositives ocultes               |     16       |    683
+ *   — de les quals amb notes           |     14       |    655
+ *   Notes a peu de diapositiva (total) |     79       | 10.688
+ *   TOTAL                              |     84       | 14.206
  *
- * @param {{totalSlides:number, visible:number, hidden:number,
- *          withNotes:number, totalWords:number}} stats
+ * @param {{totalSlides, totalWords, visible, hidden, notes}} stats
  * @param {HTMLElement|string} container  Element DOM o ID de l'element contenidor
  * @param {string} filename  Nom del fitxer PPTX
  */
@@ -201,41 +226,61 @@ function renderPptxStats(stats, container, filename) {
     : container;
   if (!el) return;
 
-  const hiddenRow = stats.hidden > 0
-    ? `<tr>
-         <td class="pptx-stats-label">Diapositives ocultes</td>
-         <td class="pptx-stats-value pptx-stats-hidden">${stats.hidden.toLocaleString('ca')}</td>
-       </tr>`
-    : '';
+  const fmt = n => n.toLocaleString('ca-ES');
 
-  const notesRow = stats.withNotes > 0
-    ? `<tr>
-         <td class="pptx-stats-label">Amb notes de presentació</td>
-         <td class="pptx-stats-value">${stats.withNotes.toLocaleString('ca')}</td>
-       </tr>`
-    : '';
+  // Files de diapositives ocultes (s'oculten si no n'hi ha cap)
+  const hiddenRows = stats.hidden.count > 0 ? `
+          <tr>
+            <td>Diapositives ocultes</td>
+            <td style="text-align:center;">${fmt(stats.hidden.count)}</td>
+            <td style="text-align:center;">${fmt(stats.hidden.words)}</td>
+          </tr>
+          <tr>
+            <td style="padding-left:1.4em; font-style:italic; color:#555;">
+              — de les quals amb notes
+            </td>
+            <td style="text-align:center;">${fmt(stats.hidden.withNotes)}</td>
+            <td style="text-align:center;">${fmt(stats.hidden.withNotesWords)}</td>
+          </tr>` : '';
 
   el.innerHTML = `
     <div class="pptx-stats-card">
       <div class="pptx-stats-header">
         <span class="pptx-stats-icon">📊</span>
         <span class="pptx-stats-title">${_escapeHtml(filename)}</span>
+        <span class="pptx-stats-total-badge">${fmt(stats.totalSlides)} diapositives</span>
       </div>
       <table class="pptx-stats-table">
+        <thead>
+          <tr>
+            <th>Secció</th>
+            <th style="text-align:center;">Diapositives</th>
+            <th style="text-align:center;">Paraules</th>
+          </tr>
+        </thead>
         <tbody>
           <tr>
-            <td class="pptx-stats-label">Diapositives totals</td>
-            <td class="pptx-stats-value">${stats.totalSlides.toLocaleString('ca')}</td>
+            <td>Diapositives no ocultes</td>
+            <td style="text-align:center;">${fmt(stats.visible.count)}</td>
+            <td style="text-align:center;">${fmt(stats.visible.words)}</td>
           </tr>
           <tr>
-            <td class="pptx-stats-label">Diapositives visibles</td>
-            <td class="pptx-stats-value pptx-stats-visible">${stats.visible.toLocaleString('ca')}</td>
+            <td style="padding-left:1.4em; font-style:italic; color:#555;">
+              — de les quals amb notes
+            </td>
+            <td style="text-align:center;">${fmt(stats.visible.withNotes)}</td>
+            <td style="text-align:center;">${fmt(stats.visible.withNotesWords)}</td>
           </tr>
-          ${hiddenRow}
-          ${notesRow}
-          <tr class="pptx-stats-words-row">
-            <td class="pptx-stats-label">Total de paraules</td>
-            <td class="pptx-stats-value pptx-stats-words">${stats.totalWords.toLocaleString('ca')}</td>
+          ${hiddenRows}
+          <tr>
+            <td>Notes a peu de diapositiva (total)</td>
+            <td style="text-align:center;">${fmt(stats.notes.count)}</td>
+            <td style="text-align:center;">${fmt(stats.notes.words)}</td>
+          </tr>
+          <tr class="pptx-stats-total-row">
+            <td><strong>TOTAL</strong></td>
+            <td style="text-align:center;"><strong>${fmt(stats.totalSlides)}</strong></td>
+            <td style="text-align:center;"><strong>${fmt(stats.totalWords)}</strong></td>
           </tr>
         </tbody>
       </table>

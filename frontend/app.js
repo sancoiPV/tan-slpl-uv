@@ -264,7 +264,13 @@ async function seleccionaFitxer(fitxer, mode) {
   }
   if (ext === 'pptx' && statsContainer && typeof analyzePptx === 'function') {
     analyzePptx(fitxer)
-      .then(stats => renderPptxStats(stats, statsContainer, fitxer.name))
+      .then(stats => {
+        renderPptxStats(stats, statsContainer, fitxer.name);
+        // Actualitza el recompte de paraules amb el total real (diapositives + notes)
+        document.getElementById('fitxer-meta-' + s).textContent =
+          (fitxer.size / 1024).toFixed(0) + ' KB · ' +
+          stats.totalWords.toLocaleString('ca-ES') + ' paraules (incl. notes)';
+      })
       .catch(() => { /* en cas d'error, simplement no mostrem les estadístiques */ });
   }
 }

@@ -1,0 +1,157 @@
+'use strict';
+let modeActual='traduccio',modeFitxer='traduccio';
+let traduitMemoria='',blobResultat=null,nomResultat='';
+async function comprova(){
+  const dot=document.getElementById('dot');
+  const txt=document.getElementById('statusTxt');
+  try{
+    const r=await fetch(CONFIG.BACKEND_URL+'/salut',
+      {signal:AbortSignal.timeout(4000)});
+    if(r.ok){dot.className='dot ok';txt.textContent='Motor actiu';}
+    else throw new Error();
+  }catch{dot.className='dot err';txt.textContent='Motor no disponible';}
+}
+function mostra(id,btn){
+  document.querySelectorAll('.seccio').forEach(s=>s.classList.remove('vis'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('act'));
+  document.getElementById('s-'+id).classList.add('vis');
+  btn.classList.add('act');
+  if(id==='stats')carregaStats();
+}
+function setMode(mode){
+  modeActual=mode;
+  document.getElementById('mT').className='mode-btn'+(mode==='traduccio'?' act':'');
+  document.getElementById('mC').className='mode-btn'+(mode==='correccio'?' act-b':'');
+  document.getElementById('btnT').className='btn-tradueix'+(mode==='correccio'?' blau':'');
+  document.getElementById('btnLbl').textContent=
+    mode==='traduccio'?'→ Traduïx':'✓ Corregix';
+}
+function setModeFitxer(mode){
+  modeFitxer=mode;
+  document.getElementById('mFT').className='mode-btn'+(mode==='traduccio'?' act':'');
+  document.getElementById('mFC').className='mode-btn'+(mode==='correccio'?' act-b':'');
+}
+function actualComp(){
+  const t=document.getElementById('origen').value;
+  const n=t.trim()?t.trim().split(/\s+/).length:0;
+  document.getElementById('comp').textContent=n+' paraule'+(n===1?'':'s');
+}
+function neteja(){
+  document.getElementById('origen').value='';
+  document.getElementById('desti').value='';
+  document.getElementById('temps').textContent='';
+  document.getElementById('btnDesa').style.display='none';
+  actualComp();
+}
+async function tradueixText(){
+  const text=document.getElementById('origen').value.trim();
+  if(!text)return;
+  const btn=document.getElementById('btnT');
+  btn.disabled=true;
+  document.getElementById('btnLbl').textContent='⏳';
+  try{
+    const r=await fetch(CONFIG.BACKEND_URL+'/tradueix',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text,mode:modeActual})
+    });
+    if(!r.ok)throw new Error(await r.text());
+    const d=await r.json();
+    const dest=document.getElementById('desti');
+    dest.value=d.traduccio;
+    traduitMemoria=d.traduccio;
+    document.getElementById('temps').textContent=d.temps_ms+' ms';
+    dest.readOnly=true;
+  }catch(e){
+    document.getElementById('desti').value='Error: '+e.message;
+  }finally{
+    btn.disabled=false;
+    document.getElementById('btnLbl').textContent=
+      modeActual==='traduccio'?'→ Traduïx':'✓ Corregix';
+  }
+}
+function edita(){
+  const d=document.getElementById('desti');
+  d.readOnly=false;d.focus();
+  document.getElementById('btnDesa').style.display='inline-block';
+}
+function copia(){
+  navigator.clipboard.writeText(document.getElementById('desti').value);
+}
+async function desaPost(){
+  const btn=document.getElementById('btnDesa');
+  try{
+    await fetch(CONFIG.BACKEND_URL+'/desa-postedicio',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        origen:document.getElementById('origen').value,
+        ta:traduitMemoria,
+        posteditada:document.getElementById('desti').value,
+        tecnic:'slpl-uv'
+      })
+    });
+    btn.textContent='✓ Desat al corpus';
+    setTimeout(()=>{btn.textContent='💾 Desa postedició';},2500);
+  }catch(e){alert('Error en desar: '+e.message);}
+}
+function onDrop(e){
+  e.preventDefault();
+  if(e.dataTransfer.files[0])processaFitxer(e.dataTransfer.files[0]);
+}
+async function processaFitxer(fitxer){
+  if(!fitxer)return;
+  const ext=fitxer.name.split('.').pop().toLowerCase();
+  if(!['docx','pptx'].includes(ext)){
+    alert('Format no suportat. Usa .docx o .pptx');return;
+  }
+  if(fitxer.size>CONFIG.MAX_FILE_MB*1024*1024){
+    alert('El fitxer supera el limit de '+CONFIG.MAX_FILE_MB+' MB');return;
+  }
+  document.getElementById('drop').style.display='none';
+  document.getElementById('resCard').style.display='none';
+  const pc=document.getElementById('progCont');
+  pc.style.display='block';
+  document.getElementById('progLbl').textContent='Processant '+fitxer.name+'...';
+  const form=new FormData();
+  form.append('fitxer',fitxer);
+  form.append('mode',modeFitxer);
+  try{
+    const r=await fetch(CONFIG.BACKEND_URL+'/tradueix-document',
+      {method:'POST',body:form});
+    if(!r.ok)throw new Error(await r.text());
+    blobResultat=await r.blob();
+    nomResultat=fitxer.name;
+    pc.style.display='none';
+    document.getElementById('drop').style.display='block';
+    const card=document.getElementById('resCard');
+    card.style.display='flex';
+    document.getElementById('resIco').textContent=ext==='pptx'?'📊':'📄';
+    document.getElementById('resNom').textContent=nomResultat;
+    document.getElementById('resDet').textContent=
+      (blobResultat.size/1024).toFixed(0)+' KB · '+ext.toUpperCase()+
+      ' · '+(modeFitxer==='traduccio'?'Traducció ES→CA':'Correcció en valencià');
+    document.getElementById('btnDesc').onclick=()=>{
+      const url=URL.createObjectURL(blobResultat);
+      const a=document.createElement('a');
+      a.href=url;a.download=nomResultat;a.click();
+      URL.revokeObjectURL(url);
+    };
+  }catch(e){
+    pc.style.display='none';
+    document.getElementById('drop').style.display='block';
+    alert('Error en la traduccio: '+e.message);
+  }
+}
+async function carregaStats(){
+  try{
+    const r=await fetch(CONFIG.BACKEND_URL+'/estadistiques');
+    const d=await r.json();
+    document.getElementById('stP').textContent=d.paraules_avui.toLocaleString();
+    document.getElementById('stF').textContent=d.fitxers_avui;
+    document.getElementById('stPo').textContent=d.postedicions;
+    document.getElementById('stE').textContent='✓';
+  }catch{document.getElementById('stE').textContent='✗';}
+}
+comprova();
+setInterval(comprova,30000);
