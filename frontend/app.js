@@ -254,6 +254,19 @@ async function seleccionaFitxer(fitxer, mode) {
 
   // Mostra el selector de domini quan es carrega un fitxer per a traducció
   if (mode === 'traduccio') mostraDocDominiSelector();
+
+  // Estadístiques PPTX (anàlisi al navegador sense servidor)
+  const statsContainerId = `pptx-stats-${s}`;
+  const statsContainer = document.getElementById(statsContainerId);
+  if (statsContainer) {
+    statsContainer.style.display = 'none';
+    statsContainer.innerHTML = '';
+  }
+  if (ext === 'pptx' && statsContainer && typeof analyzePptx === 'function') {
+    analyzePptx(fitxer)
+      .then(stats => renderPptxStats(stats, statsContainer, fitxer.name))
+      .catch(() => { /* en cas d'error, simplement no mostrem les estadístiques */ });
+  }
 }
 
 // ─── Extreu el nom del fitxer de la capçalera Content-Disposition ─────────────
@@ -1137,6 +1150,15 @@ function handleDocumentSelect(event) {
   document.getElementById('btn-corregir-document').style.display   = 'inline-flex';
   document.getElementById('btn-descarregar-document').style.display = 'none';
 
+  // Estadístiques PPTX (anàlisi al navegador sense servidor)
+  const statsCd = document.getElementById('pptx-stats-cd');
+  if (statsCd) { statsCd.style.display = 'none'; statsCd.innerHTML = ''; }
+  if (ext === 'pptx' && statsCd && typeof analyzePptx === 'function') {
+    analyzePptx(fitxer)
+      .then(stats => renderPptxStats(stats, statsCd, fitxer.name))
+      .catch(() => {});
+  }
+
   event.target.value = '';
 }
 
@@ -1147,6 +1169,8 @@ function eliminaDocument() {
   document.getElementById('btn-corregir-document').style.display   = 'none';
   document.getElementById('btn-descarregar-document').style.display = 'none';
   document.getElementById('correccio-doc-input').value = '';
+  const statsCd = document.getElementById('pptx-stats-cd');
+  if (statsCd) { statsCd.style.display = 'none'; statsCd.innerHTML = ''; }
 }
 
 async function corregeixDocument() {
@@ -1623,6 +1647,16 @@ function handleAnglesDocSelect(event) {
   document.getElementById('angles-doc-info').style.display    = 'flex';
   document.getElementById('angles-doc-accions').style.display = 'flex';
   document.getElementById('btn-descarrega-doc-angles').style.display = 'none';
+
+  // Estadístiques PPTX (anàlisi al navegador sense servidor)
+  const statsAd = document.getElementById('pptx-stats-ad');
+  if (statsAd) { statsAd.style.display = 'none'; statsAd.innerHTML = ''; }
+  if (ext === 'pptx' && statsAd && typeof analyzePptx === 'function') {
+    analyzePptx(fitxer)
+      .then(stats => renderPptxStats(stats, statsAd, fitxer.name))
+      .catch(() => {});
+  }
+
   event.target.value = '';
 }
 
@@ -1632,6 +1666,8 @@ function eliminaAnglesDoc() {
   document.getElementById('angles-doc-info').style.display    = 'none';
   document.getElementById('angles-doc-accions').style.display = 'none';
   document.getElementById('angles-doc-input').value = '';
+  const statsAd = document.getElementById('pptx-stats-ad');
+  if (statsAd) { statsAd.style.display = 'none'; statsAd.innerHTML = ''; }
 }
 
 async function tradueixDocAngles() {

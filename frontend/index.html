@@ -157,6 +157,9 @@
         onclick="processaFitxerActual('traduccio')">Tradueix</button>
     </div>
 
+    <!-- Estadístiques PPTX (apareix quan es carrega un .pptx) -->
+    <div class="pptx-stats-container" id="pptx-stats-td" style="display:none"></div>
+
     <!-- Selector de domini lingüístic -->
     <div class="doc-domini-selector" id="doc-domini-container" style="display:none">
       <label for="doc-domini-select" class="doc-domini-label">
@@ -272,6 +275,9 @@
           <button onclick="eliminaDocument()"
                   class="btn-eliminar-terme" title="Eliminar">🗑</button>
         </div>
+
+        <!-- Estadístiques PPTX (apareix quan es carrega un .pptx) -->
+        <div class="pptx-stats-container" id="pptx-stats-cd" style="display:none"></div>
       </div>
 
       <div class="correccio-document-dreta">
@@ -683,6 +689,9 @@
           <button onclick="eliminaAnglesDoc()"
                   class="btn-eliminar-terme">🗑</button>
         </div>
+
+        <!-- Estadístiques PPTX (apareix quan es carrega un .pptx) -->
+        <div class="pptx-stats-container" id="pptx-stats-ad" style="display:none"></div>
       </div>
 
       <div class="angles-doc-accions" id="angles-doc-accions" style="display:none">
@@ -723,6 +732,8 @@
   Traducció automàtica neuronal castellà → valencià normatiu universitari
 </footer>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="js/pptx-analyzer.js"></script>
 <script src="app.js"></script>
 
 <!-- ═══ MODAL · Claus API ═══════════════════════════════════════════════════ -->
