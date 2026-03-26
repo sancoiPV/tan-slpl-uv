@@ -209,8 +209,8 @@ function onDropDocs(e, mode) {
 async function seleccionaFitxer(fitxer, mode) {
   if (!fitxer) return;
   const ext = fitxer.name.split('.').pop().toLowerCase();
-  if (!['docx', 'pptx'].includes(ext)) {
-    alert('Format no suportat. Usa .docx o .pptx'); return;
+  if (!['docx', 'pptx', 'rtf'].includes(ext)) {
+    alert('Format no suportat. Usa .docx, .pptx o .rtf'); return;
   }
   if (fitxer.size > 150 * 1024 * 1024) {
     alert('El fitxer supera el límit de 150 MB'); return;
@@ -230,26 +230,37 @@ async function seleccionaFitxer(fitxer, mode) {
   document.getElementById('fitxer-info-' + s).style.display = 'flex';
   document.getElementById('resCard-'     + s).style.display = 'none';
 
-  // Recompte de paraules via backend (/recompte-paraules)
-  try {
-    const form = new FormData();
-    form.append('fitxer', fitxer);
-    const r = await fetch(await TAN.getUrlAvancada() + '/recompte-paraules', {
-      method: 'POST', body: form
-    });
-    if (r.ok) {
-      const d = await r.json();
+  // Recompte client-side per a .docx i .rtf (mostra el resultat immediatament)
+  if (['docx', 'rtf'].includes(ext) && typeof contarParaulesDocument === 'function') {
+    contarParaulesDocument(fitxer).then(n => {
       document.getElementById('fitxer-meta-' + s).textContent =
         (fitxer.size / 1024).toFixed(0) + ' KB · ' +
-        d.paraules.toLocaleString() + ' paraules';
-    } else {
+        n.toLocaleString('ca-ES') + ' paraules';
+    }).catch(() => {});
+  }
+
+  // Recompte de paraules via backend (/recompte-paraules) — només per a .docx i .pptx
+  if (['docx', 'pptx'].includes(ext)) {
+    try {
+      const form = new FormData();
+      form.append('fitxer', fitxer);
+      const r = await fetch(await TAN.getUrlAvancada() + '/recompte-paraules', {
+        method: 'POST', body: form
+      });
+      if (r.ok) {
+        const d = await r.json();
+        document.getElementById('fitxer-meta-' + s).textContent =
+          (fitxer.size / 1024).toFixed(0) + ' KB · ' +
+          d.paraules.toLocaleString() + ' paraules';
+      } else {
+        document.getElementById('fitxer-meta-' + s).textContent =
+          (fitxer.size / 1024).toFixed(0) + ' KB';
+      }
+    } catch {
+      if (window.TAN) window.TAN.resetEndpointAvancat();
       document.getElementById('fitxer-meta-' + s).textContent =
         (fitxer.size / 1024).toFixed(0) + ' KB';
     }
-  } catch {
-    if (window.TAN) window.TAN.resetEndpointAvancat();
-    document.getElementById('fitxer-meta-' + s).textContent =
-      (fitxer.size / 1024).toFixed(0) + ' KB';
   }
 
   // Mostra el selector de domini quan es carrega un fitxer per a traducció
@@ -1133,8 +1144,8 @@ function handleDocumentSelect(event) {
   if (!fitxer) return;
 
   const ext = fitxer.name.split('.').pop().toLowerCase();
-  if (!['docx', 'pptx'].includes(ext)) {
-    mostraMissatgeCorreccio('error', 'Només s\'admeten fitxers .docx i .pptx.');
+  if (!['docx', 'pptx', 'rtf'].includes(ext)) {
+    mostraMissatgeCorreccio('error', 'Només s\'admeten fitxers .docx, .pptx i .rtf.');
     event.target.value = '';
     return;
   }
@@ -1147,7 +1158,7 @@ function handleDocumentSelect(event) {
   _documentSeleccionat  = fitxer;
   _documentCorregitBlob = null;
 
-  const icones = { docx: '📝', pptx: '📊' };
+  const icones = { docx: '📝', pptx: '📊', rtf: '📄' };
   document.getElementById('correccio-doc-icona').textContent = icones[ext] || '📄';
   document.getElementById('correccio-doc-nom').textContent   = fitxer.name;
   document.getElementById('correccio-doc-mida').textContent  =
@@ -1155,6 +1166,14 @@ function handleDocumentSelect(event) {
   document.getElementById('correccio-doc-info').style.display      = 'flex';
   document.getElementById('btn-corregir-document').style.display   = 'inline-flex';
   document.getElementById('btn-descarregar-document').style.display = 'none';
+
+  // Recompte client-side per a .docx i .rtf
+  if (['docx', 'rtf'].includes(ext) && typeof contarParaulesDocument === 'function') {
+    contarParaulesDocument(fitxer).then(n => {
+      document.getElementById('correccio-doc-mida').textContent =
+        `(${(fitxer.size / 1024).toFixed(0)} KB · ${n.toLocaleString('ca-ES')} paraules)`;
+    }).catch(() => {});
+  }
 
   // Estadístiques PPTX (anàlisi al navegador sense servidor)
   const statsCd = document.getElementById('pptx-stats-cd');
@@ -1639,13 +1658,13 @@ function handleAnglesDocSelect(event) {
   const fitxer = event.target.files[0];
   if (!fitxer) return;
   const ext = fitxer.name.split('.').pop().toLowerCase();
-  if (!['docx', 'pptx'].includes(ext)) {
-    mostraMissatgeAngles('error', 'Només s\'admeten fitxers .docx i .pptx.');
+  if (!['docx', 'pptx', 'rtf'].includes(ext)) {
+    mostraMissatgeAngles('error', 'Només s\'admeten fitxers .docx, .pptx i .rtf.');
     return;
   }
   _anglesDocSeleccionat = fitxer;
   _anglesDocTraduïtBlob = null;
-  const icones = { docx: '📝', pptx: '📊' };
+  const icones = { docx: '📝', pptx: '📊', rtf: '📄' };
   document.getElementById('angles-doc-icona').textContent = icones[ext] || '📄';
   document.getElementById('angles-doc-nom').textContent   = fitxer.name;
   document.getElementById('angles-doc-mida').textContent  =
@@ -1653,6 +1672,14 @@ function handleAnglesDocSelect(event) {
   document.getElementById('angles-doc-info').style.display    = 'flex';
   document.getElementById('angles-doc-accions').style.display = 'flex';
   document.getElementById('btn-descarrega-doc-angles').style.display = 'none';
+
+  // Recompte client-side per a .docx i .rtf
+  if (['docx', 'rtf'].includes(ext) && typeof contarParaulesDocument === 'function') {
+    contarParaulesDocument(fitxer).then(n => {
+      document.getElementById('angles-doc-mida').textContent =
+        `(${(fitxer.size / 1024).toFixed(0)} KB · ${n.toLocaleString('ca-ES')} paraules)`;
+    }).catch(() => {});
+  }
 
   // Estadístiques PPTX (anàlisi al navegador sense servidor)
   const statsAd = document.getElementById('pptx-stats-ad');
