@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Corrector de Valencià — SLPL · Universitat de València</title>
+  <style>
+    :root {
+      --uv-blau: #1a3a5c;
+      --uv-blau-clar: #2d5f8a;
+      --uv-vermell: #c4161c;
+      --uv-daurat: #d4a843;
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --text: #1e1e2e;
+      --text-secundari: #5a5a6e;
+      --border: #dde0e6;
+      --groc: #fff3cd;
+      --groc-border: #ffc107;
+      --verd: #d4edda;
+      --verd-border: #28a745;
+      --vermell-bg: #f8d7da;
+      --vermell-border: #dc3545;
+      --blau-bg: #d1ecf1;
+      --blau-border: #17a2b8;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* Capçalera */
+    header {
+      background: var(--uv-blau);
+      color: white;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    header .logo {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    header .subtitle {
+      font-size: 0.85rem;
+      opacity: 0.8;
+      font-weight: 400;
+    }
+    header .badge {
+      margin-left: auto;
+      background: var(--uv-daurat);
+      color: var(--uv-blau);
+      padding: 0.2rem 0.7rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    /* Contingut principal */
+    main {
+      max-width: 1100px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+
+    /* Panell d'entrada */
+    .input-panel {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      margin-bottom: 1.5rem;
+    }
+    .input-panel label {
+      font-weight: 600;
+      font-size: 0.95rem;
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+    .input-panel textarea {
+      width: 100%;
+      min-height: 200px;
+      padding: 0.8rem;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      line-height: 1.65;
+      resize: vertical;
+      transition: border-color 0.2s;
+    }
+    .input-panel textarea:focus {
+      outline: none;
+      border-color: var(--uv-blau-clar);
+      box-shadow: 0 0 0 3px rgba(45,95,138,0.12);
+    }
+
+    /* Botons */
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+    .btn {
+      padding: 0.6rem 1.4rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .btn-primary {
+      background: var(--uv-blau);
+      color: white;
+    }
+    .btn-primary:hover { background: var(--uv-blau-clar); }
+    .btn-primary:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text-secundari);
+      border: 1.5px solid var(--border);
+    }
+    .btn-secondary:hover { background: #f0f0f4; }
+
+    .word-count {
+      margin-left: auto;
+      font-size: 0.82rem;
+      color: var(--text-secundari);
+    }
+
+    /* Estat de càrrega */
+    .loading {
+      display: none;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1.5rem;
+      background: var(--blau-bg);
+      border: 1px solid var(--blau-border);
+      border-radius: 10px;
+      margin-bottom: 1.5rem;
+    }
+    .loading.visible { display: flex; }
+    .spinner {
+      width: 22px; height: 22px;
+      border: 3px solid var(--blau-border);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Error */
+    .error-msg {
+      display: none;
+      padding: 1rem 1.25rem;
+      background: var(--vermell-bg);
+      border: 1px solid var(--vermell-border);
+      border-radius: 10px;
+      margin-bottom: 1.5rem;
+      color: #721c24;
+    }
+    .error-msg.visible { display: block; }
+
+    /* Resultats */
+    #results { display: none; }
+    #results.visible { display: block; }
+
+    .result-section {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      margin-bottom: 1.5rem;
+    }
+    .result-section h2 {
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+      color: var(--uv-blau);
+      border-bottom: 2px solid var(--uv-daurat);
+      padding-bottom: 0.4rem;
+    }
+
+    /* Text corregit */
+    #corrected-text {
+      white-space: pre-wrap;
+      font-size: 0.95rem;
+      line-height: 1.7;
+      padding: 1rem;
+      background: #fafbfc;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    /* Taula de correccions */
+    .table-wrapper {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th {
+      background: var(--uv-blau);
+      color: white;
+      padding: 0.6rem 0.8rem;
+      text-align: left;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    td {
+      padding: 0.55rem 0.8rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:hover td { background: #f7f8fa; }
+
+    /* Etiquetes de categoria */
+    .cat-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .cat-SINT { background: #fce4ec; color: #c62828; }
+    .cat-MORF { background: #fff3e0; color: #e65100; }
+    .cat-LÈX, .cat-LEX { background: #e8f5e9; color: #2e7d32; }
+    .cat-ORTO { background: #e3f2fd; color: #1565c0; }
+
+    /* Resum estadístic */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .stat-card {
+      text-align: center;
+      padding: 0.8rem;
+      border-radius: 8px;
+      background: #f7f8fa;
+      border: 1px solid var(--border);
+    }
+    .stat-card .stat-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--uv-blau);
+    }
+    .stat-card .stat-label {
+      font-size: 0.78rem;
+      color: var(--text-secundari);
+      margin-top: 0.2rem;
+    }
+
+    .diagnostic, .recomanacions {
+      padding: 0.8rem 1rem;
+      border-radius: 8px;
+      margin-top: 0.75rem;
+      font-size: 0.9rem;
+    }
+    .diagnostic {
+      background: var(--groc);
+      border-left: 4px solid var(--groc-border);
+    }
+    .recomanacions {
+      background: var(--verd);
+      border-left: 4px solid var(--verd-border);
+    }
+
+    /* Ús de tokens */
+    .usage-info {
+      text-align: right;
+      font-size: 0.78rem;
+      color: var(--text-secundari);
+      margin-top: 0.5rem;
+    }
+
+    /* Peu de pàgina */
+    footer {
+      text-align: center;
+      padding: 2rem;
+      font-size: 0.8rem;
+      color: var(--text-secundari);
+    }
+    footer a { color: var(--uv-blau-clar); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      header { flex-wrap: wrap; padding: 1rem; }
+      main { padding: 0 0.75rem; margin: 1rem auto; }
+      .input-panel textarea { min-height: 150px; }
+      .actions { flex-direction: column; align-items: stretch; }
+      .word-count { margin-left: 0; text-align: right; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">Corrector de Valencià</div>
+    <div class="subtitle">Servei de Llengües i Política Lingüística · Universitat de València</div>
+  </div>
+  <span class="badge">Fase 1 — MVP</span>
+</header>
+
+<main>
+  <!-- Panell d'entrada -->
+  <div class="input-panel">
+    <label for="input-text">Text per a corregir</label>
+    <textarea id="input-text" placeholder="Enganxa ací el text en valencià que vols corregir..."></textarea>
+    <div class="actions">
+      <button class="btn btn-primary" id="btn-corregir" onclick="corregirText()">
+        Corregeix
+      </button>
+      <button class="btn btn-secondary" onclick="netejar()">Neteja</button>
+      <button class="btn btn-secondary" id="btn-copiar" onclick="copiarCorregit()" style="display:none;">
+        Copia el text corregit
+      </button>
+      <span class="word-count" id="word-count">0 paraules</span>
+    </div>
+  </div>
+
+  <!-- Estat de càrrega -->
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <span>Analitzant el text per les 4 capes normatives (SINT → MORF → LÈX → ORTO)...</span>
+  </div>
+
+  <!-- Error -->
+  <div class="error-msg" id="error-msg"></div>
+
+  <!-- Resultats -->
+  <div id="results">
+    <!-- Text corregit -->
+    <div class="result-section">
+      <h2>Text corregit</h2>
+      <div id="corrected-text"></div>
+    </div>
+
+    <!-- Taula de correccions -->
+    <div class="result-section">
+      <h2>Taula de correccions</h2>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>§</th>
+              <th>Original</th>
+              <th>Correcció</th>
+              <th>Cat.</th>
+              <th>Justificació</th>
+            </tr>
+          </thead>
+          <tbody id="corrections-table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Resum estadístic -->
+    <div class="result-section">
+      <h2>Resum estadístic</h2>
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="diagnostic" id="diagnostic"></div>
+      <div class="recomanacions" id="recomanacions"></div>
+      <div class="usage-info" id="usage-info"></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  SLPL · Universitat de València · Motor de correcció basat en <a href="https://docs.anthropic.com" target="_blank" rel="noopener">Claude (Anthropic)</a>
+  <br>Les correccions segueixen els <em>Criteris lingüístics per als usos institucionals de les universitats valencianes</em>.
+</footer>
+
+<script>
+  // Comptador de paraules
+  const inputEl = document.getElementById('input-text');
+  const wordCountEl = document.getElementById('word-count');
+
+  inputEl.addEventListener('input', () => {
+    const text = inputEl.value.trim();
+    const words = text ? text.split(/\s+/).length : 0;
+    wordCountEl.textContent = `${words} paraul${words === 1 ? 'a' : 'es'}`;
+  });
+
+  // Funció principal de correcció
+  async function corregirText() {
+    const text = inputEl.value.trim();
+    if (!text) {
+      mostrarError('Cal introduir un text per a corregir.');
+      return;
+    }
+
+    const btn = document.getElementById('btn-corregir');
+    const loading = document.getElementById('loading');
+    const results = document.getElementById('results');
+    const errorMsg = document.getElementById('error-msg');
+
+    // Estat de càrrega
+    btn.disabled = true;
+    btn.textContent = 'Corregint...';
+    loading.classList.add('visible');
+    results.classList.remove('visible');
+    errorMsg.classList.remove('visible');
+
+    try {
+      const response = await fetch('/api/corregir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Error del servidor: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.parse_error) {
+        // Si Claude no ha retornat JSON vàlid, mostrar la resposta crua
+        document.getElementById('corrected-text').textContent = data.raw_response;
+        document.getElementById('corrections-table').innerHTML =
+          '<tr><td colspan="6" style="text-align:center;color:#666;">La resposta no ha pogut ser analitzada com a JSON. Es mostra el text cru.</td></tr>';
+        document.getElementById('stats-grid').innerHTML = '';
+        document.getElementById('diagnostic').textContent = '';
+        document.getElementById('recomanacions').textContent = '';
+      } else {
+        renderResults(data);
+      }
+
+      // Mostrar info d'ús
+      if (data.usage) {
+        document.getElementById('usage-info').textContent =
+          `Model: ${data.usage.model} · Tokens: ${data.usage.input_tokens} entrada + ${data.usage.output_tokens} eixida`;
+      }
+
+      results.classList.add('visible');
+      document.getElementById('btn-copiar').style.display = 'inline-flex';
+      results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    } catch (error) {
+      mostrarError(error.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Corregeix';
+      loading.classList.remove('visible');
+    }
+  }
+
+  // Renderitzar resultats
+  function renderResults(data) {
+    // Text corregit
+    document.getElementById('corrected-text').textContent = data.text_corregit || '';
+
+    // Taula de correccions
+    const tbody = document.getElementById('corrections-table');
+    tbody.innerHTML = '';
+
+    if (data.correccions && data.correccions.length > 0) {
+      data.correccions.forEach((c) => {
+        const catClass = `cat-${c.categoria}`;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${c.num}</td>
+          <td>${escapeHtml(c.paragraf)}</td>
+          <td><del style="color:#c62828;">${escapeHtml(c.original)}</del></td>
+          <td style="color:#2e7d32;font-weight:500;">${escapeHtml(c.correccio)}</td>
+          <td><span class="cat-badge ${catClass}">${escapeHtml(c.categoria)}</span></td>
+          <td style="font-size:0.82rem;">${escapeHtml(c.justificacio)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } else {
+      tbody.innerHTML =
+        '<tr><td colspan="6" style="text-align:center;color:#28a745;padding:1.5rem;">Cap error detectat. El text és correcte.</td></tr>';
+    }
+
+    // Resum estadístic
+    const resum = data.resum || {};
+    const statsGrid = document.getElementById('stats-grid');
+    statsGrid.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-value">${resum.total_errors || 0}</div>
+        <div class="stat-label">Total errors</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color:#c62828;">${resum.sint || 0}</div>
+        <div class="stat-label">Sintàctics</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color:#e65100;">${resum.morf || 0}</div>
+        <div class="stat-label">Morfològics</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color:#2e7d32;">${resum.lex || 0}</div>
+        <div class="stat-label">Lèxics</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color:#1565c0;">${resum.orto || 0}</div>
+        <div class="stat-label">Ortogràfics</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${resum.total_paraules || '—'}</div>
+        <div class="stat-label">Paraules</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="font-size:1rem;">${resum.densitat || '—'}</div>
+        <div class="stat-label">Densitat</div>
+      </div>
+    `;
+
+    // Diagnòstic i recomanacions
+    const diagnosticEl = document.getElementById('diagnostic');
+    const recomanacionsEl = document.getElementById('recomanacions');
+
+    if (resum.diagnostic) {
+      diagnosticEl.innerHTML = `<strong>Diagnòstic:</strong> ${escapeHtml(resum.diagnostic)}`;
+      diagnosticEl.style.display = 'block';
+    } else {
+      diagnosticEl.style.display = 'none';
+    }
+
+    if (resum.recomanacions) {
+      recomanacionsEl.innerHTML = `<strong>Recomanacions:</strong> ${escapeHtml(resum.recomanacions)}`;
+      recomanacionsEl.style.display = 'block';
+    } else {
+      recomanacionsEl.style.display = 'none';
+    }
+  }
+
+  // Copiar text corregit
+  function copiarCorregit() {
+    const text = document.getElementById('corrected-text').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('btn-copiar');
+      btn.textContent = 'Copiat!';
+      setTimeout(() => { btn.textContent = 'Copia el text corregit'; }, 2000);
+    });
+  }
+
+  // Neteja
+  function netejar() {
+    inputEl.value = '';
+    wordCountEl.textContent = '0 paraules';
+    document.getElementById('results').classList.remove('visible');
+    document.getElementById('error-msg').classList.remove('visible');
+    document.getElementById('btn-copiar').style.display = 'none';
+    inputEl.focus();
+  }
+
+  // Mostrar error
+  function mostrarError(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = msg;
+    el.classList.add('visible');
+  }
+
+  // Escapar HTML
+  function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+</script>
+
+</body>
+</html>
