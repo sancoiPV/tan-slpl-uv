@@ -87,33 +87,47 @@ async function analyzePptx(file) {
   const hiddenWithNotes    = hiddenSlides.filter(s => s.hasNotes);
 
   // ── 5. Agrega estadístiques globals
+  const totalNoteWords = slides.reduce((sum, s) => sum + s.noteWords, 0);
+
   return {
     totalSlides: slides.length,
-    // Total inclou paraules de diapositives + paraules de notes del presentador
-    totalWords: slides.reduce((sum, s) => sum + s.slideWords + s.noteWords, 0),
+    // Total = paraules de totes les diapositives + paraules de totes les notes
+    totalWords:     slides.reduce((sum, s) => sum + s.slideWords + s.noteWords, 0),
+    totalNoteWords,
+
     visible: {
-      count:          visibleSlides.length,
-      // Paraules del CONTINGUT de les diapositives visibles (NO notes)
-      words:          visibleSlides.reduce((sum, s) => sum + s.slideWords, 0),
-      // Nombre de diapositives visibles que tenen notes reals
-      withNotes:      visibleWithNotes.length,
-      // Paraules del CONTINGUT de les diapositives visibles que tenen notes (NO les notes en si)
-      withNotesWords: visibleWithNotes.reduce((sum, s) => sum + s.slideWords, 0)
+      count:      visibleSlides.length,
+      // Paraules de contingut de les diapositives visibles (sense notes)
+      slideWords: visibleSlides.reduce((sum, s) => sum + s.slideWords, 0),
+      // Paraules de les notes de les diapositives visibles
+      noteWords:  visibleSlides.reduce((sum, s) => sum + s.noteWords, 0),
+
+      withNotes:          visibleWithNotes.length,
+      // Paraules de contingut de les visibles que tenen notes (sense notes)
+      withNotesSlideWords: visibleWithNotes.reduce((sum, s) => sum + s.slideWords, 0),
+      // Paraules de les notes de les visibles que tenen notes
+      withNotesNoteWords:  visibleWithNotes.reduce((sum, s) => sum + s.noteWords, 0)
     },
+
     hidden: {
-      count:          hiddenSlides.length,
-      // Paraules del CONTINGUT de les diapositives ocultes (NO notes)
-      words:          hiddenSlides.reduce((sum, s) => sum + s.slideWords, 0),
-      // Nombre de diapositives ocultes que tenen notes reals
-      withNotes:      hiddenWithNotes.length,
-      // Paraules del CONTINGUT de les diapositives ocultes que tenen notes (NO les notes en si)
-      withNotesWords: hiddenWithNotes.reduce((sum, s) => sum + s.slideWords, 0)
+      count:      hiddenSlides.length,
+      // Paraules de contingut de les diapositives ocultes (sense notes)
+      slideWords: hiddenSlides.reduce((sum, s) => sum + s.slideWords, 0),
+      // Paraules de les notes de les diapositives ocultes
+      noteWords:  hiddenSlides.reduce((sum, s) => sum + s.noteWords, 0),
+
+      withNotes:          hiddenWithNotes.length,
+      // Paraules de contingut de les ocultes que tenen notes (sense notes)
+      withNotesSlideWords: hiddenWithNotes.reduce((sum, s) => sum + s.slideWords, 0),
+      // Paraules de les notes de les ocultes que tenen notes
+      withNotesNoteWords:  hiddenWithNotes.reduce((sum, s) => sum + s.noteWords, 0)
     },
+
     notes: {
       // Total de diapositives amb notes reals (visibles + ocultes)
       count: visibleWithNotes.length + hiddenWithNotes.length,
       // Total de paraules de TOTES les notes del presentador
-      words: slides.reduce((sum, s) => sum + s.noteWords, 0)
+      words: totalNoteWords
     },
     slides
   };
@@ -294,20 +308,25 @@ function countWords(text) {
 /**
  * Renderitza una taula d'estadístiques PPTX dins el contenidor indicat.
  *
- * Format de la taula (6 files de dades + capçalera):
- *   Secció                              | Diapositives | Paraules
- *   ─────────────────────────────────────────────────────────────
- *   Diapositives visibles               |      68      |  2.835
- *   — de les quals amb notes            |      65      |  2.690 (contingut de les 65)
- *   Diapositives ocultes                |      16      |    683
- *   — de les quals amb notes            |      14      |    655 (contingut de les 14)
- *   Notes a peu de diapositiva (total)  |      79      | 10.688 (text real de les notes)
- *   TOTAL                               |      84      | 14.206
+ * Estructura de la taula (4 columnes, 6 files de dades + capçalera):
  *
- * NOTA: Les files "— de les quals amb notes" mostren les paraules del CONTINGUT
- * d'eixes diapositives, NO les paraules de les notes. Les notes van a la seua pròpia fila.
+ *   Secció                             | Diapositives | Paraules totals | Paraules en notes
+ *   ───────────────────────────────────────────────────────────────────────────────────────
+ *   Diapositives visibles              |      68      |    13.523       |    10.688
+ *   — de les quals amb notes           |      65      |    13.378 (*)   |    10.688 (**)
+ *   Diapositives ocultes               |      16      |     1.366       |       683
+ *   — de les quals amb notes           |      14      |     1.338 (*)   |       655 (**)
+ *   Notes a peu de diapositiva (total) |      79      |    10.688       |    10.688
+ *   TOTAL                              |      84      |    14.889       |    11.371
  *
- * @param {{totalSlides, totalWords, visible, hidden, notes}} stats
+ *   (*) Paraules totals (diapo + notes) de les diapositives d'eixe grup que tenen notes.
+ *  (**) Paraules de notes de les diapositives d'eixe grup que tenen notes.
+ *
+ * Semàntica de les columnes:
+ *   "Paraules totals" = paraules del contingut de la diapo + paraules de les notes.
+ *   "Paraules en notes" = paraules exclusivament de les notes del presentador.
+ *
+ * @param {{totalSlides, totalWords, totalNoteWords, visible, hidden, notes}} stats
  * @param {HTMLElement|string} container  Element DOM o ID de l'element contenidor
  * @param {string} filename  Nom del fitxer PPTX
  */
@@ -319,26 +338,30 @@ function renderPptxStats(stats, container, filename) {
 
   const fmt = n => n.toLocaleString('ca-ES');
 
-  // Estils de cel·la comuns (explícits per assegurar visibilitat independentment del CSS global)
+  // ── Estils de cel·la (inline per assegurar visibilitat independentment del CSS global) ──
   const tdBase  = 'border:1px solid #999;padding:5px 10px;';
   const tdCentr = tdBase + 'text-align:center;';
+  const tdLeft  = tdBase + 'text-align:left;';
   const tdItal  = tdBase + 'padding-left:25px;font-style:italic;color:#555;';
+  const thCentr = tdBase + 'text-align:center;background-color:#f0f0f0;';
+  const thLeft  = tdBase + 'text-align:center;background-color:#f0f0f0;';  // "Secció" centrat
+  const tdTotal = 'border:1px solid #999;border-top:2px solid #333;padding:5px 10px;font-weight:bold;';
+  const tdTotalC = tdTotal + 'text-align:center;';
 
-  // Files de diapositives ocultes (s'amaguen si count === 0)
+  // ── Files de diapositives ocultes (s'amaguen si no n'hi ha cap) ──
   const hiddenRows = stats.hidden.count > 0 ? `
           <tr>
             <td style="${tdBase}">Diapositives ocultes</td>
             <td style="${tdCentr}">${fmt(stats.hidden.count)}</td>
-            <td style="${tdCentr}">${fmt(stats.hidden.words)}</td>
+            <td style="${tdCentr}">${fmt(stats.hidden.slideWords + stats.hidden.noteWords)}</td>
+            <td style="${tdCentr}">${fmt(stats.hidden.noteWords)}</td>
           </tr>
           <tr>
             <td style="${tdItal}">— de les quals amb notes</td>
             <td style="${tdCentr}">${fmt(stats.hidden.withNotes)}</td>
-            <td style="${tdCentr}">${fmt(stats.hidden.withNotesWords)}</td>
+            <td style="${tdCentr}">${fmt(stats.hidden.withNotesSlideWords + stats.hidden.withNotesNoteWords)}</td>
+            <td style="${tdCentr}">${fmt(stats.hidden.withNotesNoteWords)}</td>
           </tr>` : '';
-
-  const tdTotal = 'border:1px solid #999;border-top:2px solid #333;padding:5px 10px;font-weight:bold;';
-  const tdTotalC = tdTotal + 'text-align:center;';
 
   el.innerHTML = `
     <div style="margin-top:12px;">
@@ -348,35 +371,40 @@ function renderPptxStats(stats, container, filename) {
           (${fmt(stats.totalSlides)} diapositives en total)
         </span>
       </h4>
-      <table style="max-width:580px;border-collapse:collapse;font-size:13px;margin-top:6px;">
+      <table style="border-collapse:collapse;font-size:13px;margin-top:6px;">
         <thead>
-          <tr style="background-color:#f0f0f0;">
-            <th style="${tdBase}text-align:left;">Secció</th>
-            <th style="${tdCentr}">Diapositives</th>
-            <th style="${tdCentr}">Paraules</th>
+          <tr>
+            <th style="${thLeft}">Secció</th>
+            <th style="${thCentr}">Diapositives</th>
+            <th style="${thCentr}">Paraules totals</th>
+            <th style="${thCentr}">Paraules en notes</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td style="${tdBase}">Diapositives visibles</td>
             <td style="${tdCentr}">${fmt(stats.visible.count)}</td>
-            <td style="${tdCentr}">${fmt(stats.visible.words)}</td>
+            <td style="${tdCentr}">${fmt(stats.visible.slideWords + stats.visible.noteWords)}</td>
+            <td style="${tdCentr}">${fmt(stats.visible.noteWords)}</td>
           </tr>
           <tr>
             <td style="${tdItal}">— de les quals amb notes</td>
             <td style="${tdCentr}">${fmt(stats.visible.withNotes)}</td>
-            <td style="${tdCentr}">${fmt(stats.visible.withNotesWords)}</td>
+            <td style="${tdCentr}">${fmt(stats.visible.withNotesSlideWords + stats.visible.withNotesNoteWords)}</td>
+            <td style="${tdCentr}">${fmt(stats.visible.withNotesNoteWords)}</td>
           </tr>
           ${hiddenRows}
           <tr>
             <td style="${tdBase}">Notes a peu de diapositiva (total)</td>
             <td style="${tdCentr}">${fmt(stats.notes.count)}</td>
             <td style="${tdCentr}">${fmt(stats.notes.words)}</td>
+            <td style="${tdCentr}">${fmt(stats.notes.words)}</td>
           </tr>
           <tr style="background-color:#f5f5f5;">
             <td style="${tdTotal}">TOTAL</td>
             <td style="${tdTotalC}">${fmt(stats.totalSlides)}</td>
             <td style="${tdTotalC}">${fmt(stats.totalWords)}</td>
+            <td style="${tdTotalC}">${fmt(stats.totalNoteWords)}</td>
           </tr>
         </tbody>
       </table>
