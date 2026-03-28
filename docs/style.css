@@ -1,30 +1,32 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Sora:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap');
 
 /* ─── Paleta corporativa UV + variables de disseny ──────────────────────── */
 :root {
-  /* Colors corporatius */
+  /* Colors corporatius UV */
   --uv-vermell:  #c4122f;
   --uv-taronja:  #F5A800;
   --uv-nav:      #003366;
   --uv-blau:     #0065a4;
+  --uv-blau-clar:#E6F1FB;
   --uv-blanc:    #FFFFFF;
-  --uv-gris:     #F5F5F5;
-  --uv-gris-m:   #666666;
-  --uv-brd:      #E0E0E0;
-  --uv-txt:      #1A1A1A;
+  --uv-gris:     #F4F6F9;
+  --uv-gris-m:   #5A6B7F;
+  --uv-brd:      #D6DDE6;
+  --uv-txt:      #1A2332;
   /* Tipografia */
   --mono: 'IBM Plex Mono', monospace;
-  --sans: 'Sora', sans-serif;
+  --sans: 'Inter', 'Sora', system-ui, sans-serif;
   /* Utilitats */
   --brd-r:       10px;
   --transition:  .22s ease;
-  --shadow-sm:   0 2px 6px rgba(0,0,0,.10);
-  --shadow-md:   0 6px 20px rgba(0,0,0,.15);
+  --shadow-sm:   0 2px 8px rgba(0,51,102,.08);
+  --shadow-md:   0 6px 24px rgba(0,51,102,.12);
+  --shadow-lg:   0 12px 40px rgba(0,51,102,.16);
 }
 
 /* ─── Reset ────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt); min-height: 100vh; }
+body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt); min-height: 100vh; display: flex; flex-direction: column; }
 
 /* ─── CANVI 2 · Capçalera redissenyada ─────────────────────────────────────── */
 .header { background: var(--uv-nav); }
@@ -96,7 +98,7 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 .status-bar {
   background: var(--uv-blanc);
   border-bottom: 1px solid var(--uv-brd);
-  padding: 5px 24px;
+  padding: 3px 24px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -115,10 +117,24 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 .status-txt { font-size: 12px; color: var(--uv-gris-m); }
 
 /* ─── Seccions ─────────────────────────────────────────────────────────────── */
-.seccio { max-width: 1080px; margin: 24px auto; padding: 0 16px; display: none; }
+.seccio { max-width: 1200px; margin: 10px auto; padding: 0 16px; display: none; }
 .seccio.vis { display: block; }
 
-/* ─── CANVI 3 · Subtítol descriptiu ───────────────────────────────────────── */
+/* ─── Text descriptiu dinàmic del motor ────────────────────────────────── */
+.motor-descripcio {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #002E52;
+  background: linear-gradient(135deg, rgba(168, 200, 233, 0.2) 0%, rgba(228, 235, 233, 0.4) 100%);
+  border-left: 4px solid #0082C5;
+  padding: 10px 14px;
+  border-radius: 0 8px 8px 0;
+  margin: 6px 0 10px 0;
+  font-weight: 450;
+  transition: all 0.4s ease;
+}
+
+/* Subtítol antic (retrocompatibilitat) */
 .subtitol {
   background: var(--uv-blanc);
   border: 1px solid var(--uv-brd);
@@ -142,10 +158,11 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   border: 1px solid var(--uv-brd);
   border-radius: 0 0 10px 10px;
   overflow: hidden;
-  min-height: 340px;
+  min-height: 240px;
 }
-/* Si hi ha subtítol adjunt, elimina radius superior */
+/* Si hi ha subtítol/descripció adjunt, elimina radius superior */
 .subtitol + .panells { border-top-left-radius: 0; border-top-right-radius: 0; }
+.motor-descripcio + .panells { border-top-left-radius: 0; border-top-right-radius: 0; }
 
 .panell-cap {
   padding: 11px 15px;
@@ -168,20 +185,27 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   resize: none;
   font-family: var(--sans);
   color: var(--uv-txt);
-  min-height: 220px;
+  min-height: 160px;
   flex: 1;
+  transition: background var(--transition);
+}
+.textarea:focus {
+  background: #FAFCFF;
 }
 .textarea.traduit { background: #fafafa; }
 .panell-esquerre, .panell-dret { display: flex; flex-direction: column; }
 
-/* CANVI 3 · Avís criteris lingüístics */
+/* Avís criteris lingüístics — bloc independent sota panells */
 .avis-criteri {
-  font-size: 11px;
-  color: var(--uv-gris-m);
-  padding: 6px 15px;
-  background: #FFFBF0;
-  border-top: 1px solid var(--uv-brd);
-  line-height: 1.4;
+  background: #E1E1CD;
+  border-left: 4px solid var(--uv-nav);
+  color: var(--uv-nav);
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  border-radius: 0 6px 6px 0;
+  margin-top: 16px;
 }
 
 /* CANVI 5A · Comptadors de paraules */
@@ -449,7 +473,7 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 }
 
 .glossari-container {
-  max-width: 900px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 1.5rem;
 }
@@ -537,19 +561,22 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 }
 
 .btn-primary {
-  background: var(--uv-nav, #1B2A4A);
+  background: linear-gradient(135deg, var(--uv-nav) 0%, var(--uv-blau) 100%);
   color: white;
   border: none;
-  border-radius: 6px;
-  padding: 0.55rem 1.1rem;
+  border-radius: 8px;
+  padding: 0.6rem 1.2rem;
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all var(--transition);
+  font-family: var(--sans);
+  box-shadow: 0 2px 6px rgba(0,51,102,.15);
 }
 
 .btn-primary:hover {
-  background: var(--uv-blau, #0070AB);
+  box-shadow: 0 4px 12px rgba(0,51,102,.25);
+  transform: translateY(-1px);
 }
 
 .glossari-missatge {
@@ -663,7 +690,7 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 /* ── Pestanya Traducció d'imatges amb text ──────────── */
 
 .imatge-container {
-  max-width: 960px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 1.5rem;
 }
@@ -730,19 +757,21 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 
 .btn-secondary {
   padding: 0.5rem 1rem;
-  background: var(--uv-gris, #F5F5F5);
-  color: var(--uv-nav, #1B2A4A);
-  border: 1px solid #ccc;
-  border-radius: 6px;
+  background: var(--uv-blanc);
+  color: var(--uv-nav);
+  border: 1.5px solid var(--uv-brd);
+  border-radius: 8px;
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all var(--transition);
+  font-family: var(--sans);
   white-space: nowrap;
 }
 
 .btn-secondary:hover {
-  background: #e0e0e0;
+  background: var(--uv-blau-clar);
+  border-color: var(--uv-blau);
 }
 
 .imatge-upload-zone {
@@ -965,7 +994,7 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .correccio-container {
-  max-width: 860px;
+  max-width: 1200px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -1960,7 +1989,7 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 /* ── Pestanya Traducció anglès ↔ valencià ────────────── */
 
 .angles-container {
-  max-width: 960px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 1.5rem;
 }
@@ -2112,123 +2141,84 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 
 /* ── Capçalera principal ────────────────────────────────────────────────── */
 .tan-header {
-  background: linear-gradient(135deg, var(--uv-nav) 0%, var(--uv-blau) 60%, #0080c8 100%);
+  background: linear-gradient(135deg, #001225 0%, #002E52 30%, #0065a4 70%, #0088D4 100%);
   position: relative;
   z-index: 100;
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 6px 24px rgba(0, 29, 61, 0.25);
+  border-bottom: 3px solid var(--uv-taronja);
 }
 
 .tan-header-contingut {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 28px 10px;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-/* ── Bloc esquerre: logo TAN ────────────────────────────────────────────── */
-.tan-header-esquerra {
-  flex: 0 0 auto;
-}
-
-.tan-logo-area {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.tan-logo-icona {
-  font-size: 2rem;
-  line-height: 1;
-  filter: drop-shadow(0 0 8px rgba(245, 168, 0, 0.7));
-  animation: pulsaLlamp 2.5s ease-in-out infinite;
-}
-
-@keyframes pulsaLlamp {
-  0%, 100% { filter: drop-shadow(0 0 8px rgba(245,168,0,.7)); }
-  50%       { filter: drop-shadow(0 0 18px rgba(245,168,0,1)); }
-}
-
-.tan-logo-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.15;
-}
-
-.tan-logo-nom {
-  font-size: 1.85rem;
-  font-weight: 700;
-  color: var(--uv-taronja);
-  letter-spacing: .08em;
-  font-family: var(--sans);
-}
-
-.tan-logo-subtitol {
-  font-size: 0.65rem;
-  color: rgba(255,255,255,.70);
-  letter-spacing: .04em;
-  font-family: var(--sans);
-  white-space: nowrap;
-}
-
-/* ── Bloc central: institució ───────────────────────────────────────────── */
-.tan-header-centre {
-  flex: 1;
+  position: relative;
+  padding: 16px 24px 12px 24px;
   text-align: center;
 }
 
-.tan-header-slogan {
+/* Bloc central de la capçalera */
+.tan-header-central {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-
-.tan-slogan-text {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: rgba(255,255,255,.92);
-  letter-spacing: .02em;
-}
-
-.tan-slogan-uv {
-  font-size: 0.72rem;
-  color: rgba(255,255,255,.55);
-  letter-spacing: .03em;
-}
-
-/* ── Bloc dret: animació neural + claus ─────────────────────────────────── */
-.tan-header-dreta {
-  flex: 0 0 auto;
-  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
 }
 
-.tan-neural-visual {
-  width: 64px;
-  height: 48px;
-  flex-shrink: 0;
-  opacity: .75;
+/* Línia 1: TAN UV — 48px, pes 900 */
+.tan-logo-nom {
+  font-size: 48px;
+  font-weight: 900;
+  color: var(--uv-taronja);
+  letter-spacing: 5px;
+  font-family: var(--sans);
+  text-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+  margin-bottom: 2px;
+  line-height: 1;
 }
 
-.tan-neural-visual svg {
-  width: 100%;
-  height: 100%;
+/* Línia 2: Entorn de traducció... — 16px */
+.tan-logo-subtitol {
+  font-size: 16px;
+  font-weight: 400;
+  color: rgba(255,255,255,.95);
+  letter-spacing: 1px;
+  font-family: var(--sans);
+  margin-bottom: 8px;
+  white-space: nowrap;
 }
 
+/* Línia 3: Servei de Llengües... — 20px */
+.tan-slogan-text {
+  font-size: 20px;
+  font-weight: 700;
+  color: white;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+/* Línia 4: Assessorament Lingüístic... — 15px */
+.tan-slogan-uv {
+  font-size: 15px;
+  font-weight: 400;
+  color: rgba(255,255,255,.85);
+  letter-spacing: 0.3px;
+}
+
+/* Botó Claus API — posició absoluta dalt a la dreta */
 .btn-claus-api {
+  position: absolute;
+  top: 16px;
+  right: 24px;
   background: rgba(255,255,255,.12);
   color: rgba(255,255,255,.90);
   border: 1px solid rgba(255,255,255,.28);
   border-radius: 7px;
-  padding: 7px 14px;
-  font-size: 0.82rem;
+  padding: 8px 16px;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
   font-family: var(--sans);
   transition: background var(--transition), border-color var(--transition);
   white-space: nowrap;
+  z-index: 10;
 }
 
 .btn-claus-api:hover {
@@ -2238,17 +2228,17 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 
 /* ── Barra de navegació enganxosa ───────────────────────────────────────── */
 .tan-nav {
-  background: rgba(0, 25, 55, .85);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(0, 20, 48, .92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
-  padding: 0 12px;
+  padding: 0 16px;
   overflow-x: auto;
   scrollbar-width: none;
   position: sticky;
   top: 0;
   z-index: 200;
-  border-top: 1px solid rgba(255,255,255,.08);
+  border-top: 1px solid rgba(255,255,255,.06);
 }
 
 .tan-nav::-webkit-scrollbar { display: none; }
@@ -2286,19 +2276,18 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 
 /* ── Wrapper principal de contingut ────────────────────────────────────── */
 .tan-main {
-  min-height: calc(100vh - 200px);
-  padding-bottom: 2rem;
+  flex: 1;
+  padding-bottom: 0;
 }
 
 /* ── Peu de pàgina ─────────────────────────────────────────────────────── */
 .tan-footer {
-  background: var(--uv-nav);
-  color: rgba(255,255,255,.55);
+  background: linear-gradient(135deg, #001D3D 0%, var(--uv-nav) 100%);
   text-align: center;
-  padding: 14px 24px;
-  font-size: 0.75rem;
-  border-top: 1px solid rgba(255,255,255,.08);
-  line-height: 1.7;
+  padding: 10px 24px;
+  border-top: 3px solid var(--uv-taronja);
+  line-height: 1.6;
+  flex-shrink: 0;
 }
 
 .tan-footer a {
@@ -2310,22 +2299,202 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   text-decoration: underline;
 }
 
+.footer-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255,255,255,.95);
+}
+
+.footer-text-secundari {
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(255,255,255,.8);
+  margin-top: 4px;
+}
+
+.footer-text-copyright {
+  font-size: 11px;
+  font-weight: 400;
+  color: rgba(255,255,255,.65);
+  margin-top: 6px;
+}
+
 /* ── Responsiu per a la capçalera nova ─────────────────────────────────── */
 @media (max-width: 780px) {
   .tan-header-contingut {
-    padding: 10px 16px 8px;
-    flex-wrap: wrap;
-    gap: 10px;
+    padding: 18px 16px 14px;
   }
-  .tan-header-centre { order: 3; flex: 1 1 100%; }
-  .tan-header-dreta  { gap: 8px; }
-  .tan-neural-visual { width: 44px; height: 34px; }
-  .tan-logo-nom      { font-size: 1.5rem; }
+  .tan-logo-nom      { font-size: 36px; letter-spacing: 4px; }
+  .tan-logo-subtitol { font-size: 13px; letter-spacing: 0.5px; white-space: normal; margin-bottom: 10px; }
+  .tan-slogan-text   { font-size: 17px; }
+  .tan-slogan-uv     { font-size: 13px; }
+  .btn-claus-api     { top: 10px; right: 12px; font-size: 0.75rem; padding: 6px 10px; }
   .tan-nav .nav-btn,
   .tan-nav .tab-btn  { font-size: 12px; padding: 9px 11px; }
 }
 
 @media (max-width: 480px) {
-  .tan-header-centre { display: none; }
-  .btn-claus-api     { font-size: 0.75rem; padding: 6px 10px; }
+  .tan-logo-nom      { font-size: 28px; letter-spacing: 3px; }
+  .tan-logo-subtitol { font-size: 11px; margin-bottom: 6px; }
+  .tan-slogan-text   { font-size: 14px; }
+  .tan-slogan-uv     { font-size: 11px; }
+  .btn-claus-api     { font-size: 0.7rem; padding: 5px 8px; }
+}
+
+/* ═══ Motor toggle switch (AINA / Claude) ══════════════════════════════════ */
+.motor-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 16px;
+  background: var(--uv-blau-clar);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  border: 1px solid #B5D4F4;
+}
+.motor-toggle-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--uv-nav);
+}
+.motor-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.motor-toggle-nom {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--uv-gris-m);
+  transition: color var(--transition), font-weight var(--transition);
+}
+.motor-toggle-nom.actiu,
+.motor-toggle-nom-esq:not(.actiu ~ .motor-toggle-nom-dret) {
+  color: var(--uv-nav);
+  font-weight: 700;
+}
+/* Per defecte AINA (esq) està actiu */
+.motor-toggle-nom-esq { color: var(--uv-nav); font-weight: 700; }
+.motor-toggle-nom-dret { color: var(--uv-gris-m); font-weight: 500; }
+.motor-toggle-nom.actiu { color: var(--uv-nav); font-weight: 700; }
+.motor-toggle-nom:not(.actiu) { color: var(--uv-gris-m); font-weight: 500; }
+
+/* Toggle switch */
+.motor-toggle {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.motor-toggle input { opacity: 0; width: 0; height: 0; }
+.motor-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--uv-blau);
+  border-radius: 26px;
+  transition: background var(--transition);
+}
+.motor-toggle-slider::before {
+  content: "";
+  position: absolute;
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform var(--transition);
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.motor-toggle input:checked + .motor-toggle-slider {
+  background: linear-gradient(135deg, #7C3AED, #A855F7);
+}
+.motor-toggle input:checked + .motor-toggle-slider::before {
+  transform: translateX(22px);
+}
+
+/* Retrocompatibilitat per si queda algun .motor-selector/.motor-btn */
+.motor-selector { display: none; }
+.motor-btn { display: none; }
+
+/* ═══ Correccions taula i estadístiques ═════════════════════════════════════ */
+.correccions-taula-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+.correccions-taula {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.correccions-taula th {
+  background: #0C447C;
+  color: #fff;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.correccions-taula td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: top;
+}
+.correccions-taula tr:nth-child(even) {
+  background: #f7fafc;
+}
+.correccions-taula tr:hover {
+  background: #edf2f7;
+}
+.cat-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.cat-SINT { background: #fed7d7; color: #c53030; }
+.cat-MORF { background: #fefcbf; color: #975a16; }
+.cat-LÈX, .cat-LEX { background: #c6f6d5; color: #276749; }
+.cat-ORTO { background: #bee3f8; color: #2a69ac; }
+
+.correccions-resum {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px;
+  background: #f7fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+.resum-item {
+  text-align: center;
+}
+.resum-item .resum-num {
+  display: block;
+  font-size: 24px;
+  font-weight: 700;
+  color: #0C447C;
+}
+.resum-item .resum-lbl {
+  font-size: 11px;
+  color: #718096;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.resum-diagnostic {
+  margin-top: 12px;
+  padding: 12px;
+  background: #e6f1fb;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #2d3748;
+  line-height: 1.5;
 }

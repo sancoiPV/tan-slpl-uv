@@ -5,6 +5,53 @@ let traduitMemoria   = '';
 let fitxerActualTd   = null;   // fitxer pendent a "Traducció de documents"
 let fitxerActualCd   = null;   // fitxer pendent a "Correcció de documents"
 
+// Motor seleccionat per pestanya: 'aina' (per defecte) o 'claude'
+let _motorText = 'aina';
+let _motorDocs = 'aina';
+// Direcció EN↔VA: 'en_va' (per defecte) o 'va_en'
+let _anglesDireccio = 'en_va';
+// Dades de correccions per a la pestanya de correcció
+let _dadesCorreccioV2 = null;
+
+/**
+ * Canvia el motor de traducció mitjançant el toggle switch.
+ * @param {string} pestanya - 'text' o 'docs'
+ * @param {boolean} esClaude - true si Claude, false si AINA
+ */
+function canviaMotor(pestanya, esClaude) {
+  const motor = esClaude ? 'claude' : 'aina';
+
+  // Textos descriptius segons el motor
+  const textAina = 'Eina de traducció automàtica neuronal basada en el motor TAN aina-translator-ca-es desenvolupat pel LangTechLab del BSC-CNS en el marc del Projecte Aina i afinat contínuament pel Servei de Llengües i Política Lingüística de la UV.';
+  const textClaude = 'Traducció castellà → valencià amb Claude Sonnet. Aplica les normes de valencià estàndard universitari (Criteris lingüístics de les universitats valencianes).';
+  const textDescriptiu = esClaude ? textClaude : textAina;
+
+  if (pestanya === 'text') {
+    _motorText = motor;
+    // Actualitzar classes visuals del toggle
+    document.getElementById('motor-text-nom-aina').classList.toggle('actiu', !esClaude);
+    document.getElementById('motor-text-nom-claude').classList.toggle('actiu', esClaude);
+    // Actualitzar text descriptiu
+    const descText = document.getElementById('motor-descripcio-text');
+    if (descText) descText.textContent = textDescriptiu;
+  } else if (pestanya === 'docs') {
+    _motorDocs = motor;
+    document.getElementById('motor-docs-nom-aina').classList.toggle('actiu', !esClaude);
+    document.getElementById('motor-docs-nom-claude').classList.toggle('actiu', esClaude);
+    // Actualitzar text descriptiu
+    const descDocs = document.getElementById('motor-descripcio-docs');
+    if (descDocs) descDocs.textContent = textDescriptiu;
+  }
+}
+
+// Compatibilitat cap enrere: seleccionaMotor → canviaMotor
+function seleccionaMotor(pestanya, motor) {
+  const esClaude = motor === 'claude';
+  const toggle = document.getElementById('motor-' + pestanya + '-toggle');
+  if (toggle) toggle.checked = esClaude;
+  canviaMotor(pestanya, esClaude);
+}
+
 // ─── Comprovació estat del motor ──────────────────────────────────────────────
 async function comprova() {
   const dot = document.getElementById('dot');
@@ -49,19 +96,7 @@ function actualCompDesti() {
     n.toLocaleString() + ' paraule' + (n === 1 ? '' : 's');
 }
 
-function actualCompCorr() {
-  const t = document.getElementById('origen-c').value;
-  const n = t.trim() ? t.trim().split(/\s+/).length : 0;
-  document.getElementById('comp-orig-c').textContent =
-    n.toLocaleString() + ' paraule' + (n === 1 ? '' : 's');
-}
-
-function actualCompDestiCorr() {
-  const t = document.getElementById('desti-c').value;
-  const n = t.trim() ? t.trim().split(/\s+/).length : 0;
-  document.getElementById('comp-desti-c').textContent =
-    n.toLocaleString() + ' paraule' + (n === 1 ? '' : 's');
-}
+// (Funcions actualCompCorr i actualCompDestiCorr eliminades — la secció antiga de correcció ja no existeix)
 
 // ─── Neteja ───────────────────────────────────────────────────────────────────
 function neteja() {
@@ -73,14 +108,7 @@ function neteja() {
   actualCompDesti();
 }
 
-function netejaCorr() {
-  document.getElementById('origen-c').value = '';
-  document.getElementById('desti-c').value  = '';
-  document.getElementById('temps-c').textContent = '';
-  document.getElementById('btnDesaC').style.display = 'none';
-  actualCompCorr();
-  actualCompDestiCorr();
-}
+// (Funció netejaCorr eliminada — la secció antiga de correcció ja no existeix)
 
 // ─── Traducció de text ────────────────────────────────────────────────────────
 async function tradueixText() {
@@ -91,14 +119,35 @@ async function tradueixText() {
   btn.textContent = '⏳';
   try {
     const t0 = performance.now();
-    const traduccio = await TAN.translate(textOriginal, 'es', 'ca');
-    const temps_ms = Math.round(performance.now() - t0);
+    let traduccio, temps_ms;
+
+    if (_motorText === 'claude') {
+      // Traducció amb Claude Sonnet
+      const baseUrl = await TAN.getUrlAvancada();
+      const resp = await fetch(`${baseUrl}/tradueix-claude`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textOriginal }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        throw new Error(err.detail || err.error || 'Error del servidor');
+      }
+      const dades = await resp.json();
+      traduccio = dades.translation;
+      temps_ms = dades.temps_ms || Math.round(performance.now() - t0);
+    } else {
+      // Traducció amb motor AINA (comportament original)
+      traduccio = await TAN.translate(textOriginal, 'es', 'ca');
+      temps_ms = Math.round(performance.now() - t0);
+    }
+
     const dest = document.getElementById('desti');
     dest.value = traduccio;
     traduitMemoria = traduccio;
     document.getElementById('temps').textContent = temps_ms + ' ms';
     dest.readOnly = true;
-    actualCompDesti();   // CANVI 5A: actualitza comptador destí
+    actualCompDesti();
   } catch (e) {
     document.getElementById('desti').value = 'Error: ' + e.message;
   } finally {
@@ -107,29 +156,7 @@ async function tradueixText() {
   }
 }
 
-// ─── Correcció de text ────────────────────────────────────────────────────────
-async function corregeixText() {
-  const textOriginal = document.getElementById('origen-c').value.trim();
-  if (!textOriginal) return;
-  const btn = document.getElementById('btnC');
-  btn.disabled = true;
-  btn.textContent = '⏳';
-  try {
-    const t0 = performance.now();
-    const traduccio = await TAN.translate(textOriginal, 'es', 'ca');
-    const temps_ms = Math.round(performance.now() - t0);
-    const dest = document.getElementById('desti-c');
-    dest.value = traduccio;
-    document.getElementById('temps-c').textContent = temps_ms + ' ms';
-    dest.readOnly = true;
-    actualCompDestiCorr();  // CANVI 5A
-  } catch (e) {
-    document.getElementById('desti-c').value = 'Error: ' + e.message;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Corregeix';
-  }
-}
+// (Funció corregeixText antiga eliminada — substituïda per la versió v2 a la secció CORRECCIÓ)
 
 // ─── Accions panells de text ──────────────────────────────────────────────────
 function edita() {
@@ -143,16 +170,7 @@ function copia() {
   navigator.clipboard.writeText(document.getElementById('desti').value);
 }
 
-function editaCorr() {
-  const d = document.getElementById('desti-c');
-  d.readOnly = false;
-  d.focus();
-  document.getElementById('btnDesaC').style.display = 'inline-block';
-}
-
-function copiaCorr() {
-  navigator.clipboard.writeText(document.getElementById('desti-c').value);
-}
+// (Funcions editaCorr i copiaCorr eliminades — la secció antiga de correcció ja no existeix)
 
 async function desaPost() {
   const btn = document.getElementById('btnDesa');
@@ -175,26 +193,7 @@ async function desaPost() {
   }
 }
 
-async function desaPostCorr() {
-  const btn = document.getElementById('btnDesaC');
-  try {
-    await fetch(await TAN.getUrlAvancada() + '/desa-postedicio', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        origen:      document.getElementById('origen-c').value,
-        ta:          '',
-        posteditada: document.getElementById('desti-c').value,
-        tecnic:      'slpl-uv'
-      })
-    });
-    btn.textContent = '✓ Desat al corpus';
-    setTimeout(() => { btn.textContent = '💾 Desa postedició'; }, 2500);
-  } catch (e) {
-    if (window.TAN) window.TAN.resetEndpointAvancat();
-    alert('Error en desar: ' + e.message);
-  }
-}
+// (Funció desaPostCorr eliminada — la secció antiga de correcció ja no existeix)
 
 // ─── CANVI 5B · Documents: selecció i recompte immediat ──────────────────────
 // Mapeig de mode a sufix d'IDs
@@ -339,7 +338,12 @@ async function processaFitxerActual(mode) {
   }
 
   try {
-    const r = await fetch(await TAN.getUrlAvancada() + '/tradueix-document', {
+    // Determinar endpoint segons motor seleccionat
+    let endpoint = '/tradueix-document';
+    if (mode === 'traduccio' && _motorDocs === 'claude') {
+      endpoint = '/tradueix-document-claude';
+    }
+    const r = await fetch(await TAN.getUrlAvancada() + endpoint, {
       method: 'POST', body: form
     });
     if (!r.ok) throw new Error(await r.text());
@@ -387,6 +391,15 @@ async function processaFitxerActual(mode) {
 // ─── Inici ────────────────────────────────────────────────────────────────────
 comprova();
 setInterval(comprova, 30000);
+
+// Inicialitza estat visual dels toggles de motor
+(function inicialitzaToggles() {
+  // Per defecte els dos estan en AINA (checkbox unchecked)
+  const nomAinaText = document.getElementById('motor-text-nom-aina');
+  const nomAinaDocs = document.getElementById('motor-docs-nom-aina');
+  if (nomAinaText) nomAinaText.classList.add('actiu');
+  if (nomAinaDocs) nomAinaDocs.classList.add('actiu');
+})();
 
 // ═══════════════════════════════════════════════════════
 // PESTANYA GLOSSARIS: ACTUALITZACIÓ
@@ -880,7 +893,7 @@ function descarregaImatgeIndividual(index) {
   document.body.removeChild(a);
 }
 
-function descarregaImattgesTradudes() {
+function descarregaImatgesTradudes() {
   if (imatgesTradudes.length === 0) {
     mostraMissatgeImatge('error', 'No hi ha imatges traduïdes per descarregar.');
     return;
@@ -989,7 +1002,9 @@ async function corregeixText() {
 
   try {
     const url  = await TAN.getUrlAvancada();
-    const resp = await fetch(`${url}/corregeix`, {
+
+    // Crida al endpoint v2 (correcció millorada amb JSON estructurat)
+    const resp = await fetch(`${url}/corregeix-v2`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
@@ -1009,6 +1024,7 @@ async function corregeixText() {
     setTimeout(() => amagaProgress('correccio'), 2000);
 
     _dadesCorreccio = dades;
+    _dadesCorreccioV2 = dades;
     renderitzaCorreccions(dades);
 
   } catch (e) {
@@ -1034,10 +1050,17 @@ function renderitzaCorreccions(dades) {
   document.getElementById('badge-lt').textContent   = nLT;
   document.getElementById('badge-cl').textContent   = nCL;
 
-  // Resum
+  // Resum (compatible amb v1:string i v2:objecte)
   const resumBloc = document.getElementById('correccio-resum-bloc');
   if (dades.resum) {
-    document.getElementById('correccio-resum-text').textContent = dades.resum;
+    const resumEl = document.getElementById('correccio-resum-text');
+    if (typeof dades.resum === 'string') {
+      resumEl.textContent = dades.resum;
+    } else if (typeof dades.resum === 'object' && dades.resum.diagnostic) {
+      resumEl.textContent = dades.resum.diagnostic;
+    } else {
+      resumEl.textContent = '';
+    }
     resumBloc.style.display = 'flex';
   } else {
     resumBloc.style.display = 'none';
@@ -1071,8 +1094,29 @@ function renderitzaCorreccions(dades) {
   // Llista Claude
   renderitzaLlistaClaude(dades.correccions_claude || []);
 
+  // Taula detallada (format v2 amb correccions estructurades)
+  const correccionsV2 = dades.correccions_claude || dades.correccions || [];
+  const taulaCont = document.getElementById('correccio-taula-contingut');
+  const resumCont = document.getElementById('correccio-resum-estadistic');
+  const badgeTaula = document.getElementById('badge-taula');
+
+  if (taulaCont && Array.isArray(correccionsV2) && correccionsV2.length > 0) {
+    taulaCont.innerHTML = generaTaulaCorreccions(correccionsV2);
+    if (badgeTaula) badgeTaula.textContent = correccionsV2.length;
+  } else if (taulaCont) {
+    taulaCont.innerHTML = '<p class="correccio-buit">Cap correcció estructurada disponible.</p>';
+    if (badgeTaula) badgeTaula.textContent = '0';
+  }
+
+  // Resum estadístic (format v2)
+  if (resumCont && dades.resum && typeof dades.resum === 'object') {
+    resumCont.innerHTML = generaResumCorreccions(dades.resum);
+  } else if (resumCont) {
+    resumCont.innerHTML = '';
+  }
+
   // Activa la pestanya de text i mostra resultats
-  activaCorrecciöTab('text');
+  activaCorreccioTab('text');
   document.getElementById('correccio-resultats').style.display = 'block';
 }
 
@@ -1082,34 +1126,45 @@ function renderitzaLlistaClaude(correccions) {
     el.innerHTML = '<p class="correccio-buit">Cap correcció addicional per Claude Sonnet. ✅</p>';
     return;
   }
-  el.innerHTML = correccions.map((c, i) => `
-    <div class="correccio-item correccio-item-cl" data-tipus="${escapeHtmlC((c.tipus || '').toLowerCase())}">
+  el.innerHTML = correccions.map((c, i) => {
+    // Compatibilitat v1 (tipus/corregit) i v2 (categoria/correccio)
+    const cat = c.categoria || c.tipus || '';
+    const corregit = c.correccio || c.corregit || '';
+    const catLower = cat.toLowerCase();
+    // Mapejar categories v2 (SINT/MORF/LÈX/ORTO) a classes CSS
+    const catCSS = cat.match(/^(SINT|MORF|L[ÈE]X|ORTO)$/i)
+      ? `cat-badge cat-${cat.toUpperCase().replace('È','E')}`
+      : `correccio-tipus-badge correccio-tipus-${catLower || 'estil'}`;
+    return `
+    <div class="correccio-item correccio-item-cl" data-tipus="${escapeHtmlC(catLower)}">
       <div class="correccio-item-cap">
-        <span class="correccio-regla-badge correccio-badge-cl">${escapeHtmlC(c.regla || '—')}</span>
-        <span class="correccio-tipus-badge correccio-tipus-${escapeHtmlC((c.tipus || 'estil').toLowerCase())}">${escapeHtmlC(c.tipus || 'estil')}</span>
+        <span class="${catCSS}">${escapeHtmlC(cat || '—')}</span>
         <span class="correccio-item-original">${escapeHtmlC(c.original || '')}</span>
-        ${c.corregit ? `→ <span class="correccio-item-corregit">${escapeHtmlC(c.corregit)}</span>` : ''}
+        ${corregit ? `→ <span class="correccio-item-corregit">${escapeHtmlC(corregit)}</span>` : ''}
       </div>
       <div class="correccio-item-justificacio">${escapeHtmlC(c.justificacio || '')}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // ── Filtra correccions Claude per tipus ───────────────────────────────────
 
 function filtraCorreccions() {
   if (!_dadesCorreccio) return;
-  const tipus = document.getElementById('correccio-filtre-tipus').value.toLowerCase();
+  const filtre = document.getElementById('correccio-filtre-tipus').value.toLowerCase();
   const correccions = (_dadesCorreccio.correccions_claude || []).filter(c => {
-    if (!tipus) return true;
-    return (c.tipus || '').toLowerCase() === tipus;
+    if (!filtre) return true;
+    // Compatibilitat v1 (tipus) i v2 (categoria)
+    const cat = (c.categoria || c.tipus || '').toLowerCase();
+    return cat === filtre;
   });
   renderitzaLlistaClaude(correccions);
 }
 
 // ── Pestanyes de resultats ─────────────────────────────────────────────────
 
-function activaCorrecciöTab(id) {
-  const panels = ['text', 'lt', 'cl'];
+function activaCorreccioTab(id) {
+  const panels = ['text', 'lt', 'cl', 'taula'];
   panels.forEach(p => {
     const btn   = document.getElementById(`ctab-${p}`);
     const panel = document.getElementById(`cpanel-${p}`);
@@ -1154,7 +1209,7 @@ function netejaCorreccio() {
   document.getElementById('correccio-resultats').style.display = 'none';
   document.getElementById('correccio-missatge').style.display  = 'none';
   _dadesCorreccio = null;
-  activaCorrecciöTab('text');
+  activaCorreccioTab('text');
 }
 
 // ── Actualitza el comptador de caràcters ──────────────────────────────────
@@ -1644,41 +1699,10 @@ function actualitzaInfoDomini() {
 // PESTANYA TRADUCCIÓ ANGLÈS ↔ VALENCIÀ
 // ═══════════════════════════════════════════════════════
 
-let _anglesOrigen        = 'en'; // 'en' = anglès, 'ca' = valencià
+// (Variable _anglesOrigen i primera versió d'inverteixDireccio eliminades — substituïdes per la versió v2 al final del fitxer que usa _anglesDireccio)
 let _anglesDocSeleccionat  = null;
 let _anglesDocTraduïtBlob  = null;
 let _anglesNomDocTraduït   = '';
-
-function inverteixDireccio() {
-  _anglesOrigen = _anglesOrigen === 'en' ? 'ca' : 'en';
-  const labelOrigen     = document.getElementById('angles-llengua-origen');
-  const labelDesti      = document.getElementById('angles-llengua-destí');
-  const nota            = document.getElementById('angles-direccio-nota');
-  const labelEntrada    = document.getElementById('angles-label-entrada');
-  const labelSortida    = document.getElementById('angles-label-sortida');
-  const placeholderEntrada = document.getElementById('angles-text-entrada');
-
-  if (_anglesOrigen === 'en') {
-    labelOrigen.textContent = 'Anglès';
-    labelDesti.textContent  = 'Valencià';
-    nota.innerHTML = 'Traduint de <strong>anglès</strong> a <strong>valencià</strong>';
-    labelEntrada.textContent = 'Text en anglès';
-    labelSortida.textContent = 'Traducció al valencià';
-    placeholderEntrada.placeholder = 'Introdueix el text en anglès a traduir...';
-  } else {
-    labelOrigen.textContent = 'Valencià';
-    labelDesti.textContent  = 'Anglès';
-    nota.innerHTML = 'Traduint de <strong>valencià</strong> a <strong>anglès</strong>';
-    labelEntrada.textContent = 'Text en valencià';
-    labelSortida.textContent = 'Traducció a l\'anglès';
-    placeholderEntrada.placeholder = 'Introdueix el text en valencià a traduir...';
-  }
-
-  // Neteja les àrees de text
-  document.getElementById('angles-text-entrada').value = '';
-  document.getElementById('angles-text-sortida').value = '';
-  document.getElementById('angles-sortida-accions').style.display = 'none';
-}
 
 async function tradueixTextAngles() {
   const text = document.getElementById('angles-text-entrada').value.trim();
@@ -1692,15 +1716,26 @@ async function tradueixTextAngles() {
   actualitzaProgress('angles', 20, 'Preparant la traducció...', '');
 
   try {
-    // PENDENT D'IMPLEMENTACIÓ: motor EN↔CA
-    actualitzaProgress('angles', 50, 'Traduint el text...', 'Motor EN↔CA en desenvolupament');
-    await new Promise(r => setTimeout(r, 1000)); // Simulació
-    actualitzaProgress('angles', 100, 'Completat', '');
+    actualitzaProgress('angles', 50, 'Traduint el text amb Claude Sonnet...', '');
 
-    document.getElementById('angles-text-sortida').value =
-      '[Traducció anglès ↔ valencià en desenvolupament. Properament disponible.]';
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(`${baseUrl}/tradueix-angles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text, direccio: _anglesDireccio }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || err.error || 'Error del servidor');
+    }
+
+    const dades = await resp.json();
+    actualitzaProgress('angles', 100, `Completat en ${dades.temps_ms || 0} ms`, '');
+
+    document.getElementById('angles-text-sortida').value = dades.translation;
     document.getElementById('angles-sortida-accions').style.display = 'flex';
-    mostraMissatgeAngles('info', 'ℹ️ La traducció anglès ↔ valencià s\'implementarà properament.');
+    mostraMissatgeAngles('info', `Traducció completada (${dades.temps_ms || 0} ms, ${dades.paraules || 0} paraules)`);
     setTimeout(() => amagaProgress('angles'), 2000);
   } catch (e) {
     mostraMissatgeAngles('error', `Error: ${e.message}`);
@@ -1768,15 +1803,43 @@ async function tradueixDocAngles() {
   const btn = document.getElementById('btn-traduir-doc-angles');
   btn.disabled = true;
   btn.textContent = '⏳ Traduint...';
-  actualitzaProgress('angles', 10, 'Processant el document...', 'Motor EN↔CA en desenvolupament');
+  actualitzaProgress('angles', 10, 'Processant el document amb Claude Sonnet...', '');
 
-  // PENDENT D'IMPLEMENTACIÓ
-  await new Promise(r => setTimeout(r, 1500));
-  actualitzaProgress('angles', 100, 'Completat', '');
-  mostraMissatgeAngles('info', 'ℹ️ La traducció de documents anglès ↔ valencià s\'implementarà properament.');
-  setTimeout(() => amagaProgress('angles'), 2000);
-  btn.disabled = false;
-  btn.textContent = '🌐 Traduir document';
+  try {
+    const formData = new FormData();
+    formData.append('fitxer', _anglesDocSeleccionat);
+    formData.append('direccio', _anglesDireccio);
+
+    const baseUrl = await TAN.getUrlAvancada();
+    const url = `${baseUrl}/tradueix-document-angles`;
+    actualitzaProgress('angles', 40, 'Enviant al servidor...', '');
+
+    const resp = await fetch(url, { method: 'POST', body: formData });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || err.error || 'Error del servidor');
+    }
+
+    actualitzaProgress('angles', 90, 'Preparant el document traduït...', '');
+    const blob = await resp.blob();
+    const nomOriginal = _anglesDocSeleccionat.name;
+    const ext = nomOriginal.split('.').pop();
+    const sufix = _anglesDireccio === 'en_va' ? '_en-va' : '_va-en';
+    _anglesNomDocTraduït = nomOriginal.replace(`.${ext}`, `${sufix}.${ext}`);
+    _anglesDocTraduïtBlob = blob;
+
+    actualitzaProgress('angles', 100, 'Completat', '');
+    document.getElementById('btn-descarrega-doc-angles').style.display = 'inline-flex';
+    mostraMissatgeAngles('info', `Document traduït correctament.`);
+    setTimeout(() => amagaProgress('angles'), 2000);
+  } catch (e) {
+    mostraMissatgeAngles('error', `Error: ${e.message}`);
+    amagaProgress('angles');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🌐 Traduir document';
+  }
 }
 
 function descarregaAnglesDoc() {
@@ -1803,6 +1866,98 @@ function mostraMissatgeAngles(tipus, text) {
   el.style.display = 'block';
   if (tipus !== 'info') setTimeout(() => { el.style.display = 'none'; }, 5000);
 }
+
+// ═══════════════════════════════════════════════════════
+// FUNCIONS AUXILIARS: Taula de correccions i estadístiques
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Genera la taula HTML de correccions.
+ * @param {Array} correccions - llista de correccions [{num, paragraf, original, correccio, categoria, justificacio}]
+ * @returns {string} HTML de la taula
+ */
+function generaTaulaCorreccions(correccions) {
+  if (!correccions || !correccions.length) return '<p>Cap correcció detectada.</p>';
+  let html = '<div class="correccions-taula-wrap"><table class="correccions-taula">';
+  html += '<thead><tr><th>#</th><th>§</th><th>Original</th><th>Correcció</th><th>Cat.</th><th>Justificació</th></tr></thead><tbody>';
+  correccions.forEach((c, i) => {
+    const cat = (c.categoria || 'ORTO').toUpperCase().replace('È', 'E');
+    html += `<tr>
+      <td>${c.num || i + 1}</td>
+      <td>${c.paragraf || '—'}</td>
+      <td><del>${_esc(c.original || '')}</del></td>
+      <td><strong>${_esc(c.correccio || c.corregit || '')}</strong></td>
+      <td><span class="cat-badge cat-${cat}">${cat}</span></td>
+      <td>${_esc(c.justificacio || '')}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+/**
+ * Genera el resum estadístic HTML.
+ * @param {Object} resum - {total_errors, sint, morf, lex, orto, total_paraules, densitat, diagnostic, recomanacions}
+ * @returns {string} HTML del resum
+ */
+function generaResumCorreccions(resum) {
+  if (!resum || typeof resum !== 'object') return '';
+  let html = '<div class="correccions-resum">';
+  const items = [
+    { lbl: 'Total errors', val: resum.total_errors || 0 },
+    { lbl: 'Sintàctics', val: resum.sint || 0 },
+    { lbl: 'Morfològics', val: resum.morf || 0 },
+    { lbl: 'Lèxics', val: resum.lex || 0 },
+    { lbl: 'Ortogràfics', val: resum.orto || 0 },
+    { lbl: 'Paraules', val: resum.total_paraules || 0 },
+    { lbl: 'Densitat', val: resum.densitat || '—' },
+  ];
+  items.forEach(it => {
+    html += `<div class="resum-item"><span class="resum-num">${it.val}</span><span class="resum-lbl">${it.lbl}</span></div>`;
+  });
+  html += '</div>';
+  if (resum.diagnostic) {
+    html += `<div class="resum-diagnostic"><strong>Diagnòstic:</strong> ${_esc(resum.diagnostic)}`;
+    if (resum.recomanacions) html += `<br><strong>Recomanacions:</strong> ${_esc(resum.recomanacions)}`;
+    html += '</div>';
+  }
+  return html;
+}
+
+function _esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/**
+ * Inverteix la direcció de traducció EN↔VA.
+ */
+function inverteixDireccio() {
+  _anglesDireccio = _anglesDireccio === 'en_va' ? 'va_en' : 'en_va';
+  const lblOrigen = document.getElementById('angles-llengua-origen');
+  const lblDesti  = document.getElementById('angles-llengua-destí');
+  const nota      = document.getElementById('angles-direccio-nota');
+  const lblEntrada = document.getElementById('angles-label-entrada');
+  const lblSortida = document.getElementById('angles-label-sortida');
+  const txtEntrada = document.getElementById('angles-text-entrada');
+  const txtSortida = document.getElementById('angles-text-sortida');
+
+  if (_anglesDireccio === 'en_va') {
+    lblOrigen.textContent = 'Anglès';
+    lblDesti.textContent  = 'Valencià';
+    nota.innerHTML = 'Traduint de <strong>anglès</strong> a <strong>valencià</strong>';
+    if (lblEntrada) lblEntrada.textContent = 'Text en anglès';
+    if (lblSortida) lblSortida.textContent = 'Traducció al valencià';
+    if (txtEntrada) txtEntrada.placeholder = 'Introdueix el text en anglès...';
+    if (txtSortida) txtSortida.placeholder = 'La traducció al valencià apareixerà aquí...';
+  } else {
+    lblOrigen.textContent = 'Valencià';
+    lblDesti.textContent  = 'Anglès';
+    nota.innerHTML = 'Traduint de <strong>valencià</strong> a <strong>anglès</strong>';
+    if (lblEntrada) lblEntrada.textContent = 'Text en valencià';
+    if (lblSortida) lblSortida.textContent = 'Translation to English';
+    if (txtEntrada) txtEntrada.placeholder = 'Introdueix el text en valencià...';
+    if (txtSortida) txtSortida.placeholder = 'The English translation will appear here...';
+  }
+}
+
 
 // ═══════════════════════════════════════════════════════
 // ÀUDIO: RETROALIMENTACIÓ SONORA (CANVI 4)

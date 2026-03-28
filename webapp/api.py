@@ -39,6 +39,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+# ─── Mòduls locals del projecte ──────────────────────────────────────────────
+sys.path.insert(0, str(Path(__file__).parent))
+from system_prompts import (
+    construeix_prompt_correccio,
+    construeix_prompt_traduccio_es_va,
+    construeix_prompt_traduccio_en_va,
+    construeix_prompt_revisio,
+)
+from format_preserving_editor import (
+    DocxFormatPreservingEditor,
+    PptxFormatPreservingEditor,
+    processa_document_traduccio,
+    processa_document_correccio,
+)
+
 # ─── python-dotenv: càrrega i persistència de claus API ──────────────────────
 try:
     from dotenv import load_dotenv, set_key as _dotenv_set_key
@@ -3063,6 +3078,737 @@ async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
         )
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# NOUS ENDPOINTS: Traducció amb Claude Sonnet + EN↔VA + Correcció millorada
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def _crida_claude_amb_cache(
+    system_blocks: list[dict],
+    missatge_usuari: str,
+    api_key: str,
+    max_tokens: int = 8192,
+    model: str = "claude-sonnet-4-6",
+) -> str:
+    """
+    Funció auxiliar per a cridar Claude amb prompt caching.
+
+    Args:
+        system_blocks: blocs del system prompt (amb cache_control)
+        missatge_usuari: missatge de l'usuari
+        api_key: clau API d'Anthropic
+        max_tokens: tokens màxims de resposta
+        model: model a usar
+
+    Retorna:
+        Text de la resposta de Claude
+    """
+    import anthropic as _ant
+
+    client = _ant.Anthropic(api_key=api_key)
+
+    resposta = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=system_blocks,
+        messages=[{"role": "user", "content": missatge_usuari}],
+    )
+
+    text_resposta = resposta.content[0].text
+
+    # Neteja codificació UTF-8 mal interpretada
+    if "Ã" in text_resposta or "â€" in text_resposta:
+        try:
+            text_resposta = text_resposta.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+
+    log.info(
+        "Claude [%s] — input: %d tokens, output: %d tokens, cache: %s/%s",
+        model,
+        resposta.usage.input_tokens if hasattr(resposta.usage, 'input_tokens') else 0,
+        resposta.usage.output_tokens if hasattr(resposta.usage, 'output_tokens') else 0,
+        getattr(resposta.usage, 'cache_creation_input_tokens', 'N/A'),
+        getattr(resposta.usage, 'cache_read_input_tokens', 'N/A'),
+    )
+
+    return text_resposta
+
+
+def _neteja_resposta_claude(text: str) -> str:
+    """
+    Elimina text parasitari que Claude pot afegir quan rep segments curts.
+    Patrons coneguts: preguntes, ofertes d'ajuda, peticions de més text.
+    """
+    # Patrons parasitaris (anglés i català/valencià)
+    patrons = [
+        r"(?i)please provide.*?(?:full text|more context|complete text).*?[.?!]?\s*",
+        r"(?i)could you (?:share|provide|send).*?[.?!]?\s*",
+        r"(?i)it seems (?:only|like).*?(?:included|provided).*?[.?!]?\s*",
+        r"(?i)I('d| would) (?:need|like).*?(?:full|complete|more).*?[.?!]?\s*",
+        r"(?i)the (?:text|segment) (?:appears|seems).*?(?:incomplete|short|brief).*?[.?!]?\s*",
+        r"(?i)(?:here is|here's) the translation:?\s*",
+        r"(?i)si us plau.*?(?:proporcion|compart|envi).*?[.?!]?\s*",
+        r"(?i)sembla que (?:només|nomé).*?[.?!]?\s*",
+        r"(?i)necessit(?:e|o|aria).*?(?:text complet|més context).*?[.?!]?\s*",
+    ]
+    resultat = text
+    for patro in patrons:
+        resultat = re.sub(patro, '', resultat)
+    # Neteja espais residuals
+    resultat = re.sub(r'\n{3,}', '\n\n', resultat).strip()
+    return resultat if resultat else text  # Si queda buit, retorna l'original
+
+
+# ─── Endpoint: POST /tradueix-claude (traducció ES→VA amb Claude) ────────────
+
+class PeticioTradueixClaude(BaseModel):
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=100_000,
+        description="Text en castellà a traduir.",
+    )
+
+
+@app.post(
+    "/tradueix-claude",
+    summary="Tradueix text castellà→valencià amb Claude Sonnet",
+    tags=["Traducció"],
+)
+async def tradueix_claude(peticio: PeticioTradueixClaude):
+    """
+    Tradueix text del castellà al valencià estàndard universitari
+    usant Claude Sonnet amb el prompt normatiu consolidat i prompt caching.
+    """
+    api_key = _obte_api_key_anthropic()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Clau API d'Anthropic no configurada.",
+        )
+
+    text = peticio.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="El camp 'text' no pot estar buit.")
+
+    inici = time.perf_counter()
+
+    try:
+        system_blocks, prefix = construeix_prompt_traduccio_es_va()
+        traduccio = await _crida_claude_amb_cache(
+            system_blocks=system_blocks,
+            missatge_usuari=prefix + text,
+            api_key=api_key,
+        )
+        # Neteja possibles blocs markdown
+        traduccio = traduccio.strip()
+        if traduccio.startswith("```"):
+            traduccio = re.sub(r'^```\w*\s*\n?', '', traduccio)
+            traduccio = re.sub(r'\n?```\s*$', '', traduccio)
+
+        temps_ms = int((time.perf_counter() - inici) * 1000)
+        n_paraules = _compta_paraules(text)
+        _stats["paraules_avui"] += n_paraules
+
+        log.info("POST /tradueix-claude — %d ms, %d paraules", temps_ms, n_paraules)
+
+        return {
+            "translation": _neteja_resposta_claude(traduccio.strip()),
+            "temps_ms": temps_ms,
+            "motor": "claude-sonnet",
+            "paraules": n_paraules,
+        }
+
+    except Exception as exc:
+        log.exception("Error en la traducció amb Claude: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error en la traducció amb Claude Sonnet: {exc}",
+        )
+
+
+# ─── Endpoint: POST /tradueix-document-claude (documents ES→VA amb Claude) ───
+
+@app.post(
+    "/tradueix-document-claude",
+    summary="Tradueix un document .docx/.pptx del castellà al valencià amb Claude",
+    tags=["Traducció"],
+)
+async def tradueix_document_claude(
+    fitxer: UploadFile = File(..., description="Fitxer .docx o .pptx"),
+) -> Response:
+    """
+    Tradueix un document .docx/.pptx del castellà al valencià estàndard
+    universitari usant Claude Sonnet, preservant el format original.
+
+    Procés en dues passades:
+    1. Traducció de cada paràgraf
+    2. Revisió profunda per Claude
+    """
+    api_key = _obte_api_key_anthropic()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Clau API d'Anthropic no configurada.",
+        )
+
+    nom = fitxer.filename or "document"
+    extensio = Path(nom).suffix.lower()
+    if extensio not in (".docx", ".pptx"):
+        raise HTTPException(
+            status_code=415,
+            detail=f"Extensió '{extensio}' no admesa. Només .docx i .pptx.",
+        )
+
+    contingut = await fitxer.read()
+    if len(contingut) > MAX_MIDA_FITXER:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Fitxer massa gran ({len(contingut) / 1_048_576:.1f} MB). Màx 150 MB.",
+        )
+
+    log.info(
+        "POST /tradueix-document-claude — fitxer='%s' mida=%.1f KB",
+        nom, len(contingut) / 1024,
+    )
+
+    inici = time.perf_counter()
+    ext = extensio.lstrip('.')
+
+    try:
+        system_blocks, prefix = construeix_prompt_traduccio_es_va()
+
+        # Funció de traducció per lots
+        async def _tradueix_lots(textos):
+            resultats = []
+            for text in textos:
+                if not text.strip() or len(text.strip()) < 4:
+                    resultats.append(text)
+                    continue
+                trad = await _crida_claude_amb_cache(
+                    system_blocks=system_blocks,
+                    missatge_usuari=prefix + text,
+                    api_key=api_key,
+                    max_tokens=4096,
+                )
+                resultats.append(_neteja_resposta_claude(trad.strip()))
+            return resultats
+
+        # Passada 1: traducció
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        def _tradueix_sync(textos):
+            future = asyncio.run_coroutine_threadsafe(_tradueix_lots(textos), loop)
+            return future.result()
+
+        resultat_bytes = await asyncio.to_thread(
+            processa_document_traduccio,
+            contingut, ext,
+            _tradueix_sync,
+        )
+
+        # Passada 2: revisió (sobre el document ja traduït)
+        system_rev, _ = construeix_prompt_revisio("es_va")
+        if ext == 'docx':
+            editor_rev = DocxFormatPreservingEditor(resultat_bytes)
+        else:
+            editor_rev = PptxFormatPreservingEditor(resultat_bytes)
+
+        try:
+            paragrafs_rev = editor_rev.extrau_paragrafs()
+            for p in paragrafs_rev:
+                if len(p['text'].strip()) < 10:
+                    continue
+                text_revisat = await _crida_claude_amb_cache(
+                    system_blocks=system_rev,
+                    missatge_usuari=f"Revisa aquest paràgraf traduït i corregeix si cal:\n\n{p['text']}",
+                    api_key=api_key,
+                    max_tokens=2048,
+                )
+                text_revisat = _neteja_resposta_claude(text_revisat.strip())
+                if text_revisat and text_revisat != p['text']:
+                    editor_rev.substitueix_paragraf(p, text_revisat)
+
+            resultat_bytes = editor_rev.desa()
+        finally:
+            editor_rev.tanca()
+
+        # Estableix la llengua predeterminada del document traduït (ES→VA = català)
+        codi_llengua = "ca-ES"
+        if ext == 'docx':
+            editor_ll = DocxFormatPreservingEditor(resultat_bytes)
+            editor_ll.estableix_llengua(codi_llengua)
+            resultat_bytes = editor_ll.desa()
+            editor_ll.tanca()
+        elif ext == 'pptx':
+            editor_ll = PptxFormatPreservingEditor(resultat_bytes)
+            editor_ll.estableix_llengua(codi_llengua)
+            resultat_bytes = editor_ll.desa()
+            editor_ll.tanca()
+
+        temps_ms = int((time.perf_counter() - inici) * 1000)
+        nom_sortida = Path(nom).stem + "_traduit_claude" + extensio
+
+        mime_types = {
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        }
+
+        log.info("Document traduït amb Claude en %d ms → '%s'", temps_ms, nom_sortida)
+
+        return Response(
+            content=resultat_bytes,
+            media_type=mime_types[extensio],
+            headers={
+                "Content-Disposition": f'attachment; filename="{nom_sortida}"',
+                "Content-Length": str(len(resultat_bytes)),
+                "X-Temps-Ms": str(temps_ms),
+                "X-Motor": "claude-sonnet",
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("Error traduint document amb Claude: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error en la traducció del document amb Claude: {exc}",
+        )
+
+
+# ─── Endpoint: POST /corregeix-v2 (correcció millorada amb JSON estructurat) ─
+
+class PeticioCorreccioV2(BaseModel):
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=100_000,
+        description="Text en valencià a corregir.",
+    )
+    usar_languagetool: bool = Field(default=True)
+    usar_claude: bool = Field(default=True)
+
+
+@app.post(
+    "/corregeix-v2",
+    summary="Correcció millorada amb JSON estructurat i estadístiques",
+    tags=["Correcció"],
+)
+async def corregeix_v2(peticio: PeticioCorreccioV2):
+    """
+    Correcció millorada que retorna:
+    - text_corregit
+    - correccions en format JSON estructurat (num, paragraf, original, correccio, categoria, justificacio)
+    - resum estadístic (total_errors, sint, morf, lex, orto, densitat, diagnostic)
+    - correccions LanguageTool (si activat)
+
+    Usa el prompt normatiu consolidat amb prompt caching.
+    """
+    import httpx
+    import json as _json
+
+    text_entrant = peticio.text.strip()
+    if not text_entrant:
+        raise HTTPException(status_code=422, detail="El camp 'text' no pot estar buit.")
+
+    correccions_lt = []
+    text_despres_lt = text_entrant
+
+    # ── CAPA 1: LanguageTool ──
+    if peticio.usar_languagetool:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://api.languagetool.org/v2/check",
+                    data={"text": text_entrant, "language": "ca-ES"},
+                    headers={"Accept": "application/json"},
+                )
+                resp.raise_for_status()
+                dades_lt = resp.json()
+
+            for match in dades_lt.get("matches", []):
+                context = match.get("context", {})
+                original = context.get("text", "")[
+                    context.get("offset", 0):
+                    context.get("offset", 0) + context.get("length", 0)
+                ]
+                suggerits = [r.get("value", "") for r in match.get("replacements", [])[:3]]
+                correccions_lt.append({
+                    "missatge": match.get("message", ""),
+                    "offset": match.get("offset", 0),
+                    "longitud": match.get("length", 0),
+                    "original": original,
+                    "suggerits": suggerits,
+                    "regla_id": match.get("rule", {}).get("id", ""),
+                })
+
+            text_despres_lt = text_entrant
+            for c in sorted(correccions_lt, key=lambda x: x["offset"], reverse=True):
+                if c["suggerits"]:
+                    ini = c["offset"]
+                    fi = ini + c["longitud"]
+                    text_despres_lt = text_despres_lt[:ini] + c["suggerits"][0] + text_despres_lt[fi:]
+
+            log.info("LanguageTool — %d coincidències", len(correccions_lt))
+        except Exception as exc:
+            log.warning("Error LanguageTool: %s", exc)
+
+    # ── CAPA 2: Claude Sonnet amb prompt caching ──
+    correccions_claude = []
+    text_corregit = text_despres_lt
+    resum = {}
+
+    if peticio.usar_claude:
+        api_key = _obte_api_key_anthropic()
+        if not api_key:
+            raise HTTPException(
+                status_code=503,
+                detail="Clau API d'Anthropic no configurada.",
+            )
+
+        try:
+            system_blocks, prefix = construeix_prompt_correccio()
+            resposta_text = await _crida_claude_amb_cache(
+                system_blocks=system_blocks,
+                missatge_usuari=prefix + text_despres_lt,
+                api_key=api_key,
+            )
+
+            # Intentar parsejar JSON
+            try:
+                clean_json = resposta_text.strip()
+                if clean_json.startswith("```"):
+                    clean_json = re.sub(r'^```\w*\s*\n?', '', clean_json)
+                    clean_json = re.sub(r'\n?```\s*$', '', clean_json)
+                dades_claude = _json.loads(clean_json)
+
+                text_corregit = dades_claude.get("text_corregit", text_despres_lt)
+                correccions_claude = dades_claude.get("correccions", [])
+                resum = dades_claude.get("resum", {})
+
+            except _json.JSONDecodeError:
+                log.warning("No s'ha pogut parsejar el JSON de Claude. Resposta crua guardada.")
+                # Intentar extraure amb el format antic ---TEXT CORREGIT---
+                m_text = re.search(
+                    r'---TEXT CORREGIT---\s*(.*?)\s*---FI TEXT---',
+                    resposta_text, re.DOTALL,
+                )
+                if m_text:
+                    text_corregit = m_text.group(1).strip()
+
+            log.info("Claude v2 — %d correccions", len(correccions_claude))
+
+        except Exception as exc:
+            log.exception("Error Claude v2: %s", exc)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error en la correcció amb Claude: {exc}",
+            )
+
+    return {
+        "text_original": text_entrant,
+        "text_corregit": text_corregit,
+        "correccions_lt": correccions_lt,
+        "correccions_claude": correccions_claude,
+        "resum": resum,
+        "estat": "ok",
+    }
+
+
+# ─── Endpoint: POST /corregeix-document-v2 (doc + JSON + ressaltat) ──────────
+
+@app.post(
+    "/corregeix-document-v2",
+    summary="Corregeix un document .docx/.pptx i retorna fitxer + correccions JSON",
+    tags=["Correcció"],
+)
+async def corregeix_document_v2(
+    fitxer: UploadFile = File(..., description="Fitxer .docx o .pptx"),
+):
+    """
+    Corregeix un document preservant format:
+    1. Extrau text per paràgrafs
+    2. Envia a Claude per correcció (JSON estructurat)
+    3. Aplica correccions amb ressaltat groc (docx)
+    4. Retorna JSON amb el fitxer codificat en base64 + correccions + resum
+    """
+    import json as _json
+
+    api_key = _obte_api_key_anthropic()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Clau API d'Anthropic no configurada.")
+
+    nom = fitxer.filename or "document"
+    extensio = Path(nom).suffix.lower()
+    if extensio not in (".docx", ".pptx"):
+        raise HTTPException(status_code=415, detail="Només .docx i .pptx.")
+
+    contingut = await fitxer.read()
+    if len(contingut) > MAX_MIDA_FITXER:
+        raise HTTPException(status_code=413, detail="Fitxer massa gran.")
+
+    log.info("POST /corregeix-document-v2 — '%s' %.1f KB", nom, len(contingut) / 1024)
+
+    inici = time.perf_counter()
+
+    try:
+        ext = extensio.lstrip('.')
+        if ext == 'docx':
+            editor = DocxFormatPreservingEditor(contingut)
+        else:
+            editor = PptxFormatPreservingEditor(contingut)
+
+        paragrafs = editor.extrau_paragrafs()
+        text_complet = "\n\n".join(
+            f"§{i+1}: {p['text']}" for i, p in enumerate(paragrafs) if p['text'].strip()
+        )
+
+        # Enviar tot el text a Claude per correcció
+        system_blocks, prefix = construeix_prompt_correccio()
+        resposta_text = await _crida_claude_amb_cache(
+            system_blocks=system_blocks,
+            missatge_usuari=prefix + text_complet,
+            api_key=api_key,
+        )
+
+        # Parsejar resposta
+        correccions = []
+        resum = {}
+        text_corregit_complet = ""
+
+        try:
+            clean_json = resposta_text.strip()
+            if clean_json.startswith("```"):
+                clean_json = re.sub(r'^```\w*\s*\n?', '', clean_json)
+                clean_json = re.sub(r'\n?```\s*$', '', clean_json)
+            dades = _json.loads(clean_json)
+            correccions = dades.get("correccions", [])
+            resum = dades.get("resum", {})
+            text_corregit_complet = dades.get("text_corregit", "")
+        except _json.JSONDecodeError:
+            log.warning("JSON no parsejable en correcció de document.")
+
+        # Aplicar correccions al document amb ressaltat
+        if correccions:
+            resultat_bytes = processa_document_correccio(
+                contingut, ext, correccions
+            )
+        else:
+            resultat_bytes = contingut
+
+        editor.tanca()
+
+        temps_ms = int((time.perf_counter() - inici) * 1000)
+        nom_sortida = Path(nom).stem + "_corregit" + extensio
+
+        # Retornar tot en JSON
+        return {
+            "fitxer_base64": base64.b64encode(resultat_bytes).decode('utf-8'),
+            "nom_fitxer": nom_sortida,
+            "correccions": correccions,
+            "resum": resum,
+            "temps_ms": temps_ms,
+            "estat": "ok",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("Error corregint document v2: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error en la correcció del document: {exc}",
+        )
+
+
+# ─── Endpoint: POST /tradueix-angles (EN↔VA) ────────────────────────────────
+
+class PeticioTradueixAngles(BaseModel):
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=100_000,
+        description="Text a traduir.",
+    )
+    direccio: str = Field(
+        default="en_va",
+        description="Direcció: 'en_va' (anglés→valencià) o 'va_en' (valencià→anglés).",
+    )
+
+
+@app.post(
+    "/tradueix-angles",
+    summary="Tradueix entre anglés britànic i valencià",
+    tags=["Traducció"],
+)
+async def tradueix_angles(peticio: PeticioTradueixAngles):
+    """
+    Traducció EN↔VA (anglés britànic ↔ valencià estàndard universitari)
+    usant Claude Sonnet amb prompt normatiu i prompt caching.
+    """
+    api_key = _obte_api_key_anthropic()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Clau API d'Anthropic no configurada.")
+
+    text = peticio.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="El camp 'text' no pot estar buit.")
+
+    inici = time.perf_counter()
+
+    try:
+        system_blocks, prefix = construeix_prompt_traduccio_en_va(peticio.direccio)
+        traduccio = await _crida_claude_amb_cache(
+            system_blocks=system_blocks,
+            missatge_usuari=prefix + text,
+            api_key=api_key,
+        )
+        traduccio = traduccio.strip()
+        if traduccio.startswith("```"):
+            traduccio = re.sub(r'^```\w*\s*\n?', '', traduccio)
+            traduccio = re.sub(r'\n?```\s*$', '', traduccio)
+
+        temps_ms = int((time.perf_counter() - inici) * 1000)
+        n_paraules = _compta_paraules(text)
+        _stats["paraules_avui"] += n_paraules
+
+        log.info(
+            "POST /tradueix-angles [%s] — %d ms, %d paraules",
+            peticio.direccio, temps_ms, n_paraules,
+        )
+
+        return {
+            "translation": _neteja_resposta_claude(traduccio.strip()),
+            "temps_ms": temps_ms,
+            "motor": "claude-sonnet",
+            "direccio": peticio.direccio,
+            "paraules": n_paraules,
+        }
+
+    except Exception as exc:
+        log.exception("Error traducció EN↔VA: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error en la traducció anglés↔valencià: {exc}",
+        )
+
+
+# ─── Endpoint: POST /tradueix-document-angles (documents EN↔VA) ─────────────
+
+@app.post(
+    "/tradueix-document-angles",
+    summary="Tradueix un document .docx/.pptx entre anglés i valencià",
+    tags=["Traducció"],
+)
+async def tradueix_document_angles(
+    fitxer: UploadFile = File(..., description="Fitxer .docx o .pptx"),
+    direccio: str = Form(default="en_va", description="'en_va' o 'va_en'"),
+) -> Response:
+    """
+    Tradueix un document entre anglés britànic i valencià estàndard universitari,
+    preservant el format original.
+    """
+    api_key = _obte_api_key_anthropic()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Clau API d'Anthropic no configurada.")
+
+    nom = fitxer.filename or "document"
+    extensio = Path(nom).suffix.lower()
+    if extensio not in (".docx", ".pptx"):
+        raise HTTPException(status_code=415, detail="Només .docx i .pptx.")
+
+    contingut = await fitxer.read()
+    if len(contingut) > MAX_MIDA_FITXER:
+        raise HTTPException(status_code=413, detail="Fitxer massa gran.")
+
+    log.info(
+        "POST /tradueix-document-angles [%s] — '%s' %.1f KB",
+        direccio, nom, len(contingut) / 1024,
+    )
+
+    inici = time.perf_counter()
+    ext = extensio.lstrip('.')
+
+    try:
+        system_blocks, prefix = construeix_prompt_traduccio_en_va(direccio)
+
+        async def _tradueix_lots_angles(textos):
+            resultats = []
+            for text in textos:
+                if not text.strip() or len(text.strip()) < 4:
+                    resultats.append(text)
+                    continue
+                trad = await _crida_claude_amb_cache(
+                    system_blocks=system_blocks,
+                    missatge_usuari=prefix + text,
+                    api_key=api_key,
+                    max_tokens=4096,
+                )
+                resultats.append(_neteja_resposta_claude(trad.strip()))
+            return resultats
+
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        def _tradueix_sync(textos):
+            future = asyncio.run_coroutine_threadsafe(_tradueix_lots_angles(textos), loop)
+            return future.result()
+
+        resultat_bytes = await asyncio.to_thread(
+            processa_document_traduccio,
+            contingut, ext,
+            _tradueix_sync,
+        )
+
+        # Estableix la llengua predeterminada del document traduït
+        codi_llengua = "ca-ES" if direccio == "en_va" else "en-GB"
+        if ext == 'docx':
+            editor_ll = DocxFormatPreservingEditor(resultat_bytes)
+            editor_ll.estableix_llengua(codi_llengua)
+            resultat_bytes = editor_ll.desa()
+            editor_ll.tanca()
+        elif ext == 'pptx':
+            editor_ll = PptxFormatPreservingEditor(resultat_bytes)
+            editor_ll.estableix_llengua(codi_llengua)
+            resultat_bytes = editor_ll.desa()
+            editor_ll.tanca()
+
+        temps_ms = int((time.perf_counter() - inici) * 1000)
+        sufix = "_en-va" if direccio == "en_va" else "_va-en"
+        nom_sortida = Path(nom).stem + sufix + extensio
+
+        mime_types = {
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        }
+
+        log.info("Document EN↔VA traduït en %d ms → '%s'", temps_ms, nom_sortida)
+
+        return Response(
+            content=resultat_bytes,
+            media_type=mime_types[extensio],
+            headers={
+                "Content-Disposition": f'attachment; filename="{nom_sortida}"',
+                "Content-Length": str(len(resultat_bytes)),
+                "X-Temps-Ms": str(temps_ms),
+                "X-Motor": "claude-sonnet",
+                "X-Direccio": direccio,
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("Error traduint document EN↔VA: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error en la traducció del document anglés↔valencià: {exc}",
+        )
+
+
 # ─── Gestió global d'errors ───────────────────────────────────────────────────
 
 @app.exception_handler(404)
@@ -3088,12 +3834,5 @@ async def error_intern(request, exc):
 
 if __name__ == "__main__":
     import uvicorn
-    log.info("Iniciant servidor TANEU API v%s", VERSIO)
-    uvicorn.run(
-        "api:app",
-        host    = "0.0.0.0",
-        port    = 8000,
-        reload  = True,
-        log_level = "info",
-    )
-
+    log.info("Iniciant servidor Uvicorn en mode directe...")
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)

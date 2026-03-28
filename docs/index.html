@@ -16,48 +16,19 @@
 <!-- ═══ Capçalera TAN renovada ════════════════════════════════════════════ -->
 <header class="tan-header">
   <div class="tan-header-contingut">
-    <!-- Bloc esquerre: logotip TAN -->
-    <div class="tan-header-esquerra">
-      <div class="tan-logo-area">
-        <div class="tan-logo-icona">⚡</div>
-        <div class="tan-logo-text">
-          <span class="tan-logo-nom">TAN</span>
-          <span class="tan-logo-subtitol">Motor de Traducció Automàtica Neuronal</span>
-        </div>
-      </div>
+    <!-- Contingut centrat de la capçalera -->
+    <div class="tan-header-central">
+      <div class="tan-logo-nom">TAN UV</div>
+      <div class="tan-logo-subtitol">Entorn de traducció automàtica neuronal</div>
+      <div class="tan-slogan-text">Servei de Llengües i Política Lingüística de la Universitat de València</div>
+      <div class="tan-slogan-uv">Assessorament lingüístic, traducció, correcció i postedició</div>
     </div>
-    <!-- Bloc central: institució -->
-    <div class="tan-header-centre">
-      <div class="tan-header-slogan">
-        <span class="tan-slogan-text">Servei de Llengües i Política Lingüística</span>
-        <span class="tan-slogan-uv">Universitat de València · Assessorament Lingüístic</span>
-      </div>
-    </div>
-    <!-- Bloc dret: visualització neuronal + Claus API -->
-    <div class="tan-header-dreta">
-      <div class="tan-neural-visual">
-        <div class="tan-neural-node n1"></div>
-        <div class="tan-neural-node n2"></div>
-        <div class="tan-neural-node n3"></div>
-        <div class="tan-neural-node n4"></div>
-        <div class="tan-neural-node n5"></div>
-        <svg class="tan-neural-lines" viewBox="0 0 120 60">
-          <line x1="10" y1="15" x2="50" y2="30" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
-          <line x1="10" y1="45" x2="50" y2="30" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
-          <line x1="50" y1="10" x2="80" y2="20" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
-          <line x1="50" y1="30" x2="80" y2="20" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
-          <line x1="50" y1="30" x2="80" y2="45" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
-          <line x1="50" y1="50" x2="80" y2="45" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
-          <line x1="80" y1="20" x2="110" y2="30" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
-          <line x1="80" y1="45" x2="110" y2="30" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
-        </svg>
-      </div>
-      <button class="btn-claus-api" id="btn-claus-api"
-              onclick="obreModalClausAPI()"
-              title="Gestiona les claus API de Gemini i Anthropic">
-        🔑 Claus API
-      </button>
-    </div>
+    <!-- Botó Claus API (posició absoluta) -->
+    <button class="btn-claus-api" id="btn-claus-api"
+            onclick="obreModalClausAPI()"
+            title="Gestiona les claus API de Gemini i Anthropic">
+      🔑 Claus API
+    </button>
   </div>
   <!-- Barra de navegació de pestanyes -->
   <nav class="tan-nav" id="tan-nav">
@@ -82,10 +53,21 @@
 <!-- ═══ SECCIÓ 1 · Traducció de text ═══════════════════════════════════════ -->
 <section class="seccio vis" id="s-traduccio-text">
 
-  <!-- CANVI 3 · Subtítol descriptiu -->
-  <div class="subtitol">
-    <p>Eina de traducció automàtica neuronal basada en el motor TAN desenvolupat pel LangTechLab del BSC-CNS en el marc del Projecte Aina.</p>
+  <!-- Toggle motor de traducció -->
+  <div class="motor-toggle-bar" id="motor-selector-text">
+    <span class="motor-toggle-label">Motor de traducció:</span>
+    <div class="motor-toggle-wrap">
+      <span class="motor-toggle-nom motor-toggle-nom-esq" id="motor-text-nom-aina">AINA</span>
+      <label class="motor-toggle">
+        <input type="checkbox" id="motor-text-toggle" onchange="canviaMotor('text', this.checked)">
+        <span class="motor-toggle-slider"></span>
+      </label>
+      <span class="motor-toggle-nom motor-toggle-nom-dret" id="motor-text-nom-claude">Claude Sonnet</span>
+    </div>
   </div>
+
+  <!-- Text descriptiu dinàmic segons motor -->
+  <p class="motor-descripcio" id="motor-descripcio-text">Eina de traducció automàtica neuronal basada en el motor TAN aina-translator-ca-es desenvolupat pel LangTechLab del BSC-CNS en el marc del Projecte Aina i afinat contínuament pel Servei de Llengües i Política Lingüística de la UV.</p>
 
   <div class="panells">
     <!-- Panell esquerre: castellà -->
@@ -96,8 +78,6 @@
       <textarea class="textarea" id="origen"
         placeholder="Escriu o enganxa el text en castellà..."
         oninput="actualComp()"></textarea>
-      <!-- CANVI 3 · Avís criteris lingüístics -->
-      <div class="avis-criteri">⚠ Traduccions fetes d'acord amb els criteris lingüístics per als usos institucionals de les universitats públiques valencianes.</div>
       <!-- CANVI 5A · Comptador inferior -->
       <div class="comp-bar"><span id="comp-orig">0 paraules</span></div>
       <div class="accions">
@@ -128,10 +108,28 @@
       </div>
     </div>
   </div>
+  <!-- Avís criteris lingüístics (sota els panells) -->
+  <div class="avis-criteri">⚠ Traduccions fetes d'acord amb els Criteris lingüístics per als usos institucionals de les universitats valencianes, a partir dels corpus normatius de l'IEC i l'AVL.</div>
 </section>
 
 <!-- ═══ SECCIÓ 2 · Traducció de documents ══════════════════════════════════ -->
 <section class="seccio" id="s-traduccio-docs">
+
+  <!-- Toggle motor de traducció per a documents -->
+  <div class="motor-toggle-bar" id="motor-selector-docs">
+    <span class="motor-toggle-label">Motor de traducció:</span>
+    <div class="motor-toggle-wrap">
+      <span class="motor-toggle-nom motor-toggle-nom-esq" id="motor-docs-nom-aina">AINA</span>
+      <label class="motor-toggle">
+        <input type="checkbox" id="motor-docs-toggle" onchange="canviaMotor('docs', this.checked)">
+        <span class="motor-toggle-slider"></span>
+      </label>
+      <span class="motor-toggle-nom motor-toggle-nom-dret" id="motor-docs-nom-claude">Claude Sonnet</span>
+    </div>
+  </div>
+
+  <!-- Text descriptiu dinàmic segons motor -->
+  <p class="motor-descripcio" id="motor-descripcio-docs">Eina de traducció automàtica neuronal basada en el motor TAN aina-translator-ca-es desenvolupat pel LangTechLab del BSC-CNS en el marc del Projecte Aina i afinat contínuament pel Servei de Llengües i Política Lingüística de la UV.</p>
 
   <!-- CANVI 5B · Zona càrrega documents -->
   <div class="upload-area" id="upload-area-td"
@@ -196,6 +194,8 @@
     </div>
     <button class="btn-descarrega" id="btnDesc-td">⬇️ Descarrega</button>
   </div>
+  <!-- Avís criteris lingüístics -->
+  <div class="avis-criteri">⚠ Traduccions fetes d'acord amb els Criteris lingüístics per als usos institucionals de les universitats valencianes, a partir dels corpus normatius de l'IEC i l'AVL.</div>
 </section>
 
 <!-- ═══ SECCIÓ 4 · Correcció/postedició de documents en valencià ════════════ -->
@@ -354,20 +354,26 @@
     <div class="correccio-tabs">
       <button class="correccio-tab-btn correccio-tab-activa"
               id="ctab-text"
-              onclick="activaCorrecciöTab('text')">
+              onclick="activaCorreccioTab('text')">
         📄 Text corregit
       </button>
       <button class="correccio-tab-btn"
               id="ctab-lt"
-              onclick="activaCorrecciöTab('lt')">
+              onclick="activaCorreccioTab('lt')">
         🔡 LanguageTool
         <span class="correccio-badge" id="badge-lt">0</span>
       </button>
       <button class="correccio-tab-btn"
               id="ctab-cl"
-              onclick="activaCorrecciöTab('cl')">
+              onclick="activaCorreccioTab('cl')">
         🤖 Claude Sonnet
         <span class="correccio-badge" id="badge-cl">0</span>
+      </button>
+      <button class="correccio-tab-btn"
+              id="ctab-taula"
+              onclick="activaCorreccioTab('taula')">
+        📊 Taula detallada
+        <span class="correccio-badge" id="badge-taula">0</span>
       </button>
     </div>
 
@@ -409,7 +415,16 @@
       <div id="correccio-cl-llista" class="correccio-llista"></div>
     </div>
 
+    <!-- Pestanya: Taula de correccions (nova, format estructurat) -->
+    <div id="cpanel-taula" class="correccio-panel" style="display:none">
+      <div id="correccio-taula-contingut"></div>
+      <div id="correccio-resum-estadistic"></div>
+    </div>
+
   </div><!-- /correccio-resultats -->
+
+  <!-- Avís criteris lingüístics -->
+  <div class="avis-criteri">⚠ Correccions aplicades d'acord amb els Criteris lingüístics per als usos institucionals de les universitats valencianes, a partir dels corpus normatius de l'IEC i l'AVL.</div>
 
 </div><!-- /correccio-container -->
 </section>
@@ -466,7 +481,7 @@
             id="btn-traduir-imatge">
       🔄 Traduir imatge
     </button>
-    <button onclick="descarregaImattgesTradudes()" class="btn-secondary"
+    <button onclick="descarregaImatgesTradudes()" class="btn-secondary"
             id="btn-descarregar-imatge" style="display:none">
       ⬇ Descarregar imatge traduïda
     </button>
@@ -718,11 +733,8 @@
     <!-- Missatge d'estat -->
     <div id="angles-missatge" class="correccio-missatge" style="display:none"></div>
 
-    <!-- Nota implementació -->
-    <div class="angles-nota-implementacio">
-      <p>⚠️ <strong>Nota:</strong> Aquesta pestanya està en fase de desenvolupament.
-      La traducció anglès ↔ valencià s'implementarà properament amb el motor adequat.</p>
-    </div>
+    <!-- Avís criteris lingüístics -->
+    <div class="avis-criteri">⚠ Traduccions fetes d'acord amb els Criteris lingüístics per als usos institucionals de les universitats valencianes, a partir dels corpus normatius de l'IEC i l'AVL.</div>
 
   </div>
 </div>
@@ -730,10 +742,9 @@
 </div><!-- /.tan-main -->
 
 <footer class="tan-footer">
-  <strong>Motor TAN</strong> · Servei de Llengües i Política Lingüística ·
-  <a href="https://www.uv.es/slpl" target="_blank" rel="noopener">Universitat de València</a>
-  · Assessorament Lingüístic<br>
-  Traducció automàtica neuronal castellà → valencià normatiu universitari
+  <div class="footer-text">Entorn TAN UV · Servei de Llengües i Política Lingüística · <a href="https://www.uv.es/slpl" target="_blank" rel="noopener">Universitat de València</a> · Secció d'Assessorament Lingüístic</div>
+  <div class="footer-text-secundari">Traducció automàtica neuronal castellà → valencià normatiu universitari i anglès ↔ valencià normatiu universitari</div>
+  <div class="footer-text-copyright">©SLPL UV 2026. Tots els drets reservats.</div>
 </footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
