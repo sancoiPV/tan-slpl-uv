@@ -365,6 +365,7 @@ def _reinicia_stats_si_cal() -> None:
         log.info("Comptadors diaris reiniciats per al dia %s", avui)
 
 
+# NOTA: _get_model() ja no s'utilitza perquè _tradueix_text() crida el servidor CTranslate2 (port 5001).
 def _get_model():
     """Carrega el model i el tokenitzador de forma mandrosa (lazy loading)."""
     global _tokenizer, _model
@@ -393,9 +394,8 @@ def _get_model():
 
 
 def _tradueix_text(text: str) -> str:
-    """Tradueix un text castella->catala oracio per oracio."""
-    tokenizer, model = _get_model()
-    # Divideix per paragrafs
+    """Tradueix un text castellà→català usant el servidor CTranslate2 (port 5001)."""
+    import requests as _req
     paragrafs = text.split("\n")
     resultats = []
     for paragraf in paragrafs:
@@ -403,28 +403,16 @@ def _tradueix_text(text: str) -> str:
         if not paragraf:
             resultats.append("")
             continue
-        # Divideix per oracions (punt/interrogant/exclamacio + espai)
-        oracions = re.split(r"(?<=[.?!])\s+", paragraf)
-        traduccions = []
-        for oracio in oracions:
-            oracio = oracio.strip()
-            if not oracio:
-                continue
-            entrades = tokenizer(
-                [oracio],
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=512,
+        try:
+            resp = _req.post(
+                "http://127.0.0.1:5001/translate",
+                json={"text": paragraf, "src": "es", "tgt": "ca"},
+                timeout=60,
             )
-            sortides = model.generate(
-                **entrades,
-                num_beams=4,
-                max_length=512,
-                early_stopping=True,
-            )
-            traduccions.append(tokenizer.decode(sortides[0], skip_special_tokens=True))
-        resultats.append(" ".join(traduccions))
+            resp.raise_for_status()
+            resultats.append(resp.json().get("translation", paragraf))
+        except Exception:
+            resultats.append(paragraf)
     return "\n".join(resultats)
 
 def _compta_paraules(text: str) -> int:
@@ -1027,7 +1015,36 @@ PROMPT_TRADUCCIO_IMATGE_DEFAULT = (
     "disposició, distribució i separació del text, grafisme, tipografia, fons, disseny, "
     "icones, estructura, colors, tipus i grandària de les fonts, espaiat, imatges, etc.) "
     "però amb tot el text traduït al català valencià i amb el menor pes de fitxer possible, "
-    "sempre preservant-ne una resolució òptima i la màxima llegibilitat del text."
+    "sempre preservant-ne una resolució òptima i la màxima llegibilitat del text. "
+    "Pel que fa al model de llengua a usar, recorda que has de traduir al valencià formal "
+    "universitari, d'acord amb els criteris lingüístics per als usos institucionals de les "
+    "universitats valencianes, els quals s'adjunten: demostratius reforçats (aquest, aquesta, "
+    "aquests i aquestes), terminacions de verbs incoatius en -eix (divideix, parteix, segueix, "
+    "etc.), el futur simple NO es pot usar per a expressar obligatorietat, sinó que per a "
+    "aquests casos s'usa el present simple (per exemple, \"el tribunal està format pel "
+    "president i cinc vocals\", i no \"el tribunal *estarà format pel president i cinc "
+    "vocals\") o la perífrasi d'obligació \"haver de + infinitiu\" (per exemple, \"els equips "
+    "han d'estar formats per cinc membres\", i no \"els equips *estaran formats per cinc "
+    "membres\"), i tota la resta de criteris normatius que conformen els esmentats criteris "
+    "lingüístics. En casos de doblets lèxics o geosinònims (com ara \"bresquilla/préssec\", "
+    "\"xic/noi\", \"tomaca/tomàquet\", \"eixir/sortir\", \"espill/mirall\" o \"redó/rodó\", "
+    "entre molts d'altres), has de triar sempre la primera opció, l'opció valenciana. "
+    "Particularment important: el participi preferent del verb \"ser\" és \"sigut\" (mai "
+    "\"estat\"); per a expressar finalitat, la locució preferent és \"per a + infinitiu\" "
+    "(no \"per + infinitiu\"); la preposició \"de\" s'apostrofa sempre davant de vocal o h "
+    "muda (d'art, d'història, d'eines); cal evitar l'ús abusiu del possessiu (seu/seua) "
+    "substituint-lo pel pronom feble \"en\" quan el posseïdor ja és clar pel context; els "
+    "plurals dels mots acabats en -sc, -st, -xt i -ig es fan preferentment en -os (textos, "
+    "gustos, discos, rojos); els infinitius preferents són tenir, venir, cabre; les formes "
+    "de l'imperfet de subjuntiu preferents són les que contenen -ra (cantara, perdera, "
+    "servira); els possessius preferents són els que contenen -u- (meua, teua, seua); i els "
+    "numerals preferents són vuit, disset, divuit, dinou, cinquè, sisè, desè. En cas de "
+    "dubte, aplica sempre les formes recomanades pels Criteris lingüístics per als usos "
+    "institucionals de les universitats valencianes. Sempre que pugues, prefereix servei (no "
+    "servici), ordre (no orde), vacances (no vacacions), veure (no vore), desenvolupar (no "
+    "desenrotllar), eina (no ferramenta), mentre (no mentres), endemà (no sendemà), meitat "
+    "(no mitat), avui (no hui), aprendre (no dependre), judici (no juí), defensar (no "
+    "defendre) i petit (no xicotet)."
 )
 
 
