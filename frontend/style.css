@@ -392,6 +392,16 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 }
 .btn-descarrega:hover { opacity: .9; }
 
+/* ─── Botó extracció imatges del document ─────────────────────────────────── */
+#btn-extreu-imatges-doc {
+  margin-top: 8px;
+  border-color: var(--uv-blau-accent, #0082C5);
+  color: var(--uv-blau-accent, #0082C5);
+}
+#btn-extreu-imatges-doc:hover {
+  background: rgba(0, 130, 197, 0.08);
+}
+
 /* ─── CANVI 7 · Secció imatges ─────────────────────────────────────────────── */
 .imatge-area {
   background: var(--uv-blanc);

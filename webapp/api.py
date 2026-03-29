@@ -765,6 +765,82 @@ def _tradueix_fitxer_xml(
     return total_par
 
 
+# ─── Endpoint: POST /extreu-imatges-document ─────────────────────────────────
+
+@app.post(
+    "/extreu-imatges-document",
+    summary="Extreu les imatges incrustades d'un document .docx o .pptx",
+    tags=["Traducció"],
+)
+async def extreu_imatges_document(
+    fitxer: UploadFile = File(..., description="Fitxer .docx o .pptx"),
+) -> Response:
+    """
+    Rep un document .docx o .pptx, n'extreu totes les imatges incrustades
+    (.png, .jpg, .jpeg, .gif, .bmp, .tiff) i les retorna com un fitxer ZIP.
+    """
+    nom = fitxer.filename or "document"
+    extensio = Path(nom).suffix.lower()
+    if extensio not in (".docx", ".pptx"):
+        raise HTTPException(status_code=415, detail="Només .docx i .pptx.")
+
+    contingut = await fitxer.read()
+    if len(contingut) > MAX_MIDA_FITXER:
+        raise HTTPException(status_code=413, detail="Fitxer massa gran.")
+
+    log.info("POST /extreu-imatges-document — '%s' %.1f KB", nom, len(contingut) / 1024)
+
+    import zipfile as _zf
+
+    extensions_imatge = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif')
+    imatges = []
+
+    try:
+        with _zf.ZipFile(io.BytesIO(contingut)) as z:
+            for entry in z.namelist():
+                entry_lower = entry.lower()
+                # En .docx les imatges estan a word/media/
+                # En .pptx les imatges estan a ppt/media/
+                if '/media/' in entry_lower and any(entry_lower.endswith(ext) for ext in extensions_imatge):
+                    nom_imatge = Path(entry).name
+                    dades_imatge = z.read(entry)
+                    imatges.append((nom_imatge, dades_imatge))
+    except Exception as exc:
+        log.exception("Error extraient imatges de '%s': %s", nom, exc)
+        raise HTTPException(status_code=500, detail=f"Error extraient imatges: {exc}")
+
+    if not imatges:
+        raise HTTPException(
+            status_code=404,
+            detail="No s'han trobat imatges incrustades en aquest document.",
+        )
+
+    log.info("Extretes %d imatges de '%s'", len(imatges), nom)
+
+    # Crea un ZIP amb totes les imatges
+    buffer_zip = io.BytesIO()
+    nom_base = Path(nom).stem
+    with _zf.ZipFile(buffer_zip, 'w', _zf.ZIP_DEFLATED) as zout:
+        for i, (nom_img, dades_img) in enumerate(imatges, 1):
+            # Renombra per claredat: imatge_01_nom.png
+            ext_img = Path(nom_img).suffix
+            nom_net = f"imatge_{i:02d}{ext_img}"
+            zout.writestr(nom_net, dades_img)
+
+    buffer_zip.seek(0)
+    nom_zip = f"Imatges_del_document_{nom_base}.zip"
+
+    return Response(
+        content=buffer_zip.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{nom_zip}"',
+            "Content-Length": str(len(buffer_zip.getvalue())),
+            "X-Num-Imatges": str(len(imatges)),
+        },
+    )
+
+
 # ─── Endpoint: GET /dominis-amb-glossari ─────────────────────────────────────
 
 @app.get(

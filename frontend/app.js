@@ -271,6 +271,14 @@ async function seleccionaFitxer(fitxer, mode) {
   // Mostra el selector de domini quan es carrega un fitxer per a traducció
   if (mode === 'traduccio') mostraDocDominiSelector();
 
+  // Mostra/amaga el botó d'extracció d'imatges (només en traducció i per .docx/.pptx)
+  if (mode === 'traduccio') {
+    const btnExtreu = document.getElementById('btn-extreu-imatges-doc');
+    if (btnExtreu) btnExtreu.style.display = ['docx', 'pptx'].includes(ext) ? 'inline-block' : 'none';
+    const msgImatges = document.getElementById('missatge-imatges-doc');
+    if (msgImatges) msgImatges.style.display = 'none';
+  }
+
   // Estadístiques PPTX (anàlisi al navegador sense servidor)
   const statsContainerId = `pptx-stats-${s}`;
   const statsContainer = document.getElementById(statsContainerId);
@@ -288,6 +296,117 @@ async function seleccionaFitxer(fitxer, mode) {
           stats.totalWords.toLocaleString('ca-ES') + ' paraules (incl. notes)</strong>';
       })
       .catch(() => { /* en cas d'error, simplement no mostrem les estadístiques */ });
+  }
+}
+
+// ─── Extreu i tradueix imatges d'un document .docx/.pptx ─────────────────────
+async function extreuITradueIxImatges() {
+  const fitxer = fitxerActualTd;
+  if (!fitxer) {
+    alert("Primer has d'apujar un document.");
+    return;
+  }
+
+  const btn = document.getElementById('btn-extreu-imatges-doc');
+  const msgDiv = document.getElementById('missatge-imatges-doc');
+  btn.disabled = true;
+  btn.textContent = '⏳ Extraient imatges...';
+
+  try {
+    // 1. Enviar el document al backend per extraure'n les imatges
+    const baseUrl = await TAN.getUrlAvancada();
+    const formData = new FormData();
+    formData.append('fitxer', fitxer);
+
+    const resp = await fetch(`${baseUrl}/extreu-imatges-document`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      if (resp.status === 404) {
+        msgDiv.textContent = "⚠ No s'han trobat imatges incrustades en aquest document.";
+        msgDiv.style.display = 'block';
+        return;
+      }
+      throw new Error(err.detail || 'Error del servidor');
+    }
+
+    // 2. Descarregar el ZIP amb les imatges
+    const blob = await resp.blob();
+    const numImatges = parseInt(resp.headers.get('X-Num-Imatges') || '0');
+    const nomZip = (resp.headers.get('Content-Disposition') || '').match(/filename="(.+?)"/)?.[1]
+                   || 'Imatges_del_document.zip';
+
+    const urlBlob = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = urlBlob;
+    a.download = nomZip;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(urlBlob);
+
+    // 3. Extraure les imatges del ZIP i enviar-les a traduir via Gemini
+    btn.textContent = '⏳ Enviant imatges a traduir...';
+
+    if (typeof JSZip !== 'undefined') {
+      const zip = await JSZip.loadAsync(blob);
+      const fitxersImatge = Object.keys(zip.files).filter(
+        nom => /\.(png|jpe?g|gif|bmp|tiff?)$/i.test(nom)
+      );
+
+      for (const nomImg of fitxersImatge) {
+        const imatgeBlob = await zip.files[nomImg].async('blob');
+
+        // Converteix a base64 per enviar a /tradueix-imatge (format JSON)
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(imatgeBlob);
+        });
+
+        // Detecta el tipus MIME
+        const extLower = nomImg.split('.').pop().toLowerCase();
+        const tipusMime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+                            gif: 'image/gif', bmp: 'image/bmp', tiff: 'image/tiff',
+                            tif: 'image/tiff' }[extLower] || 'image/png';
+
+        try {
+          await fetch(`${baseUrl}/tradueix-imatge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imatge_base64: base64,
+              tipus_mime: tipusMime,
+              prompt_addicional: '',
+              mode: 'traduccio',
+            }),
+          });
+        } catch (e) {
+          console.warn('Error enviant imatge a traduir:', nomImg, e);
+        }
+      }
+    }
+
+    // 4. Mostrar missatge informatiu
+    msgDiv.innerHTML = '🖼 <strong>Imatges amb text detectades i enviades al Nano Banana Pro '
+      + 'per a fer-ne la traducció.</strong> Per a recollir-ne la versió traduïda, aneu a la '
+      + 'pestanya <a href="#" onclick="mostra(\'imatges\', document.querySelector(\'button.nav-btn'
+      + '[onclick*=imatges]\')); return false;" style="color:var(--uv-blau-accent,#0082C5);'
+      + 'text-decoration:underline;font-weight:600;">Traducció d\'imatges amb text</a>.';
+    msgDiv.style.display = 'block';
+
+  } catch (e) {
+    if (msgDiv) {
+      msgDiv.textContent = '❌ Error: ' + e.message;
+      msgDiv.style.display = 'block';
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🖼 Descarregar i traduir imatges amb text';
   }
 }
 
@@ -310,6 +429,9 @@ async function processaFitxerActual(mode) {
   // Amaga info i resultat, mostra progrés
   document.getElementById('fitxer-info-' + s).style.display = 'none';
   document.getElementById('resCard-'     + s).style.display = 'none';
+  // Amaga botó d'extracció d'imatges durant la traducció
+  const _btnExtreu = document.getElementById('btn-extreu-imatges-doc');
+  if (_btnExtreu) _btnExtreu.style.display = 'none';
   const pc = document.getElementById('progCont-' + s);
   pc.style.display = 'block';
 
