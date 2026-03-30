@@ -256,6 +256,19 @@
     </label>
   </div>
 
+  <!-- Selector de domini lingüístic per a correcció -->
+  <div style="margin: 12px 0;">
+    <label style="font-size:13px; font-weight:600; color:var(--uv-blau-principal, #002E52);">
+      📚 Domini lingüístic d'especialitat
+    </label>
+    <select id="correccio-domini" style="display:block; margin-top:4px; padding:8px 12px; border:1.5px solid #A6B3BD; border-radius:6px; font-size:13px; min-width:250px; width:100%; max-width:400px;">
+      <!-- Es carregarà dinàmicament amb JS -->
+    </select>
+    <p style="font-size:11px; color:#6A7A9B; margin-top:4px;">
+      Si seleccioneu un domini, la correcció aplicarà automàticament el glossari d'especialitat corresponent.
+    </p>
+  </div>
+
   <!-- Textarea d'entrada -->
   <div class="correccio-entrada-bloc">
     <label class="correccio-label" for="correccio-textarea">
@@ -595,10 +608,15 @@
           <textarea id="glossari-text-original" rows="6"
             style="width:100%; border:1.5px solid #A6B3BD; border-radius:6px; padding:10px; font-size:13px; box-sizing:border-box; resize:vertical;"
             placeholder="Enganxeu ací el text original en castellà..."></textarea>
-          <p style="font-size:11px; color:#6A7A9B; margin-top:4px;">
-            O bé: <input type="file" id="glossari-fitxer-original" accept=".docx,.txt"
-            style="font-size:11px;" onchange="carregaFitxerGlossari(this, 'glossari-text-original')">
-          </p>
+          <div style="margin-top:8px;">
+            <input type="file" id="glossari-fitxer-original" accept=".docx,.pptx,.txt,.rtf"
+              style="display:none;"
+              onchange="carregaFitxerGlossari(this, 'glossari-text-original')">
+            <button onclick="document.getElementById('glossari-fitxer-original').click()"
+              class="btn-secondary" style="font-size:14px; padding:10px 20px; font-weight:600;">
+              📄 Apuja el text original en castellà
+            </button>
+          </div>
         </div>
 
         <!-- Traducció -->
@@ -609,10 +627,15 @@
           <textarea id="glossari-text-traduccio" rows="6"
             style="width:100%; border:1.5px solid #A6B3BD; border-radius:6px; padding:10px; font-size:13px; box-sizing:border-box; resize:vertical;"
             placeholder="Enganxeu ací la traducció al valencià ja revisada..."></textarea>
-          <p style="font-size:11px; color:#6A7A9B; margin-top:4px;">
-            O bé: <input type="file" id="glossari-fitxer-traduccio" accept=".docx,.txt"
-            style="font-size:11px;" onchange="carregaFitxerGlossari(this, 'glossari-text-traduccio')">
-          </p>
+          <div style="margin-top:8px;">
+            <input type="file" id="glossari-fitxer-traduccio" accept=".docx,.pptx,.txt,.rtf"
+              style="display:none;"
+              onchange="carregaFitxerGlossari(this, 'glossari-text-traduccio')">
+            <button onclick="document.getElementById('glossari-fitxer-traduccio').click()"
+              class="btn-secondary" style="font-size:14px; padding:10px 20px; font-weight:600;">
+              📄 Apuja el text traduït al valencià
+            </button>
+          </div>
         </div>
       </div>
 
@@ -916,87 +939,118 @@
     Selecció de recursos lingüístics en línia per a la traducció, correcció i consulta terminològica en català/valencià. Tots els enllaços s'obrin en una pestanya nova.
   </p>
 
-  <div style="display:flex; flex-direction:column; gap:10px; max-width:700px;">
+  <div class="eines-mosaic">
 
-    <a href="https://www.iec.cat/recursos-linguistics-en-linia/" target="_blank" rel="noopener"
-       class="eina-llengua-link">
-      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
-      <div>
-        <strong style="font-size:15px;">Recursos lingüístics en línia de l'IEC</strong>
-        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Institut d'Estudis Catalans — Portal de recursos</p>
-      </div>
+    <!-- 1. Criteris Assessorament SLPL UV -->
+    <a href="https://universitatdevalencia.sharepoint.com/:x:/r/sites/SeccidAssessoramentiTraducci2/_layouts/15/Doc.aspx?sourcedoc=%7B722D3CFC-C3C0-4BD7-A421-5EB8D825E3AD%7D&amp;file=Criteris_Assessorament.xlsx&amp;action=default&amp;mobileredirect=true" target="_blank" rel="noopener" class="eina-card eina-card-destacat">
+      <img src="https://www.uv.es/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23F5A800%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📋</text></svg>'">
+      <strong class="eina-titol">Criteris Assessorament SLPL UV</strong>
+      <span class="eina-desc">SLPL UV — Criteris interns</span>
     </a>
 
-    <a href="https://aplicacions.llengua.gencat.cat/llc/AppJava/index.html" target="_blank" rel="noopener"
-       class="eina-llengua-link">
-      <img src="https://aplicacions.llengua.gencat.cat/llc/AppJava/img/optimot.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
-      <div>
-        <strong style="font-size:15px;">Optimot</strong>
-        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Generalitat de Catalunya — Consultes lingüístiques</p>
-      </div>
+    <!-- 2. Optimot -->
+    <a href="https://aplicacions.llengua.gencat.cat/llc/AppJava/index.html" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://aplicacions.llengua.gencat.cat/llc/AppJava/img/optimot.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%232E7D32%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📖</text></svg>'">
+      <strong class="eina-titol">Optimot</strong>
+      <span class="eina-desc">Generalitat de Catalunya — Consultes lingüístiques</span>
     </a>
 
-    <a href="https://www.termcat.cat/ca/cercaterm" target="_blank" rel="noopener"
-       class="eina-llengua-link">
-      <img src="https://www.termcat.cat/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
-      <div>
-        <strong style="font-size:15px;">Cercaterm</strong>
-        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">TERMCAT — Cerca terminològica en català</p>
-      </div>
+    <!-- 3. Cercaterm -->
+    <a href="https://www.termcat.cat/ca/cercaterm" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.termcat.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%230082C5%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>🔍</text></svg>'">
+      <strong class="eina-titol">Cercaterm</strong>
+      <span class="eina-desc">TERMCAT — Cerca terminològica en català</span>
     </a>
 
-    <a href="https://dlc.iec.cat/" target="_blank" rel="noopener"
-       class="eina-llengua-link">
-      <img src="https://dlc.iec.cat/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
-      <div>
-        <strong style="font-size:15px;">DIEC — Diccionari de la llengua catalana</strong>
-        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Institut d'Estudis Catalans — Diccionari normatiu</p>
-      </div>
+    <!-- 4. DIEC2 -->
+    <a href="https://dlc.iec.cat/" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://dlc.iec.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23234E83%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📚</text></svg>'">
+      <strong class="eina-titol">DIEC2</strong>
+      <span class="eina-desc">Institut d'Estudis Catalans — Diccionari normatiu</span>
     </a>
 
-    <a href="https://www.avl.gva.es/lexicval/" target="_blank" rel="noopener"
-       class="eina-llengua-link">
-      <img src="https://www.avl.gva.es/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
-      <div>
-        <strong style="font-size:15px;">DNV — Diccionari normatiu valencià</strong>
-        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Acadèmia Valenciana de la Llengua</p>
-      </div>
+    <!-- 5. DNV -->
+    <a href="https://www.avl.gva.es/lexicval/" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.avl.gva.es/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23C62828%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📕</text></svg>'">
+      <strong class="eina-titol">DNV</strong>
+      <span class="eina-desc">Acadèmia Valenciana de la Llengua — Diccionari normatiu</span>
     </a>
 
-    <a href="https://www.softcatala.org/diccionari-de-sinonims/" target="_blank" rel="noopener"
-       class="eina-llengua-link">
-      <img src="https://www.softcatala.org/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
-      <div>
-        <strong style="font-size:15px;">Diccionari de sinònims</strong>
-        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Softcatalà — Sinònims i antònims en català</p>
-      </div>
+    <!-- 6. Diccionari de sinònims -->
+    <a href="https://www.softcatala.org/diccionari-de-sinonims/" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.softcatala.org/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23FF6F00%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>🔤</text></svg>'">
+      <strong class="eina-titol">Diccionari de sinònims</strong>
+      <span class="eina-desc">Softcatalà — Sinònims i antònims en català</span>
     </a>
 
-    <a href="https://giec.iec.cat/inici" target="_blank" rel="noopener"
-       class="eina-llengua-link">
-      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
-      <div>
-        <strong style="font-size:15px;">GIEC — Gramàtica de la llengua catalana</strong>
-        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Institut d'Estudis Catalans — Gramàtica normativa</p>
-      </div>
+    <!-- 7. Recursos lingüístics IEC -->
+    <a href="https://www.iec.cat/recursos-linguistics-en-linia/" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23234E83%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>🔗</text></svg>'">
+      <strong class="eina-titol">Recursos lingüístics IEC</strong>
+      <span class="eina-desc">Institut d'Estudis Catalans — Portal de recursos</span>
     </a>
 
-    <a href="https://oiec.iec.cat/inici" target="_blank" rel="noopener"
-       class="eina-llengua-link">
-      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
-      <div>
-        <strong style="font-size:15px;">OIEC — Ortografia de la llengua catalana</strong>
-        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Institut d'Estudis Catalans — Ortografia normativa</p>
-      </div>
+    <!-- 8. GIEC -->
+    <a href="https://giec.iec.cat/inici" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23234E83%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📗</text></svg>'">
+      <strong class="eina-titol">GIEC</strong>
+      <span class="eina-desc">Institut d'Estudis Catalans — Gramàtica normativa</span>
     </a>
 
-    <a href="https://www.avl.gva.es/gnv/buscador.jsp" target="_blank" rel="noopener"
-       class="eina-llengua-link">
-      <img src="https://www.avl.gva.es/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
-      <div>
-        <strong style="font-size:15px;">Gramàtiques Normatives Valencianes</strong>
-        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Acadèmia Valenciana de la Llengua — GNV</p>
-      </div>
+    <!-- 9. OIEC -->
+    <a href="https://oiec.iec.cat/inici" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23234E83%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>✏️</text></svg>'">
+      <strong class="eina-titol">OIEC</strong>
+      <span class="eina-desc">Institut d'Estudis Catalans — Ortografia normativa</span>
+    </a>
+
+    <!-- 10. Critèria -->
+    <a href="https://criteria.iec.cat/" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://criteria.iec.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23234E83%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>✅</text></svg>'">
+      <strong class="eina-titol">Critèria</strong>
+      <span class="eina-desc">Institut d'Estudis Catalans — Espai de correcció</span>
+    </a>
+
+    <!-- 11. CTILC -->
+    <a href="https://ctilc.iec.cat/scripts/" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23234E83%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📊</text></svg>'">
+      <strong class="eina-titol">CTILC</strong>
+      <span class="eina-desc">IEC — Corpus Textual Informatitzat de la Llengua Catalana</span>
+    </a>
+
+    <!-- 12. GNV -->
+    <a href="https://www.avl.gva.es/gnv/buscador.jsp" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.avl.gva.es/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23C62828%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📘</text></svg>'">
+      <strong class="eina-titol">GNV</strong>
+      <span class="eina-desc">Acadèmia Valenciana de la Llengua — Gramàtiques normatives</span>
+    </a>
+
+    <!-- 13. Portal Terminològic Valencià -->
+    <a href="https://www.avl.gva.es/lexicval/ptv" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.avl.gva.es/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23C62828%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>🏷️</text></svg>'">
+      <strong class="eina-titol">Portal Terminològic Valencià</strong>
+      <span class="eina-desc">Acadèmia Valenciana de la Llengua — PTV</span>
+    </a>
+
+    <!-- 14. CiVal -->
+    <a href="http://cival.avl.gva.es/cival/buscador.jsp" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.avl.gva.es/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23C62828%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📄</text></svg>'">
+      <strong class="eina-titol">CiVal</strong>
+      <span class="eina-desc">AVL — Corpus Informatitzat del Valencià</span>
+    </a>
+
+    <!-- 15. ÉsAdir -->
+    <a href="https://esadir.cat/" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://esadir.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23E65100%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📺</text></svg>'">
+      <strong class="eina-titol">ÉsAdir</strong>
+      <span class="eina-desc">Corporació Catalana de Mitjans Audiovisuals — Llibre d'estil</span>
+    </a>
+
+    <!-- 16. Manual d'Estil IEC -->
+    <a href="https://estil.iec.cat/index.html" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23234E83%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📝</text></svg>'">
+      <strong class="eina-titol">Manual d'Estil IEC</strong>
+      <span class="eina-desc">Institut d'Estudis Catalans — Guia d'estil</span>
     </a>
 
   </div>

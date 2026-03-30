@@ -28,6 +28,7 @@ import secrets
 import shutil
 import sys
 import tempfile
+import unicodedata
 import time
 import uuid
 import zipfile
@@ -170,6 +171,7 @@ DOMINIS = [
     "Filosofia",
     "Física",
     "Formació del professorat i Ciències de l'Educació",
+    "Formularis",
     "Geografia",
     "Història i Antropologia",
     "Informàtica i Noves Tecnologies",
@@ -183,6 +185,7 @@ DOMINIS = [
     "Psicologia",
     "Química",
     "Salut Laboral i Prevenció de Riscos",
+    "Textos administratius",
 ]
 
 # Mapa de noms de domini obsolets → nous (per a migració de fitxers TSV)
@@ -288,22 +291,58 @@ def desa_glossari(domini: str, entrades: list[dict]) -> None:
 def genera_nom_traduit(nom_original: str) -> str:
     """
     Genera el nom del fitxer traduït afegint el sufix _VAL.
+    (Funció antiga conservada per compatibilitat. Usa genera_nom_arxiu().)
+    """
+    return genera_nom_arxiu(nom_original, sufix="VAL")
 
-    Si el nom conté _CAS (sense distingir majúscules/minúscules),
-    el substitueix per _VAL. En cas contrari, afegeix _VAL just
-    abans de l'extensió.
+
+def genera_nom_arxiu(nom_original: str, domini: str = "", sufix: str = "VAL") -> str:
+    """
+    Genera el nom de l'arxiu traduït/corregit seguint la regla:
+    nom_sense_accents_DOMINI_SUFIX.ext
+
+    - Elimina accents i caràcters especials
+    - Substitueix espais per guions baixos
+    - Afig el domini en majúscules (si n'hi ha)
+    - Afig el sufix (VAL per defecte)
 
     Exemples:
-      informe_CAS.docx     → informe_VAL.docx
-      text_cas.pptx        → text_VAL.pptx
-      document_Cas.docx    → document_VAL.docx
-      presentacio.pptx     → presentacio_VAL.pptx
+      genera_nom_arxiu("Hàbitats de la papallona.pptx", "Biologia", "VAL")
+        → "Habitats_de_la_papallona_BIOLOGIA_VAL.pptx"
+      genera_nom_arxiu("Acta reunió.docx", "Textos administratius", "CORR_VAL")
+        → "Acta_reunio_TEXTOS_ADMINISTRATIUS_CORR_VAL.docx"
+      genera_nom_arxiu("Conferencia María.docx", "", "VAL")
+        → "Conferencia_Maria_VAL.docx"
     """
-    p = Path(nom_original)
-    stem_nou, n_substitucions = re.subn(r'_cas', '_VAL', p.stem, flags=re.IGNORECASE)
-    if n_substitucions == 0:
-        stem_nou = p.stem + '_VAL'
-    return stem_nou + p.suffix
+    path = Path(nom_original)
+    nom_base = path.stem
+    extensio = path.suffix
+
+    # Elimina accents: à→a, é→e, ñ→n, ç→c, etc.
+    nom_net = unicodedata.normalize('NFKD', nom_base)
+    nom_net = ''.join(c for c in nom_net if not unicodedata.combining(c))
+
+    # Substitueix caràcters especials per guió baix
+    nom_net = re.sub(r'[^a-zA-Z0-9]', '_', nom_net)
+
+    # Elimina guions baixos múltiples
+    nom_net = re.sub(r'_+', '_', nom_net)
+
+    # Elimina guions baixos al principi i al final
+    nom_net = nom_net.strip('_')
+
+    # Construeix el nom final
+    parts = [nom_net]
+    if domini:
+        domini_net = unicodedata.normalize('NFKD', domini.upper())
+        domini_net = ''.join(c for c in domini_net if not unicodedata.combining(c))
+        domini_net = re.sub(r'[^A-Z0-9]', '_', domini_net)
+        domini_net = re.sub(r'_+', '_', domini_net).strip('_')
+        parts.append(domini_net)
+    if sufix:
+        parts.append(sufix)
+
+    return '_'.join(parts) + extensio
 
 
 # ─── Configuració del logging ─────────────────────────────────────────────────
@@ -875,7 +914,7 @@ async def tradueix_document(
     _stats["paraules_avui"] += total_par
     _stats["fitxers_avui"]  += 1
 
-    nom_sortida = genera_nom_traduit(nom_original)
+    nom_sortida = genera_nom_arxiu(nom_original, domini=domini, sufix="VAL")
     log.info(
         "Document traduït en %d ms (%d paraules) → '%s'",
         temps_ms, total_par, nom_sortida,
@@ -1182,7 +1221,7 @@ async def extreu_imatges_document(
         zout.writestr("_manifest.json", manifest)
 
     buffer_zip.seek(0)
-    nom_zip = f"Imatges amb text {nom_base}.zip"
+    nom_zip = f"Imatges amb text_{nom_base}.zip"
 
     return Response(
         content=buffer_zip.getvalue(),
@@ -1346,6 +1385,55 @@ class RespostaGlossari(BaseModel):
 async def llista_dominis():
     """Retorna la llista de dominis temàtics dels glossaris."""
     return {"dominis": DOMINIS}
+
+
+# ─── Desar termes massius al glossari (IMPORTANT: ha d'anar ABANS de /glossari/{domini}) ──
+
+class PeticioDesaGlossariMassiu(BaseModel):
+    domini: str
+    termes: List[Dict[str, Any]]  # [{"es": "...", "va": "..."}]
+
+
+@app.post("/glossari/desa-massiu", tags=["Glossari"],
+          summary="Afig una llista de termes al glossari d'un domini")
+async def desa_glossari_massiu(peticio: PeticioDesaGlossariMassiu):
+    """Afig una llista de termes al glossari d'un domini evitant duplicats."""
+    log.info("DESA GLOSSARI: domini='%s', num_termes=%d, primer_terme=%s",
+             peticio.domini, len(peticio.termes),
+             peticio.termes[0] if peticio.termes else 'cap')
+
+    if peticio.domini not in DOMINIS:
+        raise HTTPException(status_code=404,
+                            detail=f"Domini no trobat: {peticio.domini}")
+
+    path = nom_fitxer_glossari(peticio.domini)
+    entrades = carrega_glossari(peticio.domini) if path.exists() else []
+
+    # Conjunt de termes existents per evitar duplicats (camp 'es' + 'ca')
+    existents = {(e.get("es", "").lower(), e.get("ca", "").lower()) for e in entrades}
+
+    nous = 0
+    for terme in peticio.termes:
+        es = terme.get("es", "").strip()
+        # Accepta tant 'va' com 'ca' del frontend
+        va = terme.get("va", terme.get("ca", "")).strip()
+        if es and va and (es.lower(), va.lower()) not in existents:
+            entrades.append({
+                "es":     es,
+                "ca":     va,           # El camp del TSV és 'ca', no 'va'
+                "tecnic": "extracció automàtica",
+                "data":   date.today().isoformat(),
+                "domini": peticio.domini,
+            })
+            existents.add((es.lower(), va.lower()))
+            nous += 1
+
+    # Desa el glossari actualitzat
+    desa_glossari(peticio.domini, entrades)
+
+    log.info("Glossari '%s': %d termes nous afegits (%d totals)",
+             peticio.domini, nous, len(entrades))
+    return {"ok": True, "nous": nous, "total": len(entrades)}
 
 
 @app.get("/glossari/{domini}", response_model=RespostaGlossari,
@@ -1597,53 +1685,6 @@ async def extreu_glossari(peticio: PeticioExtreuGlossari):
         raise HTTPException(status_code=500,
                             detail=f"Error en l'extracció del glossari: {exc}")
 
-
-# ─── Desar termes massius al glossari ─────────────────────────────────────────
-
-class PeticioDesaGlossariMassiu(BaseModel):
-    domini: str
-    termes: List[Dict[str, Any]]  # [{"es": "...", "va": "..."}]
-
-
-@app.post("/glossari/desa-massiu", tags=["Glossari"],
-          summary="Afig una llista de termes al glossari d'un domini")
-async def desa_glossari_massiu(peticio: PeticioDesaGlossariMassiu):
-    """Afig una llista de termes al glossari d'un domini evitant duplicats."""
-    log.info("POST /glossari/desa-massiu — domini='%s', %d termes rebuts",
-             peticio.domini, len(peticio.termes))
-
-    if peticio.domini not in DOMINIS:
-        raise HTTPException(status_code=404,
-                            detail=f"Domini no trobat: {peticio.domini}")
-
-    path = nom_fitxer_glossari(peticio.domini)
-    entrades = carrega_glossari(peticio.domini) if path.exists() else []
-
-    # Conjunt de termes existents per evitar duplicats (camp 'es' + 'ca')
-    existents = {(e.get("es", "").lower(), e.get("ca", "").lower()) for e in entrades}
-
-    nous = 0
-    for terme in peticio.termes:
-        es = terme.get("es", "").strip()
-        # Accepta tant 'va' com 'ca' del frontend
-        va = terme.get("va", terme.get("ca", "")).strip()
-        if es and va and (es.lower(), va.lower()) not in existents:
-            entrades.append({
-                "es":     es,
-                "ca":     va,           # El camp del TSV és 'ca', no 'va'
-                "tecnic": "extracció automàtica",
-                "data":   date.today().isoformat(),
-                "domini": peticio.domini,
-            })
-            existents.add((es.lower(), va.lower()))
-            nous += 1
-
-    # Desa el glossari actualitzat
-    desa_glossari(peticio.domini, entrades)
-
-    log.info("Glossari '%s': %d termes nous afegits (%d totals)",
-             peticio.domini, nous, len(entrades))
-    return {"ok": True, "nous": nous, "total": len(entrades)}
 
 
 # ─── Traducció d'imatges amb Gemini (Nano Banana Pro) ────────────────────────
@@ -3719,7 +3760,7 @@ async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
             )
 
         temps_ms    = int((time.perf_counter() - inici) * 1000)
-        nom_sortida = Path(nom).stem + "_corregit" + extensió
+        nom_sortida = genera_nom_arxiu(nom, sufix="CORR_VAL")
         log.info(
             "Document corregit en %d ms → '%s' (%d bytes)",
             temps_ms, nom_sortida, len(resultat),
@@ -3905,6 +3946,7 @@ async def tradueix_claude(peticio: PeticioTradueixClaude):
 )
 async def tradueix_document_claude(
     fitxer: UploadFile = File(..., description="Fitxer .docx o .pptx"),
+    domini: str = Form(default="", description="Domini lingüístic per aplicar el glossari."),
 ) -> Response:
     """
     Tradueix un document .docx/.pptx del castellà al valencià estàndard
@@ -3946,6 +3988,18 @@ async def tradueix_document_claude(
 
     try:
         system_blocks, prefix = construeix_prompt_traduccio_es_va()
+
+        # Si hi ha glossari del domini, afig-lo al prefix
+        glossari_domini = carrega_glossari_com_diccionari(domini) if domini else {}
+        if glossari_domini:
+            log.info("Aplicant glossari '%s' (%d termes) a la traducció Claude",
+                     domini, len(glossari_domini))
+            termes_str = "\n".join(f"  {es} → {va}" for es, va in glossari_domini.items())
+            prefix += (
+                f"\n\nGLOSSARI OBLIGATORI del domini '{domini}':\n"
+                f"Has d'usar EXACTAMENT aquests termes en la traducció:\n"
+                f"{termes_str}\n\nTradueix el text següent:\n\n"
+            )
 
         # Funció de traducció per lots (agrupats en blocs de ~800 paraules)
         _SEPARADOR_LOTS = '|||SEGMENT|||'
@@ -4115,7 +4169,7 @@ async def tradueix_document_claude(
             editor_ll.tanca()
 
         temps_ms = int((time.perf_counter() - inici) * 1000)
-        nom_sortida = Path(nom).stem + "_traduit_claude" + extensio
+        nom_sortida = genera_nom_arxiu(nom, domini=domini, sufix="VAL")
 
         mime_types = {
             ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -4156,6 +4210,7 @@ class PeticioCorreccioV2(BaseModel):
     )
     usar_languagetool: bool = Field(default=True)
     usar_claude: bool = Field(default=True)
+    domini: str = Field(default="", description="Domini lingüístic per aplicar el glossari.")
 
 
 @app.post(
@@ -4237,6 +4292,19 @@ async def corregeix_v2(peticio: PeticioCorreccioV2):
 
         try:
             system_blocks, prefix = construeix_prompt_correccio()
+
+            # Si hi ha glossari del domini, afig-lo al prefix
+            glossari_domini = carrega_glossari_com_diccionari(peticio.domini) if peticio.domini else {}
+            if glossari_domini:
+                log.info("Aplicant glossari '%s' (%d termes) a la correcció de text",
+                         peticio.domini, len(glossari_domini))
+                termes_str = "\n".join(f"  {es} → {va}" for es, va in glossari_domini.items())
+                prefix += (
+                    f"\n\nGLOSSARI D'ESPECIALITAT ({peticio.domini}):\n"
+                    f"Si trobes algun d'aquests termes, assegura't que la forma "
+                    f"valenciana correcta és la indicada:\n{termes_str}\n\n"
+                )
+
             resposta_text = await _crida_claude_amb_cache(
                 system_blocks=system_blocks,
                 missatge_usuari=prefix + text_despres_lt,
@@ -4293,6 +4361,7 @@ async def corregeix_v2(peticio: PeticioCorreccioV2):
 )
 async def corregeix_document_v2(
     fitxer: UploadFile = File(..., description="Fitxer .docx o .pptx"),
+    domini: str = Form(default="", description="Domini lingüístic per aplicar el glossari."),
 ):
     """
     Corregeix un document preservant format:
@@ -4334,6 +4403,19 @@ async def corregeix_document_v2(
 
         # Enviar tot el text a Claude per correcció
         system_blocks, prefix = construeix_prompt_correccio()
+
+        # Si hi ha glossari del domini, afig-lo al prefix
+        glossari_domini = carrega_glossari_com_diccionari(domini) if domini else {}
+        if glossari_domini:
+            log.info("Aplicant glossari '%s' (%d termes) a la correcció de document",
+                     domini, len(glossari_domini))
+            termes_str = "\n".join(f"  {es} → {va}" for es, va in glossari_domini.items())
+            prefix += (
+                f"\n\nGLOSSARI D'ESPECIALITAT ({domini}):\n"
+                f"Si trobes algun d'aquests termes, assegura't que la forma "
+                f"valenciana correcta és la indicada:\n{termes_str}\n\n"
+            )
+
         resposta_text = await _crida_claude_amb_cache(
             system_blocks=system_blocks,
             missatge_usuari=prefix + text_complet,
@@ -4368,7 +4450,7 @@ async def corregeix_document_v2(
         editor.tanca()
 
         temps_ms = int((time.perf_counter() - inici) * 1000)
-        nom_sortida = Path(nom).stem + "_corregit" + extensio
+        nom_sortida = genera_nom_arxiu(nom, domini=domini, sufix="CORR_VAL")
 
         # Retornar tot en JSON
         return {
@@ -4543,8 +4625,8 @@ async def tradueix_document_angles(
             editor_ll.tanca()
 
         temps_ms = int((time.perf_counter() - inici) * 1000)
-        sufix = "_en-va" if direccio == "en_va" else "_va-en"
-        nom_sortida = Path(nom).stem + sufix + extensio
+        sufix = "EN_VA" if direccio == "en_va" else "VA_EN"
+        nom_sortida = genera_nom_arxiu(nom, sufix=sufix)
 
         mime_types = {
             ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

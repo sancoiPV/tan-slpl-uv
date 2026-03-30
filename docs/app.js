@@ -949,6 +949,11 @@ async function inicialitzaGlossari() {
         selectExtraccio.appendChild(opt);
       });
     }
+    // Sincronitza el selector de domini de correcció
+    const selectorCorreccio = document.getElementById('correccio-domini');
+    if (selectorCorreccio) {
+      selectorCorreccio.innerHTML = select.innerHTML;
+    }
   } catch (e) {
     console.warn('Glossari no disponible:', e.message);
   }
@@ -1506,6 +1511,7 @@ async function corregeixText() {
     const url  = await TAN.getUrlAvancada();
 
     // Crida al endpoint v2 (correcció millorada amb JSON estructurat)
+    const dominiCorreccio = document.getElementById('correccio-domini')?.value || '';
     const resp = await fetch(`${url}/corregeix-v2`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1513,6 +1519,7 @@ async function corregeixText() {
         text:              text,
         usar_languagetool: usarLT,
         usar_claude:       usarClaude,
+        domini:            dominiCorreccio,
       }),
     });
 
@@ -1842,6 +1849,8 @@ async function corregeixDocument() {
     const url      = await TAN.getUrlAvancada();
     const formData = new FormData();
     formData.append('fitxer', _documentSeleccionat);
+    const dominiCorreccio = document.getElementById('correccio-domini')?.value || '';
+    if (dominiCorreccio) formData.append('domini', dominiCorreccio);
 
     const resp = await fetch(`${url}/corregeix-document`, {
       method: 'POST',
@@ -2582,8 +2591,36 @@ async function carregaFitxerGlossari(input, textareaId) {
     } catch (e) {
       alert('Error llegint el fitxer .docx: ' + e.message);
     }
+  } else if (ext === 'pptx') {
+    try {
+      const JSZipLib = window.JSZip;
+      if (!JSZipLib) { alert('JSZip no disponible'); return; }
+      const zip = await JSZipLib.loadAsync(fitxer);
+
+      const textos = [];
+      // Itera sobre totes les diapositives
+      for (const nom of Object.keys(zip.files)) {
+        if (nom.match(/^ppt\/slides\/slide\d+\.xml$/)) {
+          const xml = await zip.files[nom].async('text');
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(xml, 'text/xml');
+          // Extrau text dels elements <a:t>
+          const ns = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+          const ps = doc.getElementsByTagNameNS(ns, 'p');
+          for (const p of ps) {
+            const ts = p.getElementsByTagNameNS(ns, 't');
+            let textP = '';
+            for (const t of ts) textP += t.textContent || '';
+            if (textP.trim()) textos.push(textP.trim());
+          }
+        }
+      }
+      document.getElementById(textareaId).value = textos.join('\n');
+    } catch (e) {
+      alert('Error llegint el fitxer .pptx: ' + e.message);
+    }
   } else {
-    alert('Format no admès. Useu .txt o .docx.');
+    alert('Format no admès. Useu .txt, .docx o .pptx.');
   }
 }
 
@@ -2693,11 +2730,12 @@ function eliminaTermeExtret(index) {
 }
 
 async function desaGlossariExtret() {
-  const domini = document.getElementById('glossari-domini-extraccio').value;
-  const msgEl  = document.getElementById('glossari-extraccio-msg');
+  const dominiSelect = document.getElementById('glossari-domini-extraccio');
+  const domini = dominiSelect ? dominiSelect.value : '';
+  const msgEl = document.getElementById('glossari-extraccio-msg');
 
   // Filtra termes eliminats (nulls)
-  const termesValids = _glossariExtret.filter(t => t !== null);
+  const termesValids = (_glossariExtret || []).filter(function(t) { return t !== null && t !== undefined; });
 
   if (termesValids.length === 0) {
     msgEl.textContent = 'No hi ha termes per desar.';
@@ -2706,30 +2744,64 @@ async function desaGlossariExtret() {
     return;
   }
 
+  if (!domini) {
+    msgEl.textContent = 'Seleccioneu un domini lingüístic.';
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+    return;
+  }
+
   try {
-    const baseUrl = await TAN.getUrlAvancada();
-    const resp = await fetch(baseUrl + '/glossari/desa-massiu', {
+    var baseUrl = await TAN.getUrlAvancada();
+    var resp = await fetch(baseUrl + '/glossari/desa-massiu', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + (_authToken || ''),
       },
-      body: JSON.stringify({ domini, termes: termesValids }),
+      body: JSON.stringify({
+        domini: domini,
+        termes: termesValids
+      }),
     });
 
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.detail || 'Error desant el glossari');
+    // Parseja la resposta una sola vegada com a text
+    var respostaText = await resp.text();
+    var dades;
+    try {
+      dades = JSON.parse(respostaText);
+    } catch (parseErr) {
+      throw new Error('Resposta invàlida del servidor: ' + respostaText.substring(0, 200));
     }
 
-    const dades = await resp.json();
-    msgEl.textContent = dades.nous + ' termes nous afegits al glossari "' + domini + '" (' + dades.total + ' totals).';
+    if (!resp.ok) {
+      // Error del servidor — detail pot ser string o array d'objectes (validació Pydantic)
+      var detall = dades.detail;
+      if (Array.isArray(detall)) {
+        detall = detall.map(function(d) { return d.msg || JSON.stringify(d); }).join('; ');
+      }
+      throw new Error(detall || dades.message || dades.error || JSON.stringify(dades));
+    }
+
+    // Èxit
+    var nous = dades.nous || 0;
+    var total = dades.total || 0;
+    msgEl.textContent = nous + ' termes nous afegits al glossari "' + domini + '" (' + total + ' totals).';
     msgEl.style.color = '#27500A';
     msgEl.style.display = 'block';
 
   } catch (e) {
-    const missatge = typeof e === 'string' ? e : (e.message || JSON.stringify(e));
-    msgEl.textContent = 'Error: ' + missatge;
+    var missatgeError;
+    if (typeof e === 'string') {
+      missatgeError = e;
+    } else if (e instanceof Error) {
+      missatgeError = e.message;
+    } else if (e && typeof e === 'object') {
+      missatgeError = e.detail || e.message || JSON.stringify(e);
+    } else {
+      missatgeError = String(e);
+    }
+    msgEl.textContent = 'Error: ' + missatgeError;
     msgEl.style.color = '#d32f2f';
     msgEl.style.display = 'block';
   }

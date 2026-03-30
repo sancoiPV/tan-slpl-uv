@@ -457,29 +457,35 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 }
 
 /* ── Pestanya Glossaris: actualització ──────────────── */
+/* NOTA: Els estils principals de .tab-btn estan a .tan-nav .tab-btn (més avall).
+   Aquesta regla base s'unifica per evitar conflictes. */
 
 .tab-btn {
   background: none;
   border: none;
   cursor: pointer;
-  font-family: inherit;
-  font-size: 14px;
+  font-family: var(--sans);
+  font-size: 13px;
   font-weight: 500;
-  padding: 10px 16px;
-  color: var(--uv-blanc, #fff);
-  opacity: 0.75;
-  transition: opacity 0.2s, border-bottom 0.2s;
+  padding: 11px 18px;
+  color: rgba(255,255,255,.72);
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
   border-bottom: 3px solid transparent;
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: .01em;
 }
 
 .tab-btn:hover {
-  opacity: 1;
+  color: #fff;
+  background: rgba(255,255,255,.09);
 }
 
 .tab-btn.act {
-  opacity: 1;
-  border-bottom: 3px solid var(--uv-taronja, #F5A800);
-  font-weight: 600;
+  color: var(--uv-taronja);
+  border-bottom-color: var(--uv-taronja);
+  font-weight: 700;
+  background: rgba(245,168,0,.08);
 }
 
 .glossari-container {
@@ -2474,29 +2480,78 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   color: white;
 }
 
-/* ─── Enllaços d'eines de llengua ──────────────────────────────────────────── */
-.eina-llengua-link {
+/* ─── MOSAIC EINES DE LLENGUA ─────────────────────────────────────────────── */
+.eines-mosaic {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .eines-mosaic { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 780px) {
+  .eines-mosaic { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .eines-mosaic { grid-template-columns: 1fr; }
+}
+
+.eina-card {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  border-radius: 8px;
+  text-align: center;
+  padding: 16px 12px;
+  border-radius: 10px;
   border: 1.5px solid #ddd;
   text-decoration: none;
   color: var(--uv-nav, #003366);
-  transition: all 0.2s ease;
+  background: white;
+  transition: all 0.25s ease;
+  cursor: pointer;
 }
 
-.eina-llengua-link:hover {
+.eina-card:hover {
   border-color: var(--uv-blau, #0065a4);
   background: rgba(0, 130, 197, 0.04);
+  box-shadow: 0 4px 12px rgba(0, 46, 82, 0.1);
+  transform: translateY(-2px);
 }
 
-.eina-llengua-ico {
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  flex-shrink: 0;
+.eina-card-destacat {
+  border-color: var(--uv-taronja, #F5A800);
+  background: rgba(245, 168, 0, 0.04);
+}
+
+.eina-card-destacat:hover {
+  border-color: var(--uv-taronja, #F5A800);
+  background: rgba(245, 168, 0, 0.08);
+}
+
+.eina-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  object-fit: contain;
+}
+
+.eina-titol {
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 4px;
+  color: var(--uv-nav, #003366);
+}
+
+.eina-desc {
+  font-size: 11.5px;
+  color: var(--uv-gris-m, #5A6B7F);
+  line-height: 1.3;
 }
 
 /* ═══ Correccions taula i estadístiques ═════════════════════════════════════ */
