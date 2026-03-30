@@ -1836,13 +1836,15 @@ async function corregeixDocument() {
 
   actualitzaProgress('correccio', 10, 'Processant el document...', 'Analitzant el contingut');
 
-  // Simula progrés incremental mentre es corregeix
+  // Simula progrés incremental suau mentre es corregeix
+  let _progresActual = 10;
   let _progressInterval = setInterval(() => {
-    const barEl = document.getElementById('correccio-progress-bar');
-    const barActual = parseFloat(barEl?.style.width || '10');
-    if (barActual < 85) {
-      actualitzaProgress('correccio', barActual + 3, 'Corregint segments...', 'Aplicant normes AVL i Gramàtica Zero');
-    }
+    if (_progresActual < 30) _progresActual += 3;
+    else if (_progresActual < 60) _progresActual += 2;
+    else if (_progresActual < 85) _progresActual += 1;
+    else if (_progresActual < 95) _progresActual += 0.2;
+    else if (_progresActual < 99) _progresActual += 0.05;
+    actualitzaProgress('correccio', _progresActual, 'Corregint el document...', 'Aplicant normes AVL i Gramàtica Zero');
   }, 1500);
 
   try {
@@ -1852,10 +1854,17 @@ async function corregeixDocument() {
     const dominiCorreccio = document.getElementById('correccio-domini')?.value || '';
     if (dominiCorreccio) formData.append('domini', dominiCorreccio);
 
+    // Timeout de 10 minuts per a documents grans
+    const _controladorAbort = new AbortController();
+    const _timerAbort = setTimeout(() => _controladorAbort.abort(), 600000);
+
     const resp = await fetch(`${url}/corregeix-document`, {
       method: 'POST',
       body:   formData,
+      signal: _controladorAbort.signal,
     });
+
+    clearTimeout(_timerAbort);
 
     clearInterval(_progressInterval);
 
@@ -1885,7 +1894,10 @@ async function corregeixDocument() {
   } catch (e) {
     clearInterval(_progressInterval);
     amagaProgress('correccio');
-    mostraMissatgeCorreccio('error', `Error en la correcció del document: ${e.message}`);
+    const msg = e.name === 'AbortError'
+      ? 'La correcció ha superat el temps màxim (10 minuts). Proveu amb un document més curt.'
+      : e.message;
+    mostraMissatgeCorreccio('error', `Error en la correcció del document: ${msg}`);
   } finally {
     btn.disabled    = false;
     btn.textContent = txtOri;

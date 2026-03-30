@@ -3125,7 +3125,7 @@ def _neteja_encoding_valor(text: str) -> str:
 async def _corregeix_segments_claude(
     segments: list[str],
     api_key: str,
-    mida_lot: int = 3,
+    mida_lot: int = 15,
     segments_marcats: list[str] | None = None,
     segments_amb_formula: list[bool] | None = None,
 ) -> list[str]:
@@ -3445,12 +3445,18 @@ Retorna ÚNICAMENT el JSON corregit:"""
 
         text_resp = ""
         try:
-            resposta = client.messages.create(
-                model      = "claude-sonnet-4-6",
-                max_tokens = 4096,
-                system     = PROMPT_CORRECCIO_SISTEMA,
-                messages   = [{"role": "user", "content": prompt_usuari}],
-            )
+            import asyncio as _asyncio_lots
+
+            def _crida_sync():
+                return client.messages.create(
+                    model      = "claude-sonnet-4-6",
+                    max_tokens = 4096,
+                    system     = PROMPT_CORRECCIO_SISTEMA,
+                    messages   = [{"role": "user", "content": prompt_usuari}],
+                    timeout    = 300.0,
+                )
+
+            resposta = await _asyncio_lots.to_thread(_crida_sync)
             text_resp = resposta.content[0].text.strip()
             log.warning(
                 "[CORRECCIO] Lot %d resposta raw (primers 200 car.): %r",
@@ -3549,14 +3555,19 @@ async def _processa_docx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                     log.warning("Error extraient paràgrafs de '%s': %s", nom, exc)
                     mapa_fitxer[nom] = None
 
-    # ── Corregeix tots els segments en lots de 3 (CANVI 3) ────────────────────
+    log.info("CORRECCIÓ DOC — FASE 3: %d segments extrets", len(tots_segments))
+
+    # ── Corregeix tots els segments en lots de 15 ────────────────────────────
+    log.info("CORRECCIÓ DOC — FASE 4: Iniciant correcció amb Claude")
     corregits = await _corregeix_segments_claude(
         tots_segments, api_key,
         segments_marcats=tots_segments_marcats,
         segments_amb_formula=tots_segments_formula,
     )
+    log.info("CORRECCIÓ DOC — FASE 5: Claude completat")
 
     # ── Passada 2: reconstrueix el ZIP ────────────────────────────────────────
+    log.info("CORRECCIÓ DOC — FASE 6: Reconstruint document")
     buf_eixida = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(fitxer_bytes)) as zin, \
          zipfile.ZipFile(buf_eixida, "w", zipfile.ZIP_DEFLATED) as zout:
@@ -3634,14 +3645,19 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
                     log.warning("Error extraient shapes de '%s': %s", nom, exc)
                     mapa_fitxer[nom] = None
 
-    # ── Corregeix en lots de 3 (CANVI 3) ──────────────────────────────────────
+    log.info("CORRECCIÓ PPTX — FASE 3: %d segments extrets", len(tots_segments))
+
+    # ── Corregeix en lots de 15 ──────────────────────────────────────────────
+    log.info("CORRECCIÓ PPTX — FASE 4: Iniciant correcció amb Claude")
     corregits = await _corregeix_segments_claude(
         tots_segments, api_key,
         segments_marcats=tots_segments_marcats,
         segments_amb_formula=tots_segments_formula,
     )
+    log.info("CORRECCIÓ PPTX — FASE 5: Claude completat")
 
     # ── Passada 2: reconstrueix el ZIP ────────────────────────────────────────
+    log.info("CORRECCIÓ PPTX — FASE 6: Reconstruint document")
     buf_eixida = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(fitxer_bytes)) as zin, \
          zipfile.ZipFile(buf_eixida, "w", zipfile.ZIP_DEFLATED) as zout:
@@ -3740,12 +3756,13 @@ async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
         )
 
     log.info(
-        "POST /corregeix-document — fitxer='%s' mida=%.1f KB",
+        "CORRECCIÓ DOC — FASE 1: Document llegit, fitxer='%s' mida=%.1f KB",
         nom, len(contingut) / 1024,
     )
 
     inici = time.perf_counter()
     try:
+        log.info("CORRECCIÓ DOC — FASE 2: Iniciant processament %s", extensió)
         if extensió == ".docx":
             resultat   = await _processa_docx_correccio(contingut, api_key)
             media_type = (
@@ -3759,10 +3776,11 @@ async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
                 ".presentationml.presentation"
             )
 
+        log.info("CORRECCIÓ DOC — FASE 7: Document reconstruït correctament")
         temps_ms    = int((time.perf_counter() - inici) * 1000)
         nom_sortida = genera_nom_arxiu(nom, sufix="CORR_VAL")
         log.info(
-            "Document corregit en %d ms → '%s' (%d bytes)",
+            "CORRECCIÓ DOC — FASE 8: Completat en %d ms → '%s' (%d bytes)",
             temps_ms, nom_sortida, len(resultat),
         )
         return Response(
@@ -3813,15 +3831,20 @@ async def _crida_claude_amb_cache(
         Text de la resposta de Claude
     """
     import anthropic as _ant
+    import asyncio as _asyncio_cache
 
     client = _ant.Anthropic(api_key=api_key)
 
-    resposta = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system_blocks,
-        messages=[{"role": "user", "content": missatge_usuari}],
-    )
+    def _crida_sync_cache():
+        return client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system_blocks,
+            messages=[{"role": "user", "content": missatge_usuari}],
+            timeout=300.0,
+        )
+
+    resposta = await _asyncio_cache.to_thread(_crida_sync_cache)
 
     text_resposta = resposta.content[0].text
 
