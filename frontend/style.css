@@ -2425,9 +2425,79 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   transform: translateX(22px);
 }
 
-/* Retrocompatibilitat per si queda algun .motor-selector/.motor-btn */
-.motor-selector { display: none; }
-.motor-btn { display: none; }
+/* ─── Selector de motor de 3 opcions ──────────────────────────────────────── */
+.motor-selector-3 {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1.5px solid var(--uv-gris-m, #5A6B7F);
+  width: fit-content;
+}
+
+.motor-btn {
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: white;
+  color: var(--uv-gris-m, #5A6B7F);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border-right: 1px solid var(--uv-gris-m, #5A6B7F);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.motor-btn:last-child {
+  border-right: none;
+}
+
+.motor-btn:hover {
+  background: rgba(0, 46, 82, 0.05);
+}
+
+.motor-btn.motor-btn-actiu[data-motor="aina"] {
+  background: var(--uv-nav, #003366);
+  color: white;
+}
+
+.motor-btn.motor-btn-actiu[data-motor="apertium"] {
+  background: #2E7D32;
+  color: white;
+}
+
+.motor-btn.motor-btn-actiu[data-motor="claude"] {
+  background: var(--uv-blau, #0065a4);
+  color: white;
+}
+
+/* ─── Enllaços d'eines de llengua ──────────────────────────────────────────── */
+.eina-llengua-link {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  border: 1.5px solid #ddd;
+  text-decoration: none;
+  color: var(--uv-nav, #003366);
+  transition: all 0.2s ease;
+}
+
+.eina-llengua-link:hover {
+  border-color: var(--uv-blau, #0065a4);
+  background: rgba(0, 130, 197, 0.04);
+}
+
+.eina-llengua-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
 
 /* ═══ Correccions taula i estadístiques ═════════════════════════════════════ */
 .correccions-taula-wrap {

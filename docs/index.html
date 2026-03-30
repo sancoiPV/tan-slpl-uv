@@ -6,12 +6,32 @@
   <!-- CSP: permet connexions als motors locals (CT2 :5001, uvicorn :8000)
        a més de https: per a Netlify/ngrok. Necessari per a ús local i remot. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:; connect-src 'self' https: http://localhost:5001 http://localhost:8000 http://localhost:3000 http://127.0.0.1:5001 http://127.0.0.1:8000;">
+        content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data: blob:; connect-src 'self' https: http://localhost:5001 http://localhost:8000 http://localhost:3000 http://127.0.0.1:5001 http://127.0.0.1:8000; img-src 'self' https: data:;">
   <title>TAN · SLPL · Universitat de València</title>
   <link rel="stylesheet" href="style.css">
   <script src="config.js"></script>
 </head>
 <body>
+
+<!-- ─── PANTALLA DE LOGIN ─── -->
+<div id="login-overlay" style="display:flex; position:fixed; top:0; left:0; width:100%; height:100%; background:linear-gradient(135deg, #001225 0%, #002E52 30%, #0065a4 70%, #0088D4 100%); z-index:10000; align-items:center; justify-content:center;">
+  <div style="background:white; border-radius:16px; padding:40px 36px; max-width:380px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.3); text-align:center;">
+    <h1 style="font-size:36px; font-weight:900; color:#F5A800; letter-spacing:4px; margin-bottom:4px;">TAN UV</h1>
+    <p style="font-size:14px; color:#364F74; margin-bottom:24px;">Entorn de traducció automàtica neuronal</p>
+    <div style="margin-bottom:16px; text-align:left;">
+      <label style="font-size:13px; font-weight:600; color:#002E52;">Usuari</label>
+      <input type="text" id="login-username" style="width:100%; padding:10px 12px; border:1.5px solid #A6B3BD; border-radius:6px; font-size:14px; margin-top:4px; box-sizing:border-box;" placeholder="Nom d'usuari">
+    </div>
+    <div style="margin-bottom:20px; text-align:left;">
+      <label style="font-size:13px; font-weight:600; color:#002E52;">Contrasenya</label>
+      <input type="password" id="login-password" style="width:100%; padding:10px 12px; border:1.5px solid #A6B3BD; border-radius:6px; font-size:14px; margin-top:4px; box-sizing:border-box;" placeholder="Contrasenya"
+             onkeydown="if(event.key==='Enter') loginUsuari()">
+    </div>
+    <button onclick="loginUsuari()" style="width:100%; padding:12px; background:linear-gradient(135deg, #234E83, #426DA7); color:white; border:none; border-radius:6px; font-size:15px; font-weight:600; cursor:pointer;">Identifica't</button>
+    <p id="login-error" style="color:#d32f2f; font-size:13px; margin-top:12px; display:none;"></p>
+    <p style="font-size:11px; color:#6A7A9B; margin-top:20px;">Servei de Llengües i Política Lingüística<br>Universitat de València</p>
+  </div>
+</div>
 
 <!-- ═══ Capçalera TAN renovada ════════════════════════════════════════════ -->
 <header class="tan-header">
@@ -23,12 +43,19 @@
       <div class="tan-slogan-text">Servei de Llengües i Política Lingüística de la Universitat de València</div>
       <div class="tan-slogan-uv">Assessorament lingüístic, traducció, correcció i postedició</div>
     </div>
-    <!-- Botó Claus API (posició absoluta) -->
-    <button class="btn-claus-api" id="btn-claus-api"
-            onclick="obreModalClausAPI()"
-            title="Gestiona les claus API de Gemini i Anthropic">
-      🔑 Claus API
-    </button>
+    <!-- Botons dalt a la dreta (contenidor flex) -->
+    <div style="position:absolute; top:12px; right:16px; display:flex; gap:10px; align-items:center; z-index:10;">
+      <button onclick="logoutUsuari()" id="btn-logout"
+              style="background:rgba(255,255,255,0.15); color:white; border:1px solid rgba(255,255,255,0.3); padding:6px 14px; border-radius:6px; cursor:pointer; font-size:12px;">
+        Tanca sessió
+      </button>
+      <button class="btn-claus-api" id="btn-claus-api"
+              onclick="obreModalClausAPI()"
+              title="Gestiona les claus API de Gemini i Anthropic"
+              style="position:static;">
+        🔑 Claus API
+      </button>
+    </div>
   </div>
   <!-- Barra de navegació de pestanyes -->
   <nav class="tan-nav" id="tan-nav">
@@ -36,8 +63,11 @@
     <button class="nav-btn" onclick="mostra('traduccio-docs',this)">Traducció de documents</button>
     <button class="nav-btn" onclick="mostra('correccio-docs',this)">Correcció/postedició de documents en valencià</button>
     <button class="nav-btn" onclick="mostra('imatges',this)">Traducció d'imatges amb text</button>
-    <button class="tab-btn" data-tab="glossaris" onclick="activaTab('glossaris')">📚 Glossaris: actualització</button>
+    <button class="tab-btn" data-tab="glossaris" onclick="activaTab('glossaris')">📚 Glossaris: creació i actualització</button>
+    <button class="tab-btn" data-tab="eines-llengua" onclick="activaTab('eines-llengua')">🔗 Eines de llengua en línia</button>
     <button class="tab-btn" data-tab="traduccio-angles" onclick="activaTab('traduccio-angles')">🌐 EN ↔ VA</button>
+    <button class="tab-btn" data-tab="admin-usuaris" id="btn-tab-admin" onclick="activaTab('admin-usuaris')" style="display:none">👤 El meu compte</button>
+    <button class="tab-btn" data-tab="gestio-usuaris" id="btn-tab-gestio" onclick="activaTab('gestio-usuaris')" style="display:none">⚙️ Gestió d'usuaris</button>
   </nav>
 </header>
 
@@ -53,16 +83,13 @@
 <!-- ═══ SECCIÓ 1 · Traducció de text ═══════════════════════════════════════ -->
 <section class="seccio vis" id="s-traduccio-text">
 
-  <!-- Toggle motor de traducció -->
+  <!-- Selector de motor de traducció (3 opcions) -->
   <div class="motor-toggle-bar" id="motor-selector-text">
     <span class="motor-toggle-label">Motor de traducció:</span>
-    <div class="motor-toggle-wrap">
-      <span class="motor-toggle-nom motor-toggle-nom-esq" id="motor-text-nom-aina">AINA</span>
-      <label class="motor-toggle">
-        <input type="checkbox" id="motor-text-toggle" onchange="canviaMotor('text', this.checked)">
-        <span class="motor-toggle-slider"></span>
-      </label>
-      <span class="motor-toggle-nom motor-toggle-nom-dret" id="motor-text-nom-claude">Claude Sonnet</span>
+    <div class="motor-selector-3" id="motor-selector-3-text">
+      <button class="motor-btn motor-btn-actiu" data-motor="aina" onclick="canviaMotor3('aina')">⚡ AINA</button>
+      <button class="motor-btn" data-motor="apertium" onclick="canviaMotor3('apertium')">🔄 Apertium</button>
+      <button class="motor-btn" data-motor="claude" onclick="canviaMotor3('claude')">🤖 Claude Sonnet</button>
     </div>
   </div>
 
@@ -115,16 +142,13 @@
 <!-- ═══ SECCIÓ 2 · Traducció de documents ══════════════════════════════════ -->
 <section class="seccio" id="s-traduccio-docs">
 
-  <!-- Toggle motor de traducció per a documents -->
+  <!-- Selector de motor de traducció per a documents (3 opcions) -->
   <div class="motor-toggle-bar" id="motor-selector-docs">
     <span class="motor-toggle-label">Motor de traducció:</span>
-    <div class="motor-toggle-wrap">
-      <span class="motor-toggle-nom motor-toggle-nom-esq" id="motor-docs-nom-aina">AINA</span>
-      <label class="motor-toggle">
-        <input type="checkbox" id="motor-docs-toggle" onchange="canviaMotor('docs', this.checked)">
-        <span class="motor-toggle-slider"></span>
-      </label>
-      <span class="motor-toggle-nom motor-toggle-nom-dret" id="motor-docs-nom-claude">Claude Sonnet</span>
+    <div class="motor-selector-3" id="motor-selector-3-docs">
+      <button class="motor-btn motor-btn-actiu" data-motor="aina" onclick="canviaMotor3('aina')">⚡ AINA</button>
+      <button class="motor-btn" data-motor="apertium" onclick="canviaMotor3('apertium')">🔄 Apertium</button>
+      <button class="motor-btn" data-motor="claude" onclick="canviaMotor3('claude')">🤖 Claude Sonnet</button>
     </div>
   </div>
 
@@ -198,7 +222,7 @@
   <!-- Botó extracció i traducció d'imatges del document -->
   <button onclick="extreuITradueIxImatges()" class="btn-secondary"
           id="btn-extreu-imatges-doc" style="display:none">
-    🖼 Descarregar i traduir imatges amb text
+    🖼 Descarregar imatges amb text
   </button>
   <div id="missatge-imatges-doc" class="avis-criteri" style="display:none"></div>
 
@@ -544,12 +568,92 @@
   <div class="glossari-container">
 
     <div class="glossari-header">
-      <h2>Glossaris: actualització</h2>
+      <h2>Glossaris: creació i actualització</h2>
       <p class="glossari-descripcio">
         Gestió col·laborativa dels termes de traducció per a la Secció d'Assessorament Lingüístic.
         Les correccions s'incorporen al model cada dilluns al matí.
       </p>
     </div>
+
+    <!-- ─── EXTRACCIÓ AUTOMÀTICA DE GLOSSARI ─── -->
+    <div style="background:var(--uv-fons-clar, #E4EBE9); border-radius:10px; padding:20px; margin-bottom:24px;">
+      <h4 style="color:var(--uv-blau-principal, #002E52); margin-bottom:12px;">
+        Extracció automàtica de glossari bilingüe
+      </h4>
+      <p style="font-size:13px; color:#364F74; margin-bottom:16px;">
+        Apugeu el text original en castellà i la traducció al valencià revisada.
+        L'eina analitzarà els dos textos i extraurà automàticament el vocabulari
+        bilingüe especialitzat per al domini lingüístic seleccionat.
+      </p>
+
+      <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px;">
+        <!-- Text original -->
+        <div style="flex:1; min-width:250px;">
+          <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">
+            Text original (castellà)
+          </label>
+          <textarea id="glossari-text-original" rows="6"
+            style="width:100%; border:1.5px solid #A6B3BD; border-radius:6px; padding:10px; font-size:13px; box-sizing:border-box; resize:vertical;"
+            placeholder="Enganxeu ací el text original en castellà..."></textarea>
+          <p style="font-size:11px; color:#6A7A9B; margin-top:4px;">
+            O bé: <input type="file" id="glossari-fitxer-original" accept=".docx,.txt"
+            style="font-size:11px;" onchange="carregaFitxerGlossari(this, 'glossari-text-original')">
+          </p>
+        </div>
+
+        <!-- Traducció -->
+        <div style="flex:1; min-width:250px;">
+          <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">
+            Traducció al valencià (revisada)
+          </label>
+          <textarea id="glossari-text-traduccio" rows="6"
+            style="width:100%; border:1.5px solid #A6B3BD; border-radius:6px; padding:10px; font-size:13px; box-sizing:border-box; resize:vertical;"
+            placeholder="Enganxeu ací la traducció al valencià ja revisada..."></textarea>
+          <p style="font-size:11px; color:#6A7A9B; margin-top:4px;">
+            O bé: <input type="file" id="glossari-fitxer-traduccio" accept=".docx,.txt"
+            style="font-size:11px;" onchange="carregaFitxerGlossari(this, 'glossari-text-traduccio')">
+          </p>
+        </div>
+      </div>
+
+      <!-- Domini i botó -->
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <label style="font-size:13px; font-weight:600;">Domini:</label>
+        <select id="glossari-domini-extraccio" style="padding:8px 12px; border:1.5px solid #A6B3BD; border-radius:6px; font-size:13px; min-width:200px;">
+          <option value="">— Selecciona un domini —</option>
+        </select>
+        <button onclick="extreuGlossariBilingue()" class="btn-primary" id="btn-extreu-glossari"
+          style="background: linear-gradient(135deg, #234E83, #426DA7);">
+          📚 Extraure glossari es↔va
+        </button>
+      </div>
+
+      <!-- Resultats -->
+      <div id="glossari-extraccio-resultat" style="display:none; margin-top:16px;">
+        <h5 style="margin-bottom:8px;">Termes extrets:</h5>
+        <div id="glossari-extraccio-taula"></div>
+        <div style="margin-top:12px; display:flex; gap:10px;">
+          <button onclick="desaGlossariExtret()" class="btn-primary" style="font-size:13px;">
+            Afegir al glossari del domini
+          </button>
+          <button onclick="exportaGlossariTSV()" class="btn-secondary" style="font-size:13px;">
+            Exportar TSV
+          </button>
+        </div>
+      </div>
+
+      <!-- Missatge -->
+      <p id="glossari-extraccio-msg" style="font-size:13px; margin-top:8px; display:none;"></p>
+    </div>
+
+    <hr style="border:none; border-top:2px solid var(--uv-blau-50, #6A7A9B); margin:24px 0;">
+    <h4 style="color:var(--uv-blau-principal, #002E52); margin-bottom:12px;">
+      Addició manual de termes al glossari
+    </h4>
+    <p style="font-size:13px; color:#364F74; margin-bottom:16px;">
+      Afegiu termes individualment al glossari del domini seleccionat.
+      Per a extraccions massives, useu l'eina automàtica de la part superior.
+    </p>
 
     <div class="glossari-domini-selector">
       <label for="domini-select">Domini:</label>
@@ -743,6 +847,157 @@
 
     <!-- Avís criteris lingüístics -->
     <div class="avis-criteri">⚠ Traduccions fetes d'acord amb els Criteris lingüístics per als usos institucionals de les universitats valencianes, a partir dels corpus normatius de l'IEC i l'AVL.</div>
+
+  </div>
+</div>
+
+<!-- ═══ SECCIÓ · El meu compte ═════════════════════════════════════════════ -->
+<div id="tab-admin-usuaris" class="tab-content" style="display:none">
+  <h3 style="color:var(--uv-blau-principal, #002E52); margin-bottom:16px;">El meu compte</h3>
+
+  <div style="background:var(--uv-fons-clar, #E4EBE9); padding:20px; border-radius:10px; max-width:400px;">
+    <p style="margin-bottom:8px;"><strong>Usuari:</strong> <span id="perfil-username"></span></p>
+    <p style="margin-bottom:16px;"><strong>Nom:</strong> <span id="perfil-nom"></span></p>
+
+    <h4 style="margin-bottom:12px;">Canviar contrasenya</h4>
+    <div style="margin-bottom:10px;">
+      <label style="font-size:13px; font-weight:600;">Contrasenya actual</label>
+      <input type="password" id="perfil-password-actual" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;">
+    </div>
+    <div style="margin-bottom:10px;">
+      <label style="font-size:13px; font-weight:600;">Contrasenya nova</label>
+      <input type="password" id="perfil-password-nova" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;">
+    </div>
+    <div style="margin-bottom:10px;">
+      <label style="font-size:13px; font-weight:600;">Repeteix la contrasenya nova</label>
+      <input type="password" id="perfil-password-confirma" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;">
+    </div>
+    <button onclick="canviaPasswordPropia()" class="btn-primary" style="margin-top:8px;">🔒 Canviar contrasenya</button>
+    <p id="perfil-password-msg" style="font-size:13px; margin-top:8px; display:none;"></p>
+  </div>
+</div>
+
+<!-- ═══ SECCIÓ · Gestió d'usuaris (només admin) ══════════════════════════ -->
+<div id="tab-gestio-usuaris" class="tab-content" style="display:none">
+  <h3 style="color:var(--uv-blau-principal, #002E52); margin-bottom:16px;">Gestió d'usuaris</h3>
+
+  <div style="display:flex; gap:24px; flex-wrap:wrap;">
+    <!-- Formulari per crear usuaris -->
+    <div style="flex:1; min-width:280px; background:var(--uv-fons-clar, #E4EBE9); padding:20px; border-radius:10px;">
+      <h4 style="margin-bottom:12px;">Crear nou usuari</h4>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:13px; font-weight:600;">Nom d'usuari</label>
+        <input type="text" id="gestio-nou-username" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:13px; font-weight:600;">Contrasenya</label>
+        <input type="password" id="gestio-nou-password" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:13px; font-weight:600;">Nom complet</label>
+        <input type="text" id="gestio-nou-nom" style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;">
+      </div>
+      <button onclick="crearUsuariGestio()" class="btn-primary" style="margin-top:8px;">➕ Crear usuari</button>
+      <p id="gestio-crear-msg" style="font-size:13px; margin-top:8px; display:none;"></p>
+    </div>
+
+    <!-- Llista d'usuaris -->
+    <div style="flex:2; min-width:320px;">
+      <h4 style="margin-bottom:12px;">Usuaris registrats</h4>
+      <div id="gestio-llista-usuaris" style="font-size:14px;">Carregant...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SECCIÓ · Eines de llengua en línia ═════════════════════════════════ -->
+<div id="tab-eines-llengua" class="tab-content" style="display:none">
+  <h3 style="color:var(--uv-blau-principal, #002E52); margin-bottom:8px;">Eines de llengua en línia</h3>
+  <p style="font-size:13px; color:#364F74; margin-bottom:20px;">
+    Selecció de recursos lingüístics en línia per a la traducció, correcció i consulta terminològica en català/valencià. Tots els enllaços s'obrin en una pestanya nova.
+  </p>
+
+  <div style="display:flex; flex-direction:column; gap:10px; max-width:700px;">
+
+    <a href="https://www.iec.cat/recursos-linguistics-en-linia/" target="_blank" rel="noopener"
+       class="eina-llengua-link">
+      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
+      <div>
+        <strong style="font-size:15px;">Recursos lingüístics en línia de l'IEC</strong>
+        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Institut d'Estudis Catalans — Portal de recursos</p>
+      </div>
+    </a>
+
+    <a href="https://aplicacions.llengua.gencat.cat/llc/AppJava/index.html" target="_blank" rel="noopener"
+       class="eina-llengua-link">
+      <img src="https://aplicacions.llengua.gencat.cat/llc/AppJava/img/optimot.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
+      <div>
+        <strong style="font-size:15px;">Optimot</strong>
+        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Generalitat de Catalunya — Consultes lingüístiques</p>
+      </div>
+    </a>
+
+    <a href="https://www.termcat.cat/ca/cercaterm" target="_blank" rel="noopener"
+       class="eina-llengua-link">
+      <img src="https://www.termcat.cat/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
+      <div>
+        <strong style="font-size:15px;">Cercaterm</strong>
+        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">TERMCAT — Cerca terminològica en català</p>
+      </div>
+    </a>
+
+    <a href="https://dlc.iec.cat/" target="_blank" rel="noopener"
+       class="eina-llengua-link">
+      <img src="https://dlc.iec.cat/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
+      <div>
+        <strong style="font-size:15px;">DIEC — Diccionari de la llengua catalana</strong>
+        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Institut d'Estudis Catalans — Diccionari normatiu</p>
+      </div>
+    </a>
+
+    <a href="https://www.avl.gva.es/lexicval/" target="_blank" rel="noopener"
+       class="eina-llengua-link">
+      <img src="https://www.avl.gva.es/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
+      <div>
+        <strong style="font-size:15px;">DNV — Diccionari normatiu valencià</strong>
+        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Acadèmia Valenciana de la Llengua</p>
+      </div>
+    </a>
+
+    <a href="https://www.softcatala.org/diccionari-de-sinonims/" target="_blank" rel="noopener"
+       class="eina-llengua-link">
+      <img src="https://www.softcatala.org/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
+      <div>
+        <strong style="font-size:15px;">Diccionari de sinònims</strong>
+        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Softcatalà — Sinònims i antònims en català</p>
+      </div>
+    </a>
+
+    <a href="https://giec.iec.cat/inici" target="_blank" rel="noopener"
+       class="eina-llengua-link">
+      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
+      <div>
+        <strong style="font-size:15px;">GIEC — Gramàtica de la llengua catalana</strong>
+        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Institut d'Estudis Catalans — Gramàtica normativa</p>
+      </div>
+    </a>
+
+    <a href="https://oiec.iec.cat/inici" target="_blank" rel="noopener"
+       class="eina-llengua-link">
+      <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
+      <div>
+        <strong style="font-size:15px;">OIEC — Ortografia de la llengua catalana</strong>
+        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Institut d'Estudis Catalans — Ortografia normativa</p>
+      </div>
+    </a>
+
+    <a href="https://www.avl.gva.es/gnv/buscador.jsp" target="_blank" rel="noopener"
+       class="eina-llengua-link">
+      <img src="https://www.avl.gva.es/favicon.ico" alt="" class="eina-llengua-ico" onerror="this.style.display='none'">
+      <div>
+        <strong style="font-size:15px;">Gramàtiques Normatives Valencianes</strong>
+        <p style="font-size:12px; color:#6A7A9B; margin:2px 0 0;">Acadèmia Valenciana de la Llengua — GNV</p>
+      </div>
+    </a>
 
   </div>
 </div>

@@ -1,11 +1,366 @@
 ﻿'use strict';
 
+// ─── Autenticació ────────────────────────────────────────────────────────────
+let _authToken = localStorage.getItem('tan_token') || '';
+let _authUser  = JSON.parse(localStorage.getItem('tan_user') || 'null');
+
+async function loginUsuari() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errorEl  = document.getElementById('login-error');
+
+  if (!username || !password) {
+    errorEl.textContent = 'Introdueix l\'usuari i la contrasenya.';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      errorEl.textContent = err.detail || 'Error d\'autenticació.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    const dades = await resp.json();
+    _authToken = dades.token;
+    _authUser  = dades;
+    localStorage.setItem('tan_token', _authToken);
+    localStorage.setItem('tan_user', JSON.stringify(_authUser));
+
+    document.getElementById('login-overlay').style.display = 'none';
+
+    // Mostra "El meu compte" per a TOTS els usuaris
+    const btnCompte = document.getElementById('btn-tab-admin');
+    if (btnCompte) btnCompte.style.display = '';
+
+    // Mostra "Gestió d'usuaris" NOMÉS per a admin
+    const btnGestio = document.getElementById('btn-tab-gestio');
+    if (btnGestio) {
+      btnGestio.style.display = (dades.rol === 'admin') ? '' : 'none';
+    }
+
+  } catch (e) {
+    errorEl.textContent = 'No s\'ha pogut connectar al servidor.';
+    errorEl.style.display = 'block';
+  }
+}
+
+async function verificaSessio() {
+  if (!_authToken) {
+    document.getElementById('login-overlay').style.display = 'flex';
+    return;
+  }
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/auth/validar', {
+      headers: { 'Authorization': 'Bearer ' + _authToken },
+    });
+    if (!resp.ok) throw new Error('Sessió expirada');
+    const dades = await resp.json();
+    _authUser = dades;
+    document.getElementById('login-overlay').style.display = 'none';
+    // Mostra "El meu compte" per a TOTS els usuaris
+    const btnCompte = document.getElementById('btn-tab-admin');
+    if (btnCompte) btnCompte.style.display = '';
+    // Mostra "Gestió d'usuaris" NOMÉS per a admin
+    const btnGestio = document.getElementById('btn-tab-gestio');
+    if (btnGestio) {
+      btnGestio.style.display = (dades.rol === 'admin') ? '' : 'none';
+    }
+  } catch (e) {
+    _authToken = '';
+    localStorage.removeItem('tan_token');
+    localStorage.removeItem('tan_user');
+    document.getElementById('login-overlay').style.display = 'flex';
+  }
+}
+
+async function logoutUsuari() {
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    await fetch(baseUrl + '/auth/logout', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + _authToken },
+    });
+  } catch (e) { /* ignora errors de xarxa */ }
+  _authToken = '';
+  _authUser  = null;
+  localStorage.removeItem('tan_token');
+  localStorage.removeItem('tan_user');
+  document.getElementById('login-overlay').style.display = 'flex';
+}
+
+// ─── Admin: gestió d'usuaris ─────────────────────────────────────────────────
+
+async function carregaUsuarisAdmin() {
+  const contenidor = document.getElementById('admin-llista-usuaris');
+  if (!contenidor) return;
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/auth/usuaris', {
+      headers: { 'Authorization': 'Bearer ' + _authToken },
+    });
+    if (!resp.ok) throw new Error('Error carregant usuaris');
+    const usuaris = await resp.json();
+
+    let html = '<table style="width:100%; border-collapse:collapse; font-size:14px; table-layout:fixed;">';
+    html += '<colgroup><col style="width:20%"><col style="width:35%"><col style="width:15%"><col style="width:30%"></colgroup>';
+    html += '<tr style="background:#002E52; color:white;">'
+         + '<th style="padding:10px 12px; text-align:left;">Usuari</th>'
+         + '<th style="padding:10px 12px; text-align:left;">Nom</th>'
+         + '<th style="padding:10px 12px; text-align:center;">Rol</th>'
+         + '<th style="padding:10px 12px; text-align:center;">Accions</th></tr>';
+    for (const u of usuaris) {
+      html += '<tr style="border-bottom:1px solid #ddd;">';
+      html += '<td style="padding:10px 12px; text-align:left;">' + escapeHtml(u.username) + '</td>';
+      html += '<td style="padding:10px 12px; text-align:left;">' + escapeHtml(u.nom) + '</td>';
+      html += '<td style="padding:10px 12px; text-align:center;">' + escapeHtml(u.rol) + '</td>';
+      html += '<td style="padding:10px 12px; text-align:center;">';
+      if (u.username !== 'coitor') {
+        html += '<button onclick="eliminaUsuariAdmin(\'' + escapeHtml(u.username) + '\')" style="background:#d32f2f; color:white; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12px;">Eliminar</button>';
+      } else {
+        html += '<span style="color:#6A7A9B; font-size:12px; font-style:italic;">Admin principal</span>';
+      }
+      html += '</td></tr>';
+    }
+    html += '</table>';
+    contenidor.innerHTML = html;
+  } catch (e) {
+    contenidor.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function crearUsuariAdmin() {
+  const username = document.getElementById('admin-nou-username').value.trim();
+  const password = document.getElementById('admin-nou-password').value;
+  const nom      = document.getElementById('admin-nou-nom').value.trim();
+  const msgEl    = document.getElementById('admin-crear-msg');
+
+  if (!username || !password) {
+    msgEl.textContent = 'Usuari i contrasenya obligatoris.';
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/auth/usuaris', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + _authToken,
+      },
+      body: JSON.stringify({ username, password, nom, rol: 'user' }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error creant usuari');
+    }
+    msgEl.textContent = 'Usuari creat correctament.';
+    msgEl.style.color = '#27500A';
+    msgEl.style.display = 'block';
+    document.getElementById('admin-nou-username').value = '';
+    document.getElementById('admin-nou-password').value = '';
+    document.getElementById('admin-nou-nom').value = '';
+    carregaUsuarisAdmin();
+  } catch (e) {
+    msgEl.textContent = 'Error: ' + e.message;
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+  }
+}
+
+async function eliminaUsuariAdmin(username) {
+  if (!confirm('Segur que voleu eliminar l\'usuari "' + username + '"?')) return;
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/auth/usuaris/' + username, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + _authToken },
+    });
+    if (!resp.ok) throw new Error('Error eliminant usuari');
+    carregaUsuarisAdmin();
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+// ─── Gestió d'usuaris (pestanya separada per a admin) ────────────────────────
+
+async function carregaUsuarisGestio() {
+  const contenidor = document.getElementById('gestio-llista-usuaris');
+  if (!contenidor) return;
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/auth/usuaris', {
+      headers: { 'Authorization': 'Bearer ' + _authToken },
+    });
+    if (!resp.ok) throw new Error('Error carregant usuaris');
+    const usuaris = await resp.json();
+
+    let html = '<table style="width:100%; border-collapse:collapse; font-size:14px; table-layout:fixed;">';
+    html += '<colgroup><col style="width:20%"><col style="width:35%"><col style="width:15%"><col style="width:30%"></colgroup>';
+    html += '<tr style="background:#002E52; color:white;">'
+         + '<th style="padding:10px 12px; text-align:left;">Usuari</th>'
+         + '<th style="padding:10px 12px; text-align:left;">Nom</th>'
+         + '<th style="padding:10px 12px; text-align:center;">Rol</th>'
+         + '<th style="padding:10px 12px; text-align:center;">Accions</th></tr>';
+    for (const u of usuaris) {
+      html += '<tr style="border-bottom:1px solid #ddd;">';
+      html += '<td style="padding:10px 12px; text-align:left;">' + escapeHtml(u.username) + '</td>';
+      html += '<td style="padding:10px 12px; text-align:left;">' + escapeHtml(u.nom || '') + '</td>';
+      html += '<td style="padding:10px 12px; text-align:center;">' + escapeHtml(u.rol) + '</td>';
+      html += '<td style="padding:10px 12px; text-align:center;">';
+      if (u.username !== 'coitor') {
+        html += '<button onclick="eliminaUsuariGestio(\'' + escapeHtml(u.username) + '\')" style="background:#d32f2f; color:white; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12px; margin-right:4px;">Eliminar</button>';
+      } else {
+        html += '<span style="color:#6A7A9B; font-size:12px; font-style:italic;">Admin principal</span>';
+      }
+      html += '</td></tr>';
+    }
+    html += '</table>';
+    contenidor.innerHTML = html;
+  } catch (e) {
+    contenidor.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function crearUsuariGestio() {
+  const username = document.getElementById('gestio-nou-username').value.trim();
+  const password = document.getElementById('gestio-nou-password').value;
+  const nom      = document.getElementById('gestio-nou-nom').value.trim();
+  const msgEl    = document.getElementById('gestio-crear-msg');
+
+  if (!username || !password) {
+    msgEl.textContent = 'Usuari i contrasenya obligatoris.';
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/auth/usuaris', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + _authToken,
+      },
+      body: JSON.stringify({ username, password, nom, rol: 'user' }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error creant usuari');
+    }
+    msgEl.textContent = 'Usuari creat correctament.';
+    msgEl.style.color = '#27500A';
+    msgEl.style.display = 'block';
+    document.getElementById('gestio-nou-username').value = '';
+    document.getElementById('gestio-nou-password').value = '';
+    document.getElementById('gestio-nou-nom').value = '';
+    carregaUsuarisGestio();
+  } catch (e) {
+    const missatge = typeof e === 'string' ? e : (e.message || JSON.stringify(e));
+    msgEl.textContent = 'Error: ' + missatge;
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+  }
+}
+
+async function eliminaUsuariGestio(username) {
+  if (!confirm('Segur que voleu eliminar l\'usuari "' + username + '"?')) return;
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/auth/usuaris/' + username, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + _authToken },
+    });
+    if (!resp.ok) throw new Error('Error eliminant usuari');
+    carregaUsuarisGestio();
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+// ─── Canvi de contrasenya propi ──────────────────────────────────────────────
+
+async function canviaPasswordPropia() {
+  const actual   = document.getElementById('perfil-password-actual').value;
+  const nova     = document.getElementById('perfil-password-nova').value;
+  const confirma = document.getElementById('perfil-password-confirma').value;
+  const msgEl    = document.getElementById('perfil-password-msg');
+
+  if (!actual || !nova || !confirma) {
+    msgEl.textContent = 'Tots els camps són obligatoris.';
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+    return;
+  }
+  if (nova !== confirma) {
+    msgEl.textContent = 'Les contrasenyes noves no coincideixen.';
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+    return;
+  }
+  if (nova.length < 4) {
+    msgEl.textContent = 'La contrasenya ha de tindre almenys 4 caràcters.';
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/auth/canvi-password', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + _authToken,
+      },
+      body: JSON.stringify({
+        password_actual: actual,
+        password_nova: nova,
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error canviant la contrasenya');
+    }
+
+    msgEl.textContent = 'Contrasenya actualitzada correctament.';
+    msgEl.style.color = '#27500A';
+    msgEl.style.display = 'block';
+    document.getElementById('perfil-password-actual').value = '';
+    document.getElementById('perfil-password-nova').value = '';
+    document.getElementById('perfil-password-confirma').value = '';
+
+  } catch (e) {
+    const missatge = typeof e === 'string' ? e : (e.message || JSON.stringify(e));
+    msgEl.textContent = 'Error: ' + missatge;
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+  }
+}
+
 // ─── Estat global ─────────────────────────────────────────────────────────────
 let traduitMemoria   = '';
 let fitxerActualTd   = null;   // fitxer pendent a "Traducció de documents"
 let fitxerActualCd   = null;   // fitxer pendent a "Correcció de documents"
 
-// Motor seleccionat per pestanya: 'aina' (per defecte) o 'claude'
+// Motor seleccionat: 'aina' (per defecte), 'apertium' o 'claude'
+let _motorActiu = 'aina';
+// Retrocompatibilitat: _motorText i _motorDocs apunten al motor actiu global
 let _motorText = 'aina';
 let _motorDocs = 'aina';
 // Direcció EN↔VA: 'en_va' (per defecte) o 'va_en'
@@ -14,42 +369,41 @@ let _anglesDireccio = 'en_va';
 let _dadesCorreccioV2 = null;
 
 /**
- * Canvia el motor de traducció mitjançant el toggle switch.
- * @param {string} pestanya - 'text' o 'docs'
- * @param {boolean} esClaude - true si Claude, false si AINA
+ * Canvia el motor de traducció (selector de 3 opcions).
+ * @param {string} motor - 'aina', 'apertium' o 'claude'
  */
-function canviaMotor(pestanya, esClaude) {
-  const motor = esClaude ? 'claude' : 'aina';
+function canviaMotor3(motor) {
+  _motorActiu = motor;
+  _motorText = motor;
+  _motorDocs = motor;
+
+  // Actualitza tots els botons de motor (a les dues pestanyes)
+  document.querySelectorAll('.motor-btn').forEach(btn => {
+    btn.classList.remove('motor-btn-actiu');
+    if (btn.getAttribute('data-motor') === motor) {
+      btn.classList.add('motor-btn-actiu');
+    }
+  });
 
   // Textos descriptius segons el motor
-  const textAina = 'Eina de traducció automàtica neuronal basada en el motor TAN aina-translator-ca-es desenvolupat pel LangTechLab del BSC-CNS en el marc del Projecte Aina i afinat contínuament pel Servei de Llengües i Política Lingüística de la UV.';
-  const textClaude = 'Traducció castellà → valencià amb Claude Sonnet. Aplica les normes de valencià estàndard universitari (Criteris lingüístics de les universitats valencianes).';
-  const textDescriptiu = esClaude ? textClaude : textAina;
+  const textos = {
+    'aina': 'Eina de traducció automàtica neuronal basada en el motor TAN aina-translator-ca-es desenvolupat pel LangTechLab del BSC-CNS en el marc del Projecte Aina i afinat contínuament pel Servei de Llengües i Política Lingüística de la UV.',
+    'apertium': 'Traducció automàtica basada en regles amb Apertium (Universitat d\'Alacant). Motor de codi obert amb transferència morfològica castellà → català (valencià).',
+    'claude': 'Traducció castellà → valencià amb Claude Sonnet. Aplica les normes de valencià estàndard universitari (Criteris lingüístics de les universitats valencianes).',
+  };
 
-  if (pestanya === 'text') {
-    _motorText = motor;
-    // Actualitzar classes visuals del toggle
-    document.getElementById('motor-text-nom-aina').classList.toggle('actiu', !esClaude);
-    document.getElementById('motor-text-nom-claude').classList.toggle('actiu', esClaude);
-    // Actualitzar text descriptiu
-    const descText = document.getElementById('motor-descripcio-text');
-    if (descText) descText.textContent = textDescriptiu;
-  } else if (pestanya === 'docs') {
-    _motorDocs = motor;
-    document.getElementById('motor-docs-nom-aina').classList.toggle('actiu', !esClaude);
-    document.getElementById('motor-docs-nom-claude').classList.toggle('actiu', esClaude);
-    // Actualitzar text descriptiu
-    const descDocs = document.getElementById('motor-descripcio-docs');
-    if (descDocs) descDocs.textContent = textDescriptiu;
-  }
+  const descText = document.getElementById('motor-descripcio-text');
+  const descDocs = document.getElementById('motor-descripcio-docs');
+  if (descText) descText.textContent = textos[motor] || '';
+  if (descDocs) descDocs.textContent = textos[motor] || '';
 }
 
-// Compatibilitat cap enrere: seleccionaMotor → canviaMotor
+// Retrocompatibilitat
+function canviaMotor(pestanya, esClaude) {
+  canviaMotor3(esClaude ? 'claude' : 'aina');
+}
 function seleccionaMotor(pestanya, motor) {
-  const esClaude = motor === 'claude';
-  const toggle = document.getElementById('motor-' + pestanya + '-toggle');
-  if (toggle) toggle.checked = esClaude;
-  canviaMotor(pestanya, esClaude);
+  canviaMotor3(motor);
 }
 
 // ─── Comprovació estat del motor ──────────────────────────────────────────────
@@ -121,7 +475,21 @@ async function tradueixText() {
     const t0 = performance.now();
     let traduccio, temps_ms;
 
-    if (_motorText === 'claude') {
+    if (_motorText === 'apertium') {
+      // Traducció amb Apertium (API pública)
+      const formData = new URLSearchParams();
+      formData.append('langpair', 'es|ca_valencia');
+      formData.append('q', textOriginal);
+      formData.append('markUnknown', 'no');
+      const resp = await fetch('https://apertium.org/apy/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData.toString(),
+      });
+      const dades = await resp.json();
+      traduccio = dades.responseData?.translatedText || '';
+      temps_ms = Math.round(performance.now() - t0);
+    } else if (_motorText === 'claude') {
       // Traducció amb Claude Sonnet
       const baseUrl = await TAN.getUrlAvancada();
       const resp = await fetch(`${baseUrl}/tradueix-claude`, {
@@ -299,26 +667,22 @@ async function seleccionaFitxer(fitxer, mode) {
   }
 }
 
-// ─── Extreu i tradueix imatges d'un document .docx/.pptx ─────────────────────
+// ─── Extreu imatges amb text d'un document .docx/.pptx ───────────────────────
 async function extreuITradueIxImatges() {
   const fitxer = fitxerActualTd;
-  if (!fitxer) {
-    alert("Primer has d'apujar un document.");
-    return;
-  }
+  if (!fitxer) return;
 
   const btn = document.getElementById('btn-extreu-imatges-doc');
   const msgDiv = document.getElementById('missatge-imatges-doc');
   btn.disabled = true;
-  btn.textContent = '⏳ Extraient imatges...';
+  btn.textContent = '⏳ Analitzant imatges...';
 
   try {
-    // 1. Enviar el document al backend per extraure'n les imatges
     const baseUrl = await TAN.getUrlAvancada();
     const formData = new FormData();
     formData.append('fitxer', fitxer);
 
-    const resp = await fetch(`${baseUrl}/extreu-imatges-document`, {
+    const resp = await fetch(baseUrl + '/extreu-imatges-document', {
       method: 'POST',
       body: formData,
     });
@@ -326,19 +690,44 @@ async function extreuITradueIxImatges() {
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
       if (resp.status === 404) {
-        msgDiv.textContent = "⚠ No s'han trobat imatges incrustades en aquest document.";
+        msgDiv.textContent = 'No s\'han trobat imatges amb text real en aquest document.';
+        msgDiv.style.display = 'block';
+        return;
+      }
+      if (resp.status === 503) {
+        msgDiv.textContent = 'El servei OCR (Tesseract) no està disponible.';
         msgDiv.style.display = 'block';
         return;
       }
       throw new Error(err.detail || 'Error del servidor');
     }
 
-    // 2. Descarregar el ZIP amb les imatges
     const blob = await resp.blob();
-    const numImatges = parseInt(resp.headers.get('X-Num-Imatges') || '0');
-    const nomZip = (resp.headers.get('Content-Disposition') || '').match(/filename="(.+?)"/)?.[1]
-                   || 'Imatges_del_document.zip';
 
+    // Compta imatges: intenta header, fallback compta del ZIP
+    let numImatges = parseInt(resp.headers.get('X-Num-Imatges') || '0');
+    if (!numImatges || isNaN(numImatges)) {
+      try {
+        const JSZipLib = window.JSZip;
+        if (JSZipLib) {
+          const zipTemp = await JSZipLib.loadAsync(blob.slice());
+          const manifestFile = zipTemp.files['_manifest.json'];
+          if (manifestFile) {
+            const manifest = JSON.parse(await manifestFile.async('string'));
+            numImatges = manifest.num_imatges || 0;
+          }
+          if (!numImatges) {
+            numImatges = Object.keys(zipTemp.files).filter(
+              n => /\.(png|jpg|jpeg|gif|bmp|tiff?)$/i.test(n)
+            ).length;
+          }
+        }
+      } catch (e) { numImatges = 0; }
+    }
+
+    // Descarrega el ZIP
+    const nomZip = resp.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1]
+                   || 'Imatges amb text.zip';
     const urlBlob = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = urlBlob;
@@ -348,55 +737,14 @@ async function extreuITradueIxImatges() {
     document.body.removeChild(a);
     URL.revokeObjectURL(urlBlob);
 
-    // 3. Extraure les imatges del ZIP i enviar-les a traduir via Gemini
-    btn.textContent = '⏳ Enviant imatges a traduir...';
-
-    if (typeof JSZip !== 'undefined') {
-      const zip = await JSZip.loadAsync(blob);
-      const fitxersImatge = Object.keys(zip.files).filter(
-        nom => /\.(png|jpe?g|gif|bmp|tiff?)$/i.test(nom)
-      );
-
-      for (const nomImg of fitxersImatge) {
-        const imatgeBlob = await zip.files[nomImg].async('blob');
-
-        // Converteix a base64 per enviar a /tradueix-imatge (format JSON)
-        const base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result.split(',')[1]);
-          reader.onerror = reject;
-          reader.readAsDataURL(imatgeBlob);
-        });
-
-        // Detecta el tipus MIME
-        const extLower = nomImg.split('.').pop().toLowerCase();
-        const tipusMime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-                            gif: 'image/gif', bmp: 'image/bmp', tiff: 'image/tiff',
-                            tif: 'image/tiff' }[extLower] || 'image/png';
-
-        try {
-          await fetch(`${baseUrl}/tradueix-imatge`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              imatge_base64: base64,
-              tipus_mime: tipusMime,
-              prompt_addicional: '',
-              mode: 'traduccio',
-            }),
-          });
-        } catch (e) {
-          console.warn('Error enviant imatge a traduir:', nomImg, e);
-        }
-      }
-    }
-
-    // 4. Mostrar missatge informatiu
-    msgDiv.innerHTML = '🖼 <strong>Imatges amb text detectades i enviades al Nano Banana Pro '
-      + 'per a fer-ne la traducció.</strong> Per a recollir-ne la versió traduïda, aneu a la '
-      + 'pestanya <a href="#" onclick="mostra(\'imatges\', document.querySelector(\'button.nav-btn'
-      + '[onclick*=imatges]\')); return false;" style="color:var(--uv-blau-accent,#0082C5);'
-      + 'text-decoration:underline;font-weight:600;">Traducció d\'imatges amb text</a>.';
+    // Missatge informatiu
+    const numStr = numImatges === 1 ? '1 imatge' : numImatges + ' imatges';
+    msgDiv.innerHTML = '🖼 <strong>' + numStr + ' amb text descarregades.</strong> '
+      + 'Per a traduir-les al valencià, apugeu-les a la pestanya '
+      + '<a href="#" onclick="mostra(\'imatges\', document.querySelector(\'button.nav-btn'
+      + '[onclick*=imatges]\')); return false;" '
+      + 'style="color:var(--uv-blau-accent,#0082C5);text-decoration:underline;font-weight:600;">'
+      + 'Traducció d\'imatges amb text</a>.';
     msgDiv.style.display = 'block';
 
   } catch (e) {
@@ -406,7 +754,7 @@ async function extreuITradueIxImatges() {
     }
   } finally {
     btn.disabled = false;
-    btn.textContent = '🖼 Descarregar i traduir imatges amb text';
+    btn.textContent = '🖼 Descarregar imatges amb text';
   }
 }
 
@@ -459,6 +807,16 @@ async function processaFitxerActual(mode) {
     if (dominiSelect) form.append('domini', dominiSelect.value);
   }
 
+  // Apertium no té API per a documents: obre la pàgina en una altra pestanya
+  if (mode === 'traduccio' && _motorDocs === 'apertium') {
+    clearInterval(interval);
+    pc.style.display = 'none';
+    document.getElementById('fitxer-info-' + s).style.display = 'flex';
+    window.open('https://apertium.ua.es/docs.php', '_blank');
+    alert('Apertium no permet traduir documents via API. S\'ha obert la pàgina d\'Apertium per a documents en una altra pestanya. Apugeu-hi el document manualment.');
+    return;
+  }
+
   try {
     // Determinar endpoint segons motor seleccionat
     let endpoint = '/tradueix-document';
@@ -504,6 +862,13 @@ async function processaFitxerActual(mode) {
     document.getElementById('fitxer-info-' + s).style.display = 'flex';
     alert('Error en la traducció: ' + e.message);
   }
+
+  // Mostra el botó d'extracció d'imatges si el document és .docx/.pptx
+  // L'extracció és manual — l'usuari la llança amb el botó.
+  if (mode === 'traduccio' && ['docx', 'pptx'].includes(ext)) {
+    const btnExtreu = document.getElementById('btn-extreu-imatges-doc');
+    if (btnExtreu) btnExtreu.style.display = 'inline-block';
+  }
 }
 
 // ─── SUBSTITUÏT per la implementació completa de Gemini (vegeu més avall) ────
@@ -511,16 +876,13 @@ async function processaFitxerActual(mode) {
 // reemplaçades per handleImageDrop / handleImageSelect / tradueixImatges.
 
 // ─── Inici ────────────────────────────────────────────────────────────────────
+verificaSessio();
 comprova();
 setInterval(comprova, 30000);
 
-// Inicialitza estat visual dels toggles de motor
+// Inicialitza estat visual dels selectors de motor (AINA per defecte)
 (function inicialitzaToggles() {
-  // Per defecte els dos estan en AINA (checkbox unchecked)
-  const nomAinaText = document.getElementById('motor-text-nom-aina');
-  const nomAinaDocs = document.getElementById('motor-docs-nom-aina');
-  if (nomAinaText) nomAinaText.classList.add('actiu');
-  if (nomAinaDocs) nomAinaDocs.classList.add('actiu');
+  canviaMotor3('aina');
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -551,6 +913,14 @@ function activaTab(id) {
   if (id === 'glossaris' && document.getElementById('domini-select')?.options.length <= 1) {
     inicialitzaGlossari();
   }
+  if (id === 'admin-usuaris') {
+    // Mostra les dades de l'usuari (per a tots, inclòs l'admin)
+    document.getElementById('perfil-username').textContent = _authUser ? _authUser.username : '';
+    document.getElementById('perfil-nom').textContent = _authUser ? (_authUser.nom || '') : '';
+  }
+  if (id === 'gestio-usuaris') {
+    carregaUsuarisGestio();
+  }
   // NOTA: imatgesSeleccionades, imatgesTradudes, _documentSeleccionat,
   // _documentCorregitBlob, fitxerActualTd, fitxerActualCd
   // NO s'han de reinicialitzar en canviar de pestanya.
@@ -569,6 +939,16 @@ async function inicialitzaGlossari() {
       opt.textContent = domini;
       select.appendChild(opt);
     });
+    // Sincronitza el selector d'extracció amb els mateixos dominis
+    const selectExtraccio = document.getElementById('glossari-domini-extraccio');
+    if (selectExtraccio && selectExtraccio.options.length <= 1) {
+      data.dominis.forEach(domini => {
+        const opt = document.createElement('option');
+        opt.value = domini;
+        opt.textContent = domini;
+        selectExtraccio.appendChild(opt);
+      });
+    }
   } catch (e) {
     console.warn('Glossari no disponible:', e.message);
   }
@@ -2136,3 +2516,242 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+// ─── RECONNEXIÓ AUTOMÀTICA ──────────────────────────────────────────────────
+let _reconnectInterval = null;
+
+function iniciaReconnexio() {
+  if (_reconnectInterval) return; // ja està en marxa
+  console.log('Connexió perduda, iniciant reintents cada 10 s...');
+
+  _reconnectInterval = setInterval(async () => {
+    try {
+      const endpoint = await TAN.detectActiveEndpoint();
+      if (endpoint) {
+        clearInterval(_reconnectInterval);
+        _reconnectInterval = null;
+        console.log('Servidor reconnectat:', endpoint.name);
+      }
+    } catch (e) {
+      // Segueix intentant
+    }
+  }, 10000);
+}
+
+// Sobreescriu showServerStatus per detectar pèrdua de connexió
+(function() {
+  const _originalShowStatus = TAN.showServerStatus;
+  TAN.showServerStatus = function(name, status) {
+    _originalShowStatus(name, status);
+    if (status === 'error') {
+      iniciaReconnexio();
+    }
+  };
+})();
+
+// ─── EXTRACCIÓ DE GLOSSARI BILINGÜE ─────────────────────────────────────────
+
+let _glossariExtret = []; // Emmagatzema els termes extrets temporalment
+
+async function carregaFitxerGlossari(input, textareaId) {
+  const fitxer = input.files[0];
+  if (!fitxer) return;
+  const ext = fitxer.name.split('.').pop().toLowerCase();
+
+  if (ext === 'txt') {
+    const text = await fitxer.text();
+    document.getElementById(textareaId).value = text;
+  } else if (ext === 'docx') {
+    try {
+      const JSZipLib = window.JSZip;
+      if (!JSZipLib) { alert('JSZip no disponible'); return; }
+      const zip = await JSZipLib.loadAsync(fitxer);
+      const docXml = await zip.file('word/document.xml').async('text');
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(docXml, 'text/xml');
+      const ns = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+      const paragrafs = [];
+      const ps = doc.getElementsByTagNameNS(ns, 'p');
+      for (const p of ps) {
+        const ts = p.getElementsByTagNameNS(ns, 't');
+        let textP = '';
+        for (const t of ts) textP += t.textContent || '';
+        if (textP.trim()) paragrafs.push(textP.trim());
+      }
+      document.getElementById(textareaId).value = paragrafs.join('\n');
+    } catch (e) {
+      alert('Error llegint el fitxer .docx: ' + e.message);
+    }
+  } else {
+    alert('Format no admès. Useu .txt o .docx.');
+  }
+}
+
+async function extreuGlossariBilingue() {
+  const textOriginal  = document.getElementById('glossari-text-original').value.trim();
+  const textTraduccio = document.getElementById('glossari-text-traduccio').value.trim();
+  const domini        = document.getElementById('glossari-domini-extraccio').value;
+  const btn           = document.getElementById('btn-extreu-glossari');
+  const msgEl         = document.getElementById('glossari-extraccio-msg');
+  const resultatDiv   = document.getElementById('glossari-extraccio-resultat');
+
+  if (!textOriginal || !textTraduccio) {
+    msgEl.textContent = 'Cal introduir tant el text original com la traducció.';
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+    return;
+  }
+  if (!domini) {
+    msgEl.textContent = 'Seleccioneu un domini lingüístic.';
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Analitzant textos...';
+  msgEl.style.display = 'none';
+  resultatDiv.style.display = 'none';
+
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/extreu-glossari', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (_authToken || ''),
+      },
+      body: JSON.stringify({
+        text_original: textOriginal,
+        text_traduccio: textTraduccio,
+        domini: domini,
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error del servidor');
+    }
+
+    const dades = await resp.json();
+    _glossariExtret = dades.termes || [];
+
+    // Renderitza la taula de termes
+    _renderitzaTaulaGlossariExtret();
+
+    resultatDiv.style.display = 'block';
+    msgEl.textContent = _glossariExtret.length + ' termes especialitzats extrets per al domini "' + domini + '".';
+    msgEl.style.color = '#27500A';
+    msgEl.style.display = 'block';
+
+  } catch (e) {
+    msgEl.textContent = 'Error: ' + e.message;
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📚 Extraure glossari es↔va';
+  }
+}
+
+function _renderitzaTaulaGlossariExtret() {
+  const taulaDiv = document.getElementById('glossari-extraccio-taula');
+  const termesVisibles = _glossariExtret.filter(t => t !== null);
+  if (termesVisibles.length === 0) {
+    taulaDiv.innerHTML = '<p style="color:#6A7A9B;">No s\'han trobat termes especialitzats.</p>';
+    return;
+  }
+  let html = '<table style="width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed;">';
+  html += '<colgroup><col style="width:5%"><col style="width:43%"><col style="width:43%"><col style="width:9%"></colgroup>';
+  html += '<tr style="background:#002E52; color:white;">'
+       + '<th style="padding:8px; text-align:center;">#</th>'
+       + '<th style="padding:8px; text-align:left;">Castellà</th>'
+       + '<th style="padding:8px; text-align:left;">Valencià</th>'
+       + '<th style="padding:8px; text-align:center;">✗</th></tr>';
+  let num = 0;
+  for (let i = 0; i < _glossariExtret.length; i++) {
+    const t = _glossariExtret[i];
+    if (t === null) continue;
+    num++;
+    html += '<tr style="border-bottom:1px solid #ddd;" id="terme-row-' + i + '">';
+    html += '<td style="padding:6px 8px; text-align:center; color:#6A7A9B;">' + num + '</td>';
+    html += '<td style="padding:6px 8px;">' + escapeHtml(t.es || '') + '</td>';
+    html += '<td style="padding:6px 8px;"><input type="text" value="' + (t.va || '').replace(/"/g, '&quot;') + '" '
+         + 'onchange="_glossariExtret[' + i + '].va = this.value" '
+         + 'style="width:100%; padding:4px 6px; border:1px solid #ccc; border-radius:3px; font-size:13px; box-sizing:border-box;"></td>';
+    html += '<td style="padding:6px 8px; text-align:center;">'
+         + '<button onclick="eliminaTermeExtret(' + i + ')" style="background:none; border:none; color:#d32f2f; cursor:pointer; font-size:16px;" title="Eliminar">✗</button>'
+         + '</td></tr>';
+  }
+  html += '</table>';
+  taulaDiv.innerHTML = html;
+}
+
+function eliminaTermeExtret(index) {
+  _glossariExtret[index] = null;
+  _renderitzaTaulaGlossariExtret();
+}
+
+async function desaGlossariExtret() {
+  const domini = document.getElementById('glossari-domini-extraccio').value;
+  const msgEl  = document.getElementById('glossari-extraccio-msg');
+
+  // Filtra termes eliminats (nulls)
+  const termesValids = _glossariExtret.filter(t => t !== null);
+
+  if (termesValids.length === 0) {
+    msgEl.textContent = 'No hi ha termes per desar.';
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/glossari/desa-massiu', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (_authToken || ''),
+      },
+      body: JSON.stringify({ domini, termes: termesValids }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error desant el glossari');
+    }
+
+    const dades = await resp.json();
+    msgEl.textContent = dades.nous + ' termes nous afegits al glossari "' + domini + '" (' + dades.total + ' totals).';
+    msgEl.style.color = '#27500A';
+    msgEl.style.display = 'block';
+
+  } catch (e) {
+    const missatge = typeof e === 'string' ? e : (e.message || JSON.stringify(e));
+    msgEl.textContent = 'Error: ' + missatge;
+    msgEl.style.color = '#d32f2f';
+    msgEl.style.display = 'block';
+  }
+}
+
+function exportaGlossariTSV() {
+  const termesValids = _glossariExtret.filter(t => t !== null);
+  if (termesValids.length === 0) { alert('No hi ha termes per exportar.'); return; }
+
+  let tsv = 'castellà\tvalencià\n';
+  for (const t of termesValids) {
+    tsv += (t.es || '') + '\t' + (t.va || '') + '\n';
+  }
+
+  const blob = new Blob([tsv], { type: 'text/tab-separated-values;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const domini = document.getElementById('glossari-domini-extraccio').value || 'general';
+  a.href = url;
+  a.download = 'glossari_' + domini.replace(/\s+/g, '_') + '.tsv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

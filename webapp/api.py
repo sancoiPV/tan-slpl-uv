@@ -18,11 +18,13 @@ Inici:
 
 import base64
 import csv
+import hashlib
 import io
 import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import sys
 import tempfile
@@ -31,10 +33,10 @@ import uuid
 import zipfile
 from datetime import date, datetime
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 # ─── FastAPI i dependències web ───────────────────────────────────────────────
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -445,6 +447,9 @@ app.add_middleware(
         "Content-Disposition",
         "X-Paraules-Traduides",
         "X-Temps-Ms",
+        "X-Num-Imatges",
+        "X-Motor",
+        "X-Direccio",
     ],
 )
 
@@ -493,6 +498,202 @@ class RespostaSalut(BaseModel):
     estat:  str
     model:  str
     versio: str
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTENTICACIÓ D'USUARIS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Emmagatzematge de sessions (en memòria, es perd al reiniciar)
+_sessions: dict[str, str] = {}  # token → username
+
+_USERS_PATH = Path(__file__).parent.parent / "users.json"
+
+
+def _carrega_usuaris() -> dict:
+    if _USERS_PATH.exists():
+        with open(_USERS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def _desa_usuaris(usuaris: dict) -> None:
+    with open(_USERS_PATH, "w", encoding="utf-8") as f:
+        json.dump(usuaris, f, ensure_ascii=False, indent=2)
+
+
+def _valida_sessio(request: Request) -> str | None:
+    """Retorna el username si la sessió és vàlida, None si no."""
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not token:
+        token = request.query_params.get("token", "")
+    return _sessions.get(token)
+
+
+def _requereix_admin(request: Request) -> None:
+    """Llança 403 si l'usuari no és admin."""
+    username = _valida_sessio(request)
+    if not username:
+        raise HTTPException(status_code=401, detail="Sessió no vàlida. Identifiqueu-vos.")
+    usuaris = _carrega_usuaris()
+    if username not in usuaris or usuaris[username].get("rol") != "admin":
+        raise HTTPException(status_code=403, detail="Accés restringit a l'administrador.")
+
+
+# ─── Login ───────────────────────────────────────────────────────────────────
+
+class PeticioLogin(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/auth/login", tags=["Autenticació"])
+async def login(peticio: PeticioLogin):
+    usuaris = _carrega_usuaris()
+    user = usuaris.get(peticio.username)
+    if not user or not user.get("actiu", False):
+        raise HTTPException(status_code=401, detail="Usuari o contrasenya incorrectes.")
+    password_hash = hashlib.sha256(peticio.password.encode()).hexdigest()
+    if user["password_hash"] != password_hash:
+        raise HTTPException(status_code=401, detail="Usuari o contrasenya incorrectes.")
+    token = secrets.token_hex(32)
+    _sessions[token] = peticio.username
+    return {
+        "token": token,
+        "username": peticio.username,
+        "nom": user.get("nom", ""),
+        "rol": user.get("rol", "user"),
+    }
+
+
+# ─── Validar sessió ─────────────────────────────────────────────────────────
+
+@app.get("/auth/validar", tags=["Autenticació"])
+async def validar_sessio(request: Request):
+    username = _valida_sessio(request)
+    if not username:
+        raise HTTPException(status_code=401, detail="Sessió no vàlida.")
+    usuaris = _carrega_usuaris()
+    user = usuaris.get(username, {})
+    return {
+        "username": username,
+        "nom": user.get("nom", ""),
+        "rol": user.get("rol", "user"),
+    }
+
+
+# ─── Logout ──────────────────────────────────────────────────────────────────
+
+@app.post("/auth/logout", tags=["Autenticació"])
+async def logout(request: Request):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    _sessions.pop(token, None)
+    return {"ok": True}
+
+
+# ─── Admin: llistar usuaris ──────────────────────────────────────────────────
+
+@app.get("/auth/usuaris", tags=["Administració"])
+async def llistar_usuaris(request: Request):
+    _requereix_admin(request)
+    usuaris = _carrega_usuaris()
+    return [
+        {
+            "username": u,
+            "nom": d.get("nom", ""),
+            "rol": d.get("rol", "user"),
+            "actiu": d.get("actiu", False),
+        }
+        for u, d in usuaris.items()
+    ]
+
+
+# ─── Admin: crear usuari ────────────────────────────────────────────────────
+
+class NouUsuari(BaseModel):
+    username: str
+    password: str
+    nom: str = ""
+    rol: str = "user"
+
+
+@app.post("/auth/usuaris", tags=["Administració"])
+async def crear_usuari(peticio: NouUsuari, request: Request):
+    _requereix_admin(request)
+    usuaris = _carrega_usuaris()
+    if peticio.username in usuaris:
+        raise HTTPException(status_code=409, detail="L'usuari ja existeix.")
+    usuaris[peticio.username] = {
+        "password_hash": hashlib.sha256(peticio.password.encode()).hexdigest(),
+        "nom": peticio.nom,
+        "rol": peticio.rol,
+        "actiu": True,
+    }
+    _desa_usuaris(usuaris)
+    return {"ok": True, "username": peticio.username}
+
+
+# ─── Admin: eliminar usuari ─────────────────────────────────────────────────
+
+@app.delete("/auth/usuaris/{username}", tags=["Administració"])
+async def eliminar_usuari(username: str, request: Request):
+    _requereix_admin(request)
+    usuaris = _carrega_usuaris()
+    if username not in usuaris:
+        raise HTTPException(status_code=404, detail="Usuari no trobat.")
+    if username == "coitor":
+        raise HTTPException(status_code=403, detail="No es pot eliminar l'administrador.")
+    del usuaris[username]
+    _desa_usuaris(usuaris)
+    return {"ok": True}
+
+
+# ─── Admin: canviar contrasenya d'un usuari ──────────────────────────────────
+
+class CanviPassword(BaseModel):
+    nova_password: str
+
+
+@app.put("/auth/usuaris/{username}/password", tags=["Administració"])
+async def canviar_password(username: str, peticio: CanviPassword, request: Request):
+    _requereix_admin(request)
+    usuaris = _carrega_usuaris()
+    if username not in usuaris:
+        raise HTTPException(status_code=404, detail="Usuari no trobat.")
+    usuaris[username]["password_hash"] = hashlib.sha256(peticio.nova_password.encode()).hexdigest()
+    _desa_usuaris(usuaris)
+    return {"ok": True}
+
+
+# ─── Canvi de contrasenya propi (qualsevol usuari autenticat) ─────────────────
+
+class CanviPasswordPropi(BaseModel):
+    password_actual: str
+    password_nova: str
+
+
+@app.put("/auth/canvi-password", tags=["Autenticació"])
+async def canvi_password_propi(peticio: CanviPasswordPropi, request: Request):
+    """Permet a qualsevol usuari autenticat canviar la seua pròpia contrasenya."""
+    username = _valida_sessio(request)
+    if not username:
+        raise HTTPException(status_code=401, detail="Sessió no vàlida.")
+
+    usuaris = _carrega_usuaris()
+    user = usuaris.get(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuari no trobat.")
+
+    # Verifica la contrasenya actual
+    hash_actual = hashlib.sha256(peticio.password_actual.encode()).hexdigest()
+    if user["password_hash"] != hash_actual:
+        raise HTTPException(status_code=403, detail="La contrasenya actual és incorrecta.")
+
+    # Actualitza la contrasenya
+    usuaris[username]["password_hash"] = hashlib.sha256(peticio.password_nova.encode()).hexdigest()
+    _desa_usuaris(usuaris)
+
+    return {"ok": True, "missatge": "Contrasenya actualitzada correctament."}
 
 
 # ─── Endpoint: GET /salut ─────────────────────────────────────────────────────
@@ -765,6 +966,125 @@ def _tradueix_fitxer_xml(
     return total_par
 
 
+# ─── OCR per a filtratge d'imatges amb text ─────────────────────────────────
+_TESSERACT_OK = False
+try:
+    import pytesseract
+    from PIL import Image as _PILImage
+    # Configura la ruta de Tesseract per a Windows
+    import platform as _platform
+    if _platform.system() == 'Windows':
+        _tesseract_paths = [
+            r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+            r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+            r'C:\Users\santi\AppData\Local\Programs\Tesseract-OCR\tesseract.exe',
+        ]
+        for _tp in _tesseract_paths:
+            if os.path.isfile(_tp):
+                pytesseract.pytesseract.tesseract_cmd = _tp
+                break
+    # Prova que funciona
+    pytesseract.get_tesseract_version()
+    _TESSERACT_OK = True
+    log.info("Tesseract OCR disponible: %s", pytesseract.get_tesseract_version())
+except Exception as _e:
+    log.warning("Tesseract OCR NO disponible: %s. El filtre d'imatges amb text NO funcionarà.", _e)
+    _TESSERACT_OK = False
+
+
+def _imatge_conte_text_real(dades_imatge: bytes, min_paraules: int = 1) -> tuple[bool, str]:
+    """
+    Analitza una imatge amb Tesseract OCR per determinar si conté text real.
+
+    Usa image_to_string() amb --psm 3 (detecció automàtica), que és l'enfocament
+    provat i verificat que funciona correctament amb imatges de documents.
+
+    Una paraula vàlida és una seqüència d'almenys 3 caràcters exclusivament
+    alfabètics (a-z, A-Z, amb o sense accents). Es descarten números,
+    símbols, abreviatures d'1-2 lletres i soroll OCR.
+
+    Retorna (True, resum_text) si la imatge conté almenys `min_paraules` paraules vàlides.
+    Retorna (False, '') en cas contrari.
+    """
+    if not _TESSERACT_OK:
+        log.warning("  Tesseract no disponible → imatge DESCARTADA per precaució")
+        return False, ''
+
+    try:
+        img = _PILImage.open(io.BytesIO(dades_imatge))
+
+        # Converteix RGBA/P a RGB amb fons blanc (evita problemes amb transparència)
+        if img.mode == 'RGBA':
+            fons = _PILImage.new('RGB', img.size, (255, 255, 255))
+            fons.paste(img, mask=img.split()[3])
+            img = fons
+        elif img.mode not in ('RGB', 'L'):
+            img = img.convert('RGB')
+
+        # Redimensiona imatges molt grans per accelerar l'OCR
+        max_dim = 2500
+        if max(img.size) > max_dim:
+            ratio = max_dim / max(img.size)
+            img = img.resize((int(img.width * ratio), int(img.height * ratio)))
+
+        # OCR amb detecció automàtica (--psm 3), que és el mode que funciona
+        text_ocr = pytesseract.image_to_string(
+            img,
+            lang='spa+eng',
+            timeout=15,
+            config='--psm 3',
+        )
+
+    except Exception as exc:
+        log.warning("  Error OCR: %s → imatge DESCARTADA", exc)
+        return False, ''
+
+    if not text_ocr or not text_ocr.strip():
+        return False, ''
+
+    # Extrau paraules candidates: 3+ caràcters exclusivament alfabètics
+    import re as _re_ocr
+    paraules_candidates = [w for w in text_ocr.split() if len(w) >= 3 and w.isalpha()]
+
+    # Filtra paraules que NO són text real per a traduir
+    _PARAULES_DESCARTAR = {
+        # Copyright i metadades
+        'copyright', 'rights', 'reserved', 'all', 'inc', 'ltd', 'corp',
+        'publishing', 'published', 'pearson', 'elsevier', 'springer',
+        'wiley', 'mcgraw', 'hill', 'benjamin', 'cummings',
+        # Soroll OCR comú
+        'the', 'and', 'for', 'that', 'this', 'with', 'from', 'are', 'was',
+        'not', 'but', 'have', 'has', 'had', 'been', 'will', 'can', 'may',
+    }
+
+    def _es_paraula_traduible(p):
+        p_lower = p.lower()
+        # Descarta paraules de la llista de descart
+        if p_lower in _PARAULES_DESCARTAR:
+            return False
+        # Descarta si totes les lletres són iguals (aaa, bbb)
+        if len(set(p_lower)) <= 1:
+            return False
+        # Descarta si és probablement una sigla (3-4 lletres totes majúscules)
+        if len(p) >= 3 and p.isupper() and len(p) <= 4:
+            return False
+        return True
+
+    paraules_valides = [p for p in paraules_candidates if _es_paraula_traduible(p)]
+
+    # Comprova si el text és NOMÉS copyright
+    text_lower = text_ocr.lower()
+    es_copyright = ('copyright' in text_lower or '©' in text_lower or 'rights reserved' in text_lower)
+    if es_copyright and len(paraules_valides) < 5:
+        return False, ''
+
+    if len(paraules_valides) >= min_paraules:
+        resum = ' '.join(paraules_valides[:10])
+        return True, resum
+    else:
+        return False, ''
+
+
 # ─── Endpoint: POST /extreu-imatges-document ─────────────────────────────────
 
 @app.post(
@@ -794,6 +1114,7 @@ async def extreu_imatges_document(
 
     extensions_imatge = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif')
     imatges = []
+    total_imatges_analitzades = 0
 
     try:
         with _zf.ZipFile(io.BytesIO(contingut)) as z:
@@ -802,20 +1123,44 @@ async def extreu_imatges_document(
                 # En .docx les imatges estan a word/media/
                 # En .pptx les imatges estan a ppt/media/
                 if '/media/' in entry_lower and any(entry_lower.endswith(ext) for ext in extensions_imatge):
+                    total_imatges_analitzades += 1
                     nom_imatge = Path(entry).name
                     dades_imatge = z.read(entry)
-                    imatges.append((nom_imatge, dades_imatge))
+
+                    # Filtre OCR: només inclou imatges amb text real
+                    te_text, text_detectat = _imatge_conte_text_real(dades_imatge)
+                    if te_text:
+                        imatges.append((nom_imatge, dades_imatge))
+                        log.info(
+                            "  ✓ Imatge '%s' INCLOSA (text: %s)",
+                            nom_imatge,
+                            text_detectat[:80] if text_detectat else '(OCR no disponible)',
+                        )
+                    else:
+                        log.info("  ✗ Imatge '%s' DESCARTADA (sense text real)", nom_imatge)
     except Exception as exc:
         log.exception("Error extraient imatges de '%s': %s", nom, exc)
         raise HTTPException(status_code=500, detail=f"Error extraient imatges: {exc}")
 
     if not imatges:
+        if not _TESSERACT_OK:
+            raise HTTPException(
+                status_code=503,
+                detail="Tesseract OCR no està instal·lat al servidor. "
+                       "No es poden filtrar les imatges amb text. "
+                       "Instal·la Tesseract: https://github.com/UB-Mannheim/tesseract/wiki",
+            )
         raise HTTPException(
             status_code=404,
-            detail="No s'han trobat imatges incrustades en aquest document.",
+            detail="No s'han trobat imatges amb text real en aquest document. "
+                   "S'han analitzat totes les imatges incrustades i cap conté "
+                   "paraules completes en castellà, anglès o francès.",
         )
 
-    log.info("Extretes %d imatges de '%s'", len(imatges), nom)
+    log.info(
+        "Anàlisi completada: %d imatges amb text de %d totals analitzades en '%s'",
+        len(imatges), nom, total_imatges_analitzades,
+    )
 
     # Crea un ZIP amb totes les imatges
     buffer_zip = io.BytesIO()
@@ -827,8 +1172,17 @@ async def extreu_imatges_document(
             nom_net = f"imatge_{i:02d}{ext_img}"
             zout.writestr(nom_net, dades_img)
 
+        # Inclou un manifest JSON amb metadades
+        import json as _json_manifest
+        manifest = _json_manifest.dumps({
+            "num_imatges": len(imatges),
+            "total_analitzades": total_imatges_analitzades,
+            "fitxer_original": nom,
+        }, ensure_ascii=False)
+        zout.writestr("_manifest.json", manifest)
+
     buffer_zip.seek(0)
-    nom_zip = f"Imatges_del_document_{nom_base}.zip"
+    nom_zip = f"Imatges amb text {nom_base}.zip"
 
     return Response(
         content=buffer_zip.getvalue(),
@@ -1082,6 +1436,216 @@ async def exporta_glossari(domini: str):
     )
 
 
+# ─── Extracció automàtica de glossari bilingüe amb Claude ─────────────────────
+
+class PeticioExtreuGlossari(BaseModel):
+    text_original:  str = Field(..., min_length=10, max_length=500_000,
+                                description="Text original en castellà")
+    text_traduccio: str = Field(..., min_length=10, max_length=500_000,
+                                description="Traducció al valencià revisada")
+    domini:         str = Field(..., min_length=1,
+                                description="Domini lingüístic d'especialitat")
+
+
+@app.post(
+    "/extreu-glossari",
+    summary="Extreu glossari bilingüe es↔va d'un parell de textos",
+    tags=["Glossari"],
+)
+async def extreu_glossari(peticio: PeticioExtreuGlossari):
+    """
+    Analitza un text original en castellà i la seua traducció al valencià
+    per a extraure'n el vocabulari especialitzat bilingüe.
+    Usa Claude Sonnet per a la detecció de termes.
+    """
+    api_key = _obte_api_key_anthropic()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Clau API d'Anthropic no configurada.")
+
+    prompt_extraccio = (
+        "Ets un terminòleg expert en extracció de vocabulari especialitzat bilingüe "
+        "castellà-valencià/català.\n\n"
+        "Analitza els dos textos següents: un ORIGINAL en castellà i la seua TRADUCCIÓ "
+        "al valencià. Extrau TOTS els termes especialitzats, tècnics o rellevants per "
+        "al domini indicat.\n\n"
+        f"Domini lingüístic: {peticio.domini}\n\n"
+        "INSTRUCCIONS:\n"
+        "1. Identifica substantius, adjectius, verbs i expressions tècniques del domini.\n"
+        "2. NO incloure paraules comunes o genèriques (articles, preposicions, conjuncions, pronoms).\n"
+        "3. NO incloure noms propis de persones.\n"
+        "4. SÍ incloure: termes tècnics, expressions fixades, locucions, "
+        "unitats terminològiques complexes (2-4 paraules).\n"
+        "5. Per a cada terme, proporciona la parella castellà → valencià.\n"
+        "6. Ordena els termes alfabèticament pel castellà.\n"
+        "7. Si un terme castellà té múltiples traduccions, tria la que apareix al text traduït.\n\n"
+        f"ORIGINAL (castellà):\n{peticio.text_original[:50000]}\n\n"
+        f"TRADUCCIÓ (valencià):\n{peticio.text_traduccio[:50000]}\n\n"
+        "Respon EXCLUSIVAMENT amb un JSON vàlid (sense blocs markdown, sense ```json). "
+        "Format exacte:\n\n"
+        "{\n"
+        f'  "domini": "{peticio.domini}",\n'
+        '  "termes": [\n'
+        '    {"es": "terme en castellà", "va": "terme en valencià"},\n'
+        '    {"es": "altre terme", "va": "altra traducció"}\n'
+        "  ],\n"
+        '  "num_termes": 0\n'
+        "}"
+    )
+
+    try:
+        system_blocks = [
+            {
+                "type": "text",
+                "text": (
+                    "Ets un terminòleg expert en extracció de vocabulari bilingüe "
+                    "castellà-valencià.\n"
+                    "REGLA ABSOLUTA: la teua resposta ha de contindre EXCLUSIVAMENT "
+                    "un objecte JSON vàlid. Cap text abans, cap text després, cap "
+                    "bloc markdown (```), cap comentari. NOMÉS JSON pur."
+                ),
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
+        resposta = await _crida_claude_amb_cache(
+            system_blocks=system_blocks,
+            missatge_usuari=prompt_extraccio,
+            api_key=api_key,
+            max_tokens=4096,
+        )
+
+        # ── Parseig robust de la resposta ──────────────────────────────────
+        resposta_crua = resposta  # guardem l'original per a diagnòstic
+        log.debug("Resposta crua de Claude (extreu-glossari): %.500s", resposta_crua)
+
+        resposta = resposta.strip()
+
+        # 1. Elimina blocs markdown ```json ... ``` o ``` ... ```
+        resposta = re.sub(r'^```\w*\s*\n?', '', resposta)
+        resposta = re.sub(r'\n?```\s*$', '', resposta)
+        resposta = resposta.strip()
+
+        # 2. Intenta parseig directe
+        resultat = None
+        try:
+            resultat = json.loads(resposta)
+        except json.JSONDecodeError:
+            pass
+
+        # 3. Fallback: busca objecte JSON {...} dins del text
+        if resultat is None:
+            m = re.search(r'\{[\s\S]*\}', resposta)
+            if m:
+                try:
+                    resultat = json.loads(m.group())
+                except json.JSONDecodeError:
+                    pass
+
+        # 4. Fallback: busca array JSON [...] i empaqueta-ho
+        if resultat is None:
+            m = re.search(r'\[[\s\S]*\]', resposta)
+            if m:
+                try:
+                    termes_array = json.loads(m.group())
+                    if isinstance(termes_array, list):
+                        resultat = {"domini": peticio.domini, "termes": termes_array}
+                except json.JSONDecodeError:
+                    pass
+
+        # 5. Si tot falla, error amb diagnòstic
+        if resultat is None:
+            log.error(
+                "No s'ha pogut extraure JSON vàlid de la resposta de Claude. "
+                "Primers 500 chars: %.500s", resposta_crua,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="El model no ha retornat un JSON vàlid. Torneu a intentar-ho.",
+            )
+
+        # ── Normalització de camps ─────────────────────────────────────────
+        if "termes" in resultat and isinstance(resultat["termes"], list):
+            termes_normalitzats = []
+            for t in resultat["termes"]:
+                if not isinstance(t, dict):
+                    continue
+                # Acceptem múltiples noms de camp per al castellà
+                es = (t.get("es") or t.get("castellà") or t.get("castellano")
+                      or t.get("español") or "")
+                # Acceptem múltiples noms de camp per al valencià
+                va = (t.get("va") or t.get("ca") or t.get("valencià")
+                      or t.get("valenciano") or t.get("catalán")
+                      or t.get("català") or "")
+                if es and va:
+                    termes_normalitzats.append({"es": es.strip(), "va": va.strip()})
+            resultat["termes"] = termes_normalitzats
+
+        resultat["domini"] = peticio.domini
+        resultat["num_termes"] = len(resultat.get("termes", []))
+
+        log.info(
+            "POST /extreu-glossari — domini='%s', %d termes extrets",
+            peticio.domini, resultat["num_termes"],
+        )
+
+        return resultat
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("Error extraient glossari: %s", exc)
+        raise HTTPException(status_code=500,
+                            detail=f"Error en l'extracció del glossari: {exc}")
+
+
+# ─── Desar termes massius al glossari ─────────────────────────────────────────
+
+class PeticioDesaGlossariMassiu(BaseModel):
+    domini: str
+    termes: List[Dict[str, Any]]  # [{"es": "...", "va": "..."}]
+
+
+@app.post("/glossari/desa-massiu", tags=["Glossari"],
+          summary="Afig una llista de termes al glossari d'un domini")
+async def desa_glossari_massiu(peticio: PeticioDesaGlossariMassiu):
+    """Afig una llista de termes al glossari d'un domini evitant duplicats."""
+    log.info("POST /glossari/desa-massiu — domini='%s', %d termes rebuts",
+             peticio.domini, len(peticio.termes))
+
+    if peticio.domini not in DOMINIS:
+        raise HTTPException(status_code=404,
+                            detail=f"Domini no trobat: {peticio.domini}")
+
+    path = nom_fitxer_glossari(peticio.domini)
+    entrades = carrega_glossari(peticio.domini) if path.exists() else []
+
+    # Conjunt de termes existents per evitar duplicats (camp 'es' + 'ca')
+    existents = {(e.get("es", "").lower(), e.get("ca", "").lower()) for e in entrades}
+
+    nous = 0
+    for terme in peticio.termes:
+        es = terme.get("es", "").strip()
+        # Accepta tant 'va' com 'ca' del frontend
+        va = terme.get("va", terme.get("ca", "")).strip()
+        if es and va and (es.lower(), va.lower()) not in existents:
+            entrades.append({
+                "es":     es,
+                "ca":     va,           # El camp del TSV és 'ca', no 'va'
+                "tecnic": "extracció automàtica",
+                "data":   date.today().isoformat(),
+                "domini": peticio.domini,
+            })
+            existents.add((es.lower(), va.lower()))
+            nous += 1
+
+    # Desa el glossari actualitzat
+    desa_glossari(peticio.domini, entrades)
+
+    log.info("Glossari '%s': %d termes nous afegits (%d totals)",
+             peticio.domini, nous, len(entrades))
+    return {"ok": True, "nous": nous, "total": len(entrades)}
+
+
 # ─── Traducció d'imatges amb Gemini (Nano Banana Pro) ────────────────────────
 
 PROMPT_TRADUCCIO_IMATGE_DEFAULT = (
@@ -1120,7 +1684,18 @@ PROMPT_TRADUCCIO_IMATGE_DEFAULT = (
     "servici), ordre (no orde), vacances (no vacacions), veure (no vore), desenvolupar (no "
     "desenrotllar), eina (no ferramenta), mentre (no mentres), endemà (no sendemà), meitat "
     "(no mitat), avui (no hui), aprendre (no dependre), judici (no juí), defensar (no "
-    "defendre) i petit (no xicotet)."
+    "defendre) i petit (no xicotet). "
+    "Quan trobes terminologia especialitzada de qualsevol àmbit (biologia, medicina, física, "
+    "química, dret, informàtica, enginyeria, etc.), NO inventes ni al·lucines la traducció. "
+    "Busca sempre el terme correcte en català/valencià al Termcat "
+    "(https://www.termcat.cat/ca/cercaterm), que és el centre de terminologia de la llengua "
+    "catalana i l'autoritat en neologia i terminologia especialitzada. Exemples: "
+    "\"cell membrane\" → \"membrana cel·lular\" (no \"membrana de la cèl·lula\"); "
+    "\"machine learning\" → \"aprenentatge automàtic\" (no \"aprenentatge de màquina\"); "
+    "\"hard drive\" → \"disc dur\" (no \"unitat de disc dur\"); "
+    "\"cloud computing\" → \"informàtica en el núvol\" (no \"computació al núvol\"). "
+    "Si no estàs segur de la traducció d'un terme especialitzat, usa la forma més establida "
+    "en l'àmbit acadèmic i científic català/valencià, sense inventar neologismes."
 )
 
 
@@ -3372,20 +3947,74 @@ async def tradueix_document_claude(
     try:
         system_blocks, prefix = construeix_prompt_traduccio_es_va()
 
-        # Funció de traducció per lots
+        # Funció de traducció per lots (agrupats en blocs de ~800 paraules)
+        _SEPARADOR_LOTS = '|||SEGMENT|||'
+        _MAX_PARAULES_LOT = 800
+
         async def _tradueix_lots(textos):
-            resultats = []
-            for text in textos:
+            # Agrupa segments en lots per reduir crides a l'API
+            lots = []          # cada lot = llista d'índexs dins de textos
+            lot_actual = []
+            paraules_lot = 0
+
+            for i, text in enumerate(textos):
                 if not text.strip() or len(text.strip()) < 4:
-                    resultats.append(text)
-                    continue
-                trad = await _crida_claude_amb_cache(
-                    system_blocks=system_blocks,
-                    missatge_usuari=prefix + text,
-                    api_key=api_key,
-                    max_tokens=4096,
-                )
-                resultats.append(_neteja_resposta_claude(trad.strip()))
+                    continue                    # es copiarà tal qual
+                n_paraules = len(text.split())
+                # Si afegir aquest segment supera el límit, tanca el lot
+                if lot_actual and (paraules_lot + n_paraules) > _MAX_PARAULES_LOT:
+                    lots.append(lot_actual)
+                    lot_actual = []
+                    paraules_lot = 0
+                lot_actual.append(i)
+                paraules_lot += n_paraules
+
+            if lot_actual:
+                lots.append(lot_actual)
+
+            # Prepara resultats (per defecte = text original)
+            resultats = list(textos)
+
+            log.info("Traducció per lots: %d segments → %d lots", len(textos), len(lots))
+
+            for num_lot, indexos in enumerate(lots, 1):
+                if len(indexos) == 1:
+                    # Lot d'un sol segment → crida directa
+                    idx = indexos[0]
+                    trad = await _crida_claude_amb_cache(
+                        system_blocks=system_blocks,
+                        missatge_usuari=prefix + textos[idx],
+                        api_key=api_key,
+                        max_tokens=4096,
+                    )
+                    resultats[idx] = _neteja_resposta_claude(trad.strip())
+                else:
+                    # Lot de múltiples segments → concatena amb separador
+                    bloc = ('\n' + _SEPARADOR_LOTS + '\n').join(
+                        textos[idx] for idx in indexos
+                    )
+                    instruccio = (
+                        prefix
+                        + "Tradueix cadascun dels segments següents. "
+                        + f"Separa les traduccions amb «{_SEPARADOR_LOTS}» exactament com apareixen.\n\n"
+                        + bloc
+                    )
+                    trad = await _crida_claude_amb_cache(
+                        system_blocks=system_blocks,
+                        missatge_usuari=instruccio,
+                        api_key=api_key,
+                        max_tokens=8192,
+                    )
+                    parts = trad.split(_SEPARADOR_LOTS)
+                    # Assigna cada part al seu índex
+                    for j, idx in enumerate(indexos):
+                        if j < len(parts):
+                            resultats[idx] = _neteja_resposta_claude(parts[j].strip())
+                        # Si falten parts, manté l'original (ja copiat)
+
+                    log.info("  Lot %d/%d: %d segments traduïts en 1 crida",
+                             num_lot, len(lots), len(indexos))
+
             return resultats
 
         # Passada 1: traducció
@@ -3402,7 +4031,7 @@ async def tradueix_document_claude(
             _tradueix_sync,
         )
 
-        # Passada 2: revisió (sobre el document ja traduït)
+        # Passada 2: revisió per lots (sobre el document ja traduït)
         system_rev, _ = construeix_prompt_revisio("es_va")
         if ext == 'docx':
             editor_rev = DocxFormatPreservingEditor(resultat_bytes)
@@ -3411,18 +4040,62 @@ async def tradueix_document_claude(
 
         try:
             paragrafs_rev = editor_rev.extrau_paragrafs()
-            for p in paragrafs_rev:
-                if len(p['text'].strip()) < 10:
-                    continue
-                text_revisat = await _crida_claude_amb_cache(
-                    system_blocks=system_rev,
-                    missatge_usuari=f"Revisa aquest paràgraf traduït i corregeix si cal:\n\n{p['text']}",
-                    api_key=api_key,
-                    max_tokens=2048,
-                )
-                text_revisat = _neteja_resposta_claude(text_revisat.strip())
-                if text_revisat and text_revisat != p['text']:
-                    editor_rev.substitueix_paragraf(p, text_revisat)
+            # Filtra paràgrafs amb prou text per revisar
+            paragrafs_a_revisar = [p for p in paragrafs_rev if len(p['text'].strip()) >= 10]
+
+            # Agrupa en lots de ~800 paraules
+            lots_rev = []
+            lot_actual_rev = []
+            paraules_lot_rev = 0
+            for p in paragrafs_a_revisar:
+                n_p = len(p['text'].split())
+                if lot_actual_rev and (paraules_lot_rev + n_p) > _MAX_PARAULES_LOT:
+                    lots_rev.append(lot_actual_rev)
+                    lot_actual_rev = []
+                    paraules_lot_rev = 0
+                lot_actual_rev.append(p)
+                paraules_lot_rev += n_p
+            if lot_actual_rev:
+                lots_rev.append(lot_actual_rev)
+
+            log.info("Revisió per lots: %d paràgrafs → %d lots", len(paragrafs_a_revisar), len(lots_rev))
+
+            for num_lot, lot_paragrafs in enumerate(lots_rev, 1):
+                if len(lot_paragrafs) == 1:
+                    p = lot_paragrafs[0]
+                    text_revisat = await _crida_claude_amb_cache(
+                        system_blocks=system_rev,
+                        missatge_usuari=f"Revisa aquest paràgraf traduït i corregeix si cal:\n\n{p['text']}",
+                        api_key=api_key,
+                        max_tokens=2048,
+                    )
+                    text_revisat = _neteja_resposta_claude(text_revisat.strip())
+                    if text_revisat and text_revisat != p['text']:
+                        editor_rev.substitueix_paragraf(p, text_revisat)
+                else:
+                    bloc_rev = ('\n' + _SEPARADOR_LOTS + '\n').join(
+                        p['text'] for p in lot_paragrafs
+                    )
+                    instruccio_rev = (
+                        "Revisa cadascun dels paràgrafs traduïts següents i corregeix si cal. "
+                        f"Separa les revisions amb «{_SEPARADOR_LOTS}» exactament com apareixen.\n\n"
+                        + bloc_rev
+                    )
+                    trad_rev = await _crida_claude_amb_cache(
+                        system_blocks=system_rev,
+                        missatge_usuari=instruccio_rev,
+                        api_key=api_key,
+                        max_tokens=8192,
+                    )
+                    parts_rev = trad_rev.split(_SEPARADOR_LOTS)
+                    for j, p in enumerate(lot_paragrafs):
+                        if j < len(parts_rev):
+                            text_revisat = _neteja_resposta_claude(parts_rev[j].strip())
+                            if text_revisat and text_revisat != p['text']:
+                                editor_rev.substitueix_paragraf(p, text_revisat)
+
+                    log.info("  Revisió lot %d/%d: %d paràgrafs revisats en 1 crida",
+                             num_lot, len(lots_rev), len(lot_paragrafs))
 
             resultat_bytes = editor_rev.desa()
         finally:
