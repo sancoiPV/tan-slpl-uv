@@ -162,7 +162,7 @@
     ondrop="onDropDocs(event,'traduccio')">
     <div class="upload-top">
       <button class="btn-apujar"
-        onclick="document.getElementById('inp-td').click()">Apujar document</button>
+        onclick="document.getElementById('inp-td').click()">📄 Apujar document en castellà</button>
       <input type="file" id="inp-td" accept=".docx,.pptx,.rtf" style="display:none"
         onchange="seleccionaFitxer(this.files[0],'traduccio')">
       <div class="drag-hint">o arrossega el document ací</div>
@@ -617,7 +617,7 @@
               style="display:none;"
               onchange="carregaFitxerGlossari(this, 'glossari-text-original')">
             <button onclick="document.getElementById('glossari-fitxer-original').click()"
-              class="btn-secondary" style="font-size:14px; padding:10px 20px; font-weight:600;">
+              class="btn-apujar" style="font-size:14px; padding:10px 20px;">
               📄 Apuja el text original en castellà
             </button>
           </div>
@@ -636,7 +636,7 @@
               style="display:none;"
               onchange="carregaFitxerGlossari(this, 'glossari-text-traduccio')">
             <button onclick="document.getElementById('glossari-fitxer-traduccio').click()"
-              class="btn-secondary" style="font-size:14px; padding:10px 20px; font-weight:600;">
+              class="btn-apujar" style="font-size:14px; padding:10px 20px;">
               📄 Apuja el text traduït al valencià
             </button>
           </div>
@@ -836,8 +836,8 @@
                onchange="handleAnglesDocSelect(event)">
 
         <button onclick="document.getElementById('angles-doc-input').click()"
-                class="btn-secondary btn-apujar-doc">
-          📄 Apujar document
+                class="btn-apujar btn-apujar-doc">
+          📄 Apujar document en anglès o valencià
         </button>
 
         <div id="angles-doc-info" class="correccio-doc-info" style="display:none">

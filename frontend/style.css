@@ -306,8 +306,8 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   font-size: 0.92rem;
   font-weight: 600;
   cursor: pointer;
-  background: #1B2A4A;
-  color: #fff;
+  background: #F5A800;
+  color: #1B2A4A;
   transition: opacity 0.2s;
 }
 .btn-apujar:hover { opacity: .85; }

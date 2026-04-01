@@ -177,6 +177,7 @@ DOMINIS = [
     "Geografia",
     "Història i Antropologia",
     "Informàtica i Noves Tecnologies",
+    "Informes del Servei d'Anàlisi i Planificació",
     "Logopèdia",
     "Matemàtiques i Estadística",
     "Medicina i Infermeria",
@@ -560,19 +561,55 @@ def _tradueix_text(text: str) -> str:
             oracio = oracio.strip()
             if not oracio:
                 continue
+
+            # ── Protecció per a textos molt curts ────────────────────
+            # Si l'oració té menys de 3 paraules, afegim un prefix
+            # de context que eliminem després per a evitar al·lucinacions.
+            _PREFIX_CURT = "La respuesta es: "
+            _usa_prefix = len(oracio.split()) < 3
+            text_a_traduir = _PREFIX_CURT + oracio if _usa_prefix else oracio
+
             try:
                 resp = _req.post(
                     "http://127.0.0.1:5001/translate",
-                    json={"text": oracio, "src": "es", "tgt": "ca"},
+                    json={"text": text_a_traduir, "src": "es", "tgt": "ca"},
                     timeout=60,
                 )
                 resp.raise_for_status()
                 traduccio = resp.json().get("translation", oracio)
 
+                # Eliminar el prefix de context si s'ha usat
+                if _usa_prefix:
+                    # El prefix traduït pot variar; intentem eliminar-lo
+                    _PREFIXOS_TRADUITS = [
+                        "La resposta és: ", "La resposta és:", "La resposta es: ",
+                        "La resposta es:", "La resposta: ", "La resposta:",
+                    ]
+                    for _pref in _PREFIXOS_TRADUITS:
+                        if traduccio.startswith(_pref):
+                            traduccio = traduccio[len(_pref):].strip()
+                            break
+                    else:
+                        # Si no trobem cap prefix conegut, intentem
+                        # eliminar tot fins als dos punts
+                        if ": " in traduccio:
+                            traduccio = traduccio.split(": ", 1)[1].strip()
+
                 # 1. Preservar la puntuació final de l'oració original
                 traduccio = _preserva_puntuacio(oracio, traduccio)
                 # 2. Postedició lèxica obligatòria
                 traduccio = _postedita_aina(traduccio)
+
+                # 3. Verificació: si la traducció és molt més llarga que
+                # l'original, probablement el model ha al·lucinat
+                ratio = len(traduccio.split()) / max(len(oracio.split()), 1)
+                if ratio > 2.5 and len(oracio.split()) < 6:
+                    log.warning(
+                        "Traducció AINA sospitosa (ratio %.1f): '%s' → '%s'",
+                        ratio, oracio[:50], traduccio[:50]
+                    )
+                    # Fallback: retornar l'original sense traduir
+                    traduccio = oracio
 
                 traduccions_oracio.append(traduccio)
             except Exception:
