@@ -507,6 +507,32 @@ def _postedita_aina(text_traduit: str) -> str:
     return resultat
 
 
+def _neteja_repeticions_aina(oracio_original: str, traduccio: str) -> str:
+    """Elimina contingut repetit o afegit pel model AINA.
+
+    Patrons detectats:
+    - El model afig una segona frase que no correspon a l'original
+      (ex: "Buenas tardes" → "Bona vesprada. Bona nit")
+    - El model repeteix la mateixa frase dues vegades
+    """
+    n_paraules_orig = len(oracio_original.split())
+
+    # Si l'original té menys de 5 paraules i la traducció conté
+    # un punt seguit d'una nova frase, eliminar la part afegida
+    if n_paraules_orig < 5 and '. ' in traduccio:
+        parts = traduccio.split('. ')
+        # Quedar-se només amb la primera part
+        traduccio = parts[0]
+
+    # Si la traducció és idèntica repetida (ex: "Hola. Hola")
+    if '. ' in traduccio:
+        parts = traduccio.split('. ')
+        if len(parts) == 2 and parts[0].strip().lower() == parts[1].strip().rstrip('.').lower():
+            traduccio = parts[0]
+
+    return traduccio
+
+
 def _divideix_en_oracions(text: str) -> list[str]:
     """Divideix un text en oracions individuals.
 
@@ -595,6 +621,8 @@ def _tradueix_text(text: str) -> str:
                         if ": " in traduccio:
                             traduccio = traduccio.split(": ", 1)[1].strip()
 
+                # 0. Netejar repeticions i contingut afegit
+                traduccio = _neteja_repeticions_aina(oracio, traduccio)
                 # 1. Preservar la puntuació final de l'oració original
                 traduccio = _preserva_puntuacio(oracio, traduccio)
                 # 2. Postedició lèxica obligatòria
@@ -603,7 +631,7 @@ def _tradueix_text(text: str) -> str:
                 # 3. Verificació: si la traducció és molt més llarga que
                 # l'original, probablement el model ha al·lucinat
                 ratio = len(traduccio.split()) / max(len(oracio.split()), 1)
-                if ratio > 2.5 and len(oracio.split()) < 6:
+                if ratio > 1.8 and len(oracio.split()) < 6:
                     log.warning(
                         "Traducció AINA sospitosa (ratio %.1f): '%s' → '%s'",
                         ratio, oracio[:50], traduccio[:50]
