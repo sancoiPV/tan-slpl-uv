@@ -559,6 +559,46 @@ def _divideix_en_oracions(text: str) -> list[str]:
     return oracions if oracions else [text]
 
 
+# Diccionari de frases curtes que AINA no pot traduir correctament.
+# Claus en minúscula sense puntuació final; valors ja amb la forma correcta.
+_FRASES_CURTES_ES_CA = {
+    "hola": "Hola",
+    "adiós": "Adeu",
+    "adios": "Adeu",
+    "gracias": "Gràcies",
+    "muchas gracias": "Moltes gràcies",
+    "buenos días": "Bon dia",
+    "buenas tardes": "Bona vesprada",
+    "buenas noches": "Bona nit",
+    "por favor": "Per favor",
+    "de nada": "De res",
+    "lo siento": "Ho sent",
+    "perdón": "Perdó",
+    "perdon": "Perdó",
+    "sí": "Sí",
+    "no": "No",
+    "bien": "Bé",
+    "muy bien": "Molt bé",
+    "vale": "D'acord",
+    "de acuerdo": "D'acord",
+    "bienvenido": "Benvingut",
+    "bienvenida": "Benvinguda",
+    "bienvenidos": "Benvinguts",
+    "bienvenidas": "Benvingudes",
+    "felicidades": "Felicitats",
+    "enhorabuena": "Enhorabona",
+    "hasta luego": "Fins després",
+    "hasta pronto": "Fins prompte",
+    "hasta mañana": "Fins demà",
+    "buena suerte": "Bona sort",
+    "buen día": "Bon dia",
+    "un saludo": "Una salutació",
+    "saludos": "Salutacions",
+    "cordialmente": "Cordialment",
+    "atentamente": "Atentament",
+}
+
+
 def _tradueix_text(text: str) -> str:
     """Tradueix un text castellà→català usant el servidor CTranslate2 (port 5001).
 
@@ -586,6 +626,17 @@ def _tradueix_text(text: str) -> str:
         for oracio in oracions:
             oracio = oracio.strip()
             if not oracio:
+                continue
+
+            # ── Consulta al diccionari de frases curtes ──────────────
+            # Si l'oració (sense puntuació final) coincideix amb una
+            # entrada del diccionari, usar-la directament sense AINA.
+            _clau = re.sub(r'^[¿¡]+|[.,;:!?…¿¡]+$', '', oracio).strip().lower()
+            if _clau in _FRASES_CURTES_ES_CA:
+                traduccio = _FRASES_CURTES_ES_CA[_clau]
+                # Preservar puntuació de l'original
+                traduccio = _preserva_puntuacio(oracio, traduccio)
+                traduccions_oracio.append(traduccio)
                 continue
 
             # ── Protecció per a textos molt curts ────────────────────
