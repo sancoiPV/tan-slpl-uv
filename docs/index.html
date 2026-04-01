@@ -308,7 +308,7 @@
                onchange="handleDocumentSelect(event)">
 
         <button onclick="document.getElementById('correccio-doc-input').click()"
-                class="btn-secondary btn-apujar-doc"
+                class="btn-apujar btn-apujar-doc"
                 id="btn-apujar-document">
           📄 Apujar document en valencià
         </button>
@@ -337,15 +337,16 @@
                 class="btn-descarrega-glossari btn-descarregar-doc"
                 id="btn-descarregar-document"
                 style="display:none">
-          ⬇ Descarregar document corregit
+          ⬇ Descarregar document revisat
         </button>
       </div>
     </div>
 
     <p class="correccio-document-nota">
-      Formats admesos: <strong>.docx</strong> (Word), <strong>.pptx</strong> (PowerPoint)
-      i <strong>.rtf</strong> · Màx. 150 MB ·
-      El document retornat és una rèplica exacta de l'original amb el text corregit
+      Formats admesos: <strong>.docx</strong> (Word) i <strong>.pptx</strong> (PowerPoint)
+      · Màx. 150 MB ·
+      Claude Sonnet analitzarà el document i ressaltarà en groc els aspectes a millorar,
+      amb comentaris normatius. El text original no es modifica.
     </p>
   </div>
 
@@ -468,8 +469,11 @@
 
   </div><!-- /correccio-resultats -->
 
+  <!-- Taula resum de correccions del document (apareix després de l'anàlisi) -->
+  <div id="correccio-doc-taula-resum" class="correccio-doc-taula-resum" style="display:none"></div>
+
   <!-- Avís criteris lingüístics -->
-  <div class="avis-criteri">⚠ Correccions aplicades d'acord amb els Criteris lingüístics per als usos institucionals de les universitats valencianes, a partir dels corpus normatius de l'IEC i l'AVL.</div>
+  <div class="avis-criteri">⚠ Propostes de correcció basades en els Criteris lingüístics per als usos institucionals de les universitats valencianes, a partir dels corpus normatius de l'IEC i l'AVL. La decisió final correspon sempre al tècnic lingüístic.</div>
 
 </div><!-- /correccio-container -->
 </section>
@@ -553,7 +557,7 @@
         ✅ Aplicar les modificacions
       </button>
       <span class="imatge-refinament-nota">
-        Les modificacions s'aplicaran sobre la darrera imatge traduïda.
+        Si hi ha diverses imatges traduïdes, selecciona amb la casella de verificació la imatge sobre la qual vols aplicar les modificacions.
       </span>
     </div>
   </div>
@@ -948,7 +952,14 @@
       <span class="eina-desc">SLPL UV — Criteris interns</span>
     </a>
 
-    <!-- 2. Optimot -->
+    <!-- 2. Corpus textual entrenament SalamandraTA / aina-translator -->
+    <a href="https://universitatdevalencia.sharepoint.com/sites/SeccidAssessoramentiTraducci2/Documentos%20compartidos/Forms/AllItems.aspx?id=%2Fsites%2FSeccidAssessoramentiTraducci2%2FDocumentos%20compartidos%2FDOCUMENTS%20ASSESSORAMENT%2F2026%2FDOCUMENTS%20PER%20ALIMENTAR%20TRADUCTOR&viewid=c3d1575a%2Dfef7%2D4b5f%2Db0ca%2D1ebcecd9fa02&p=true" target="_blank" rel="noopener" class="eina-card eina-card-destacat">
+      <img src="https://www.uv.es/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23234E83%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📂</text></svg>'">
+      <strong class="eina-titol">Corpus entrenament SalamandraTA</strong>
+      <span class="eina-desc">SLPL UV — Documents per alimentar el traductor aina-translator</span>
+    </a>
+
+    <!-- 3. Optimot -->
     <a href="https://aplicacions.llengua.gencat.cat/llc/AppJava/index.html" target="_blank" rel="noopener" class="eina-card">
       <img src="https://aplicacions.llengua.gencat.cat/llc/AppJava/img/optimot.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%232E7D32%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📖</text></svg>'">
       <strong class="eina-titol">Optimot</strong>
@@ -1051,6 +1062,27 @@
       <img src="https://www.iec.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23234E83%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>📝</text></svg>'">
       <strong class="eina-titol">Manual d'Estil IEC</strong>
       <span class="eina-desc">Institut d'Estudis Catalans — Guia d'estil</span>
+    </a>
+
+    <!-- 17. Neoloteca del TERMCAT -->
+    <a href="https://www.termcat.cat/ca/neoloteca" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://www.termcat.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%230082C5%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>🆕</text></svg>'">
+      <strong class="eina-titol">Neoloteca del TERMCAT</strong>
+      <span class="eina-desc">TERMCAT — Neologismes normalitzats en català</span>
+    </a>
+
+    <!-- 18. Compendium.cat -->
+    <a href="https://compendium.cat/" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://compendium.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%23800020%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>⚖️</text></svg>'">
+      <strong class="eina-titol">Compendium.cat</strong>
+      <span class="eina-desc">Portal de recursos per a la redacció jurídica i administrativa</span>
+    </a>
+
+    <!-- 19. Gencat — Recursos lingüístics -->
+    <a href="https://llengua.gencat.cat/ca/serveis/informacio_i_difusio/publicacions_en_linia/classific_temes/temes_criteris_ling/" target="_blank" rel="noopener" class="eina-card">
+      <img src="https://llengua.gencat.cat/favicon.ico" alt="" class="eina-icon" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%224%22 fill=%22%232E7D32%22/><text x=%2216%22 y=%2222%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2216%22>🏛️</text></svg>'">
+      <strong class="eina-titol">Gencat — Recursos lingüístics</strong>
+      <span class="eina-desc">Generalitat de Catalunya — Publicacions de criteris lingüístics</span>
     </a>
 
   </div>

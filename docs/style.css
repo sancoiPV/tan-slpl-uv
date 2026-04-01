@@ -297,16 +297,18 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 .upload-top { margin-bottom: 20px; }
 
 .btn-apujar {
-  background: var(--uv-taronja);
-  color: var(--uv-txt);
-  font-weight: 600;
-  padding: 12px 32px;
-  border-radius: 6px;
-  font-size: 15px;
-  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.2rem;
+  border-radius: 8px;
   border: none;
-  font-family: var(--sans);
-  transition: opacity .2s;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #1B2A4A;
+  color: #fff;
+  transition: opacity 0.2s;
 }
 .btn-apujar:hover { opacity: .85; }
 
@@ -2598,6 +2600,8 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
 .cat-MORF { background: #fefcbf; color: #975a16; }
 .cat-LÈX, .cat-LEX { background: #c6f6d5; color: #276749; }
 .cat-ORTO { background: #bee3f8; color: #2a69ac; }
+.cat-ORTT { background: #e9d8fd; color: #553c9a; }
+.cat-ESTIL { background: #fde8d0; color: #7b341e; }
 
 .correccions-resum {
   display: grid;
@@ -2632,4 +2636,70 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   font-size: 13px;
   color: #2d3748;
   line-height: 1.5;
+}
+
+/* ── Taula resum de correccions de document (revisió) ─────────────── */
+.correccio-doc-taula-resum {
+  margin-top: 28px;
+  padding: 24px;
+  background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+  border: 2px solid #234E83;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(35, 78, 131, 0.12);
+}
+.correccio-doc-resum-header h3 {
+  color: #002E52;
+  font-size: 18px;
+  margin: 0 0 8px 0;
+}
+.correccio-doc-resum-header p {
+  color: #364F74;
+  font-size: 13px;
+  margin: 0 0 16px 0;
+  line-height: 1.5;
+}
+.correccio-doc-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.correccio-doc-stat-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.correccio-doc-stat-densitat {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e2e8f0;
+  color: #4a5568;
+}
+.correccions-taula-doc {
+  font-size: 12px;
+}
+.correccions-taula-doc td del {
+  color: #c53030;
+  background: #fff5f5;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+.correccions-taula-doc td strong {
+  color: #276749;
+  background: #f0fff4;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+.correccio-doc-diagnostic {
+  margin-top: 16px;
+  padding: 14px 18px;
+  background: #e6f1fb;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #2d3748;
+  line-height: 1.6;
+  border-left: 4px solid #234E83;
 }

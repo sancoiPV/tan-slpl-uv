@@ -4,14 +4,14 @@
 
 const ENDPOINTS = [
   {
-    name: 'Motor local optimitzat (CTranslate2)',
-    url: 'http://127.0.0.1:5001',
+    name: 'Servidor local (uvicorn)',
+    url: 'http://127.0.0.1:8000',
     health: '/health',
     translate: '/translate',
   },
   {
-    name: 'Servidor local (uvicorn)',
-    url: 'http://127.0.0.1:8000',
+    name: 'Motor local optimitzat (CTranslate2)',
+    url: 'http://127.0.0.1:5001',
     health: '/health',
     translate: '/translate',
   },

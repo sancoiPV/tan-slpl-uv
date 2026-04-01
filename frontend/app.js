@@ -1297,10 +1297,12 @@ async function tradueixImatges() {
 function renderitzaResultats() {
   const resultats = document.getElementById('imatge-resultats');
   const refinament = document.getElementById('imatge-refinament');
+  const mesDeUnaImatge = imatgesTradudes.length > 1;
 
   resultats.style.display = 'flex';
   resultats.innerHTML = `
     <h3>Imatges traduïdes</h3>
+    ${mesDeUnaImatge ? '<p class="imatge-seleccio-nota" style="font-size:13px; color:#364F74; margin:0 0 12px 0;">Marca la casella de la imatge sobre la qual vols aplicar les correccions/modificacions.</p>' : ''}
     <div class="imatge-resultats-grid">
       ${imatgesTradudes.map((img, i) => `
         <div class="imatge-resultat-item">
@@ -1315,6 +1317,13 @@ function renderitzaResultats() {
                class="imatge-preview imatge-preview-gran imatge-clicable"
                title="Clica per veure en gran"
                onclick="obreLightbox('${img.dataUrl}', '${escapeHtml(img.nom)}', 'Traduïda', ${i})">
+          ${mesDeUnaImatge ? `
+          <label class="imatge-checkbox-label" style="display:flex; align-items:center; gap:6px; margin-top:8px; cursor:pointer; font-size:13px; color:#002E52; font-weight:600;">
+            <input type="checkbox" class="imatge-seleccio-cb" data-index="${i}"
+                   onchange="actualitzaSeleccioImatge()"
+                   style="width:18px; height:18px; accent-color:#234E83; cursor:pointer;">
+            Selecciona per a corregir
+          </label>` : ''}
         </div>
       `).join('')}
     </div>
@@ -1324,6 +1333,28 @@ function renderitzaResultats() {
   if (refinament) {
     refinament.style.display = 'block';
     document.getElementById('imatge-modificacions').value = '';
+  }
+}
+
+/** Retorna els índexs de les imatges seleccionades per les caselles de verificació. */
+function obteImatgesSeleccionadesPerModificar() {
+  const checkboxes = document.querySelectorAll('.imatge-seleccio-cb:checked');
+  return Array.from(checkboxes).map(cb => parseInt(cb.dataset.index, 10));
+}
+
+/** Actualitza l'estat visual quan es marca/desmarca una casella d'imatge. */
+function actualitzaSeleccioImatge() {
+  const seleccionades = obteImatgesSeleccionadesPerModificar();
+  const nota = document.querySelector('.imatge-refinament-nota');
+  if (nota && imatgesTradudes.length > 1) {
+    if (seleccionades.length === 0) {
+      nota.textContent = 'Selecciona almenys una imatge amb la casella de verificació per a aplicar-hi les modificacions.';
+      nota.style.color = '#C62828';
+    } else {
+      const noms = seleccionades.map(i => imatgesTradudes[i]?.nom || `Imatge ${i+1}`).join(', ');
+      nota.textContent = `Les modificacions s'aplicaran sobre: ${noms}`;
+      nota.style.color = '#1B5E20';
+    }
   }
 }
 
@@ -1339,17 +1370,36 @@ async function aplicaModificacions() {
     return;
   }
 
+  // ── Determinar quines imatges cal modificar ────────────────────────
+  // Si hi ha més d'una imatge traduïda, exigeix selecció per casella.
+  // Si només n'hi ha una, s'aplica directament sobre l'única imatge.
+  let indexosAModificar;
+  if (imatgesTradudes.length === 1) {
+    indexosAModificar = [0];
+  } else {
+    indexosAModificar = obteImatgesSeleccionadesPerModificar();
+    if (indexosAModificar.length === 0) {
+      mostraMissatgeImatge('error',
+        'Selecciona almenys una imatge amb la casella de verificació ' +
+        'per a indicar sobre quina imatge vols aplicar les modificacions.');
+      return;
+    }
+  }
+
   const btn = document.getElementById('btn-aplicar-modificacions');
   btn.disabled = true;
   btn.textContent = '⏳ Aplicant modificacions...';
 
   try {
     const url = await TAN.getUrlAvancada();
-    const imatgesRefinades = [];
+    const totalAModificar = indexosAModificar.length;
+    let comptador = 0;
 
-    for (let i = 0; i < imatgesTradudes.length; i++) {
-      const img = imatgesTradudes[i];
-      mostraMissatgeImatge('info', `Aplicant modificacions a la imatge ${i + 1} de ${imatgesTradudes.length}...`);
+    for (const idx of indexosAModificar) {
+      const img = imatgesTradudes[idx];
+      comptador++;
+      mostraMissatgeImatge('info',
+        `Aplicant modificacions a «${img.nom}» (${comptador} de ${totalAModificar})...`);
 
       const resp = await fetch(`${url}/tradueix-imatge`, {
         method: 'POST',
@@ -1368,19 +1418,20 @@ async function aplicaModificacions() {
       }
 
       const data = await resp.json();
-      imatgesRefinades.push({
+      // Substitueix NOMÉS la imatge seleccionada, les altres queden intactes
+      imatgesTradudes[idx] = {
         nom: img.nom,
         tipus: data.tipus_mime,
         base64: data.imatge_base64,
         dataUrl: `data:${data.tipus_mime};base64,${data.imatge_base64}`,
-      });
+      };
     }
 
-    // Substitueix les imatges traduïdes per les refinades
-    imatgesTradudes = imatgesRefinades;
     renderitzaResultats();
     document.getElementById('imatge-modificacions').value = '';
-    mostraMissatgeImatge('ok', '✓ Modificacions aplicades correctament.');
+    const nomsMod = indexosAModificar.map(i => imatgesTradudes[i]?.nom || `Imatge ${i+1}`).join(', ');
+    mostraMissatgeImatge('ok',
+      `✓ Modificacions aplicades correctament a: ${nomsMod}`);
 
   } catch (e) {
     mostraMissatgeImatge('error', `Error aplicant les modificacions: ${e.message}`);
@@ -1817,6 +1868,9 @@ function eliminaDocument() {
   document.getElementById('correccio-doc-input').value = '';
   const statsCd = document.getElementById('pptx-stats-cd');
   if (statsCd) { statsCd.style.display = 'none'; statsCd.innerHTML = ''; }
+  // Amaga la taula resum de correccions del document
+  const taulaResum = document.getElementById('correccio-doc-taula-resum');
+  if (taulaResum) { taulaResum.style.display = 'none'; taulaResum.innerHTML = ''; }
 }
 
 async function corregeixDocument() {
@@ -1828,10 +1882,10 @@ async function corregeixDocument() {
   const btn    = document.getElementById('btn-corregir-document');
   const txtOri = btn.textContent;
   btn.disabled    = true;
-  btn.textContent = '⏳ Corregint...';
+  btn.textContent = '⏳ Analitzant...';
 
   mostraMissatgeCorreccio('info',
-    `Corregint "${_documentSeleccionat.name}"… Pot trigar uns minuts depenent de la llargada del document.`
+    `Analitzant "${_documentSeleccionat.name}"… Claude Sonnet ressaltarà en groc les propostes de correcció amb comentaris normatius. Pot trigar uns minuts.`
   );
 
   actualitzaProgress('correccio', 10, 'Processant el document...', 'Analitzant el contingut');
@@ -1844,7 +1898,7 @@ async function corregeixDocument() {
     else if (_progresActual < 85) _progresActual += 1;
     else if (_progresActual < 95) _progresActual += 0.2;
     else if (_progresActual < 99) _progresActual += 0.05;
-    actualitzaProgress('correccio', _progresActual, 'Corregint el document...', 'Aplicant normes AVL i Gramàtica Zero');
+    actualitzaProgress('correccio', _progresActual, 'Analitzant el document...', 'Identificant propostes de correcció (AVL + Gramàtica Zero)');
   }, 1500);
 
   try {
@@ -1858,14 +1912,14 @@ async function corregeixDocument() {
     const _controladorAbort = new AbortController();
     const _timerAbort = setTimeout(() => _controladorAbort.abort(), 600000);
 
-    const resp = await fetch(`${url}/corregeix-document`, {
+    // Usa l'endpoint v2 (mode revisió: ressaltat + comentaris, sense substituir text)
+    const resp = await fetch(`${url}/corregeix-document-v2`, {
       method: 'POST',
       body:   formData,
       signal: _controladorAbort.signal,
     });
 
     clearTimeout(_timerAbort);
-
     clearInterval(_progressInterval);
 
     if (!resp.ok) {
@@ -1874,34 +1928,144 @@ async function corregeixDocument() {
       throw new Error(detall);
     }
 
-    // Nom del fitxer a partir de la capçalera Content-Disposition
-    const disp     = resp.headers.get('Content-Disposition') || '';
-    const nomMatch = disp.match(/filename="([^"]+)"/);
-    _nomDocumentCorregit = nomMatch
-      ? nomMatch[1]
-      : _documentSeleccionat.name.replace(/(\.[^.]+)$/, '_corregit$1');
+    const dades = await resp.json();
 
-    _documentCorregitBlob = await resp.blob();
+    // Descodificar el fitxer base64 i crear el blob per a descàrrega
+    const fitxerBytes = Uint8Array.from(atob(dades.fitxer_base64), c => c.charCodeAt(0));
+    const ext = _documentSeleccionat.name.split('.').pop().toLowerCase();
+    const mimeType = ext === 'pptx'
+      ? 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+      : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    _documentCorregitBlob = new Blob([fitxerBytes], { type: mimeType });
+    _nomDocumentCorregit = dades.nom_fitxer
+      || _documentSeleccionat.name.replace(/(\.[^.]+)$/, '_REVISIO$1');
 
-    actualitzaProgress('correccio', 100, 'Document corregit!', '');
+    actualitzaProgress('correccio', 100, 'Anàlisi completada!', '');
     setTimeout(() => amagaProgress('correccio'), 2000);
 
     document.getElementById('btn-descarregar-document').style.display = 'inline-flex';
-    mostraMissatgeCorreccio('ok',
-      '✅ Document corregit. Clica "⬇ Descarregar document corregit" per obtenir-lo.'
-    );
+
+    // Mostrar la taula resum de correccions a la part inferior
+    const correccions = dades.correccions || [];
+    const resum = dades.resum || {};
+
+    if (correccions.length === 0) {
+      mostraMissatgeCorreccio('ok',
+        '✅ Claude Sonnet ha analitzat el document i no ha detectat cap error. ' +
+        'El document compleix els criteris normatius.'
+      );
+      const taulaResum = document.getElementById('correccio-doc-taula-resum');
+      if (taulaResum) { taulaResum.style.display = 'none'; }
+    } else {
+      _renderitzaTaulaResumDocument(correccions, resum);
+
+      const nCorr = correccions.length;
+      mostraMissatgeCorreccio('ok',
+        `✅ Anàlisi completada: ${nCorr} proposta${nCorr !== 1 ? 's' : ''} de correcció ` +
+        `identificada${nCorr !== 1 ? 's' : ''} i ressaltada${nCorr !== 1 ? 's' : ''} en groc ` +
+        `al document amb comentaris normatius. ` +
+        `Descarrega el document per a revisar les propostes.`
+      );
+    }
 
   } catch (e) {
     clearInterval(_progressInterval);
     amagaProgress('correccio');
     const msg = e.name === 'AbortError'
-      ? 'La correcció ha superat el temps màxim (10 minuts). Proveu amb un document més curt.'
+      ? 'L\'anàlisi ha superat el temps màxim (10 minuts). Proveu amb un document més curt.'
       : e.message;
-    mostraMissatgeCorreccio('error', `Error en la correcció del document: ${msg}`);
+    mostraMissatgeCorreccio('error', `Error en l'anàlisi del document: ${msg}`);
   } finally {
     btn.disabled    = false;
     btn.textContent = txtOri;
   }
+}
+
+/**
+ * Renderitza la taula resum de correccions proposades per al document,
+ * amb informació de paràgraf, pàgina, categoria i justificació normativa.
+ */
+function _renderitzaTaulaResumDocument(correccions, resum) {
+  const contenidor = document.getElementById('correccio-doc-taula-resum');
+  if (!contenidor) return;
+
+  if (!correccions || correccions.length === 0) {
+    contenidor.style.display = 'none';
+    return;
+  }
+
+  let html = `
+    <div class="correccio-doc-resum-header">
+      <h3>Recapitulació de propostes de correcció</h3>
+      <p>Claude Sonnet ha identificat <strong>${correccions.length}</strong> aspecte${correccions.length !== 1 ? 's' : ''} a revisar.
+         El document descarregat conté els fragments ressaltats en groc amb comentaris normatius.</p>
+    </div>
+  `;
+
+  // Resum estadístic
+  if (resum && typeof resum === 'object' && resum.total_errors) {
+    html += '<div class="correccio-doc-stats">';
+    const cats = [
+      { lbl: 'Sintàctics', val: resum.sint || 0, cls: 'cat-SINT' },
+      { lbl: 'Morfològics', val: resum.morf || 0, cls: 'cat-MORF' },
+      { lbl: 'Lèxics', val: resum.lex || 0, cls: 'cat-LEX' },
+      { lbl: 'Ortogràfics', val: resum.orto || 0, cls: 'cat-ORTO' },
+      { lbl: 'Ortotipogràfics', val: resum.ortt || 0, cls: 'cat-ORTT' },
+      { lbl: 'Estil', val: resum.estil || 0, cls: 'cat-ESTIL' },
+    ];
+    cats.forEach(c => {
+      html += `<span class="correccio-doc-stat-badge ${c.cls}">${c.lbl}: ${c.val}</span>`;
+    });
+    if (resum.densitat) html += `<span class="correccio-doc-stat-densitat">Densitat: ${_esc(resum.densitat)}</span>`;
+    html += '</div>';
+  }
+
+  // Taula detallada
+  html += `
+    <div class="correccions-taula-wrap">
+      <table class="correccions-taula correccions-taula-doc">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Pàg.</th>
+            <th>§ Paràgraf</th>
+            <th>Text original</th>
+            <th>Proposta de correcció</th>
+            <th>Categoria</th>
+            <th>Justificació normativa</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  correccions.forEach((c, i) => {
+    const cat = (c.categoria || 'ORTO').toUpperCase().replace('È', 'E');
+    html += `
+      <tr>
+        <td>${c.num || i + 1}</td>
+        <td>${c.pagina_aprox || '—'}</td>
+        <td>${_esc(c.paragraf || '—')}</td>
+        <td><del>${_esc(c.original || '')}</del></td>
+        <td><strong>${_esc(c.correccio || c.corregit || '')}</strong></td>
+        <td><span class="cat-badge cat-${cat}">${cat}</span></td>
+        <td>${_esc(c.justificacio || '')}</td>
+      </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+
+  // Diagnòstic final
+  if (resum && resum.diagnostic) {
+    html += `<div class="correccio-doc-diagnostic">
+      <strong>Diagnòstic general:</strong> ${_esc(resum.diagnostic)}`;
+    if (resum.recomanacions) {
+      html += `<br><strong>Recomanacions:</strong> ${_esc(resum.recomanacions)}`;
+    }
+    html += '</div>';
+  }
+
+  contenidor.innerHTML = html;
+  contenidor.style.display = 'block';
 }
 
 function descarregaDocumentCorregit() {

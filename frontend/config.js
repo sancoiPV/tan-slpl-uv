@@ -1,30 +1,17 @@
-// Quan el frontend s'accedeix des del servidor de xarxa (nginx), usa la mateixa
-// origin automàticament. Si s'obri com a fitxer local (file://), ORIGIN és null
-// i l'entrada no s'afegeix, de manera que el canvi és completament retrocompatible.
-const _ORIGIN_XARXA = (typeof window !== 'undefined' &&
-  window.location.origin &&
-  window.location.origin.startsWith('http') &&
-  !window.location.origin.includes('127.0.0.1') &&
-  !window.location.origin.includes('localhost'))
-    ? window.location.origin
-    : null;
+// config.js — Configuració d'endpoints del motor TAN
+// Desplegament: https://sancoipv.github.io/tan-slpl-uv/
+// Cap referència a netlify.app — tots els endpoints apunten a servidors locals o ngrok.
 
 const ENDPOINTS = [
-  ...(_ORIGIN_XARXA ? [{
-    name: 'Servidor TANEU SLPL-UV (xarxa)',
-    url: _ORIGIN_XARXA,
-    health: '/health',
-    translate: '/translate',
-  }] : []),
   {
-    name: 'Motor local optimitzat (CTranslate2)',
-    url: 'http://127.0.0.1:5001',
+    name: 'Servidor local (uvicorn)',
+    url: 'http://127.0.0.1:8000',
     health: '/health',
     translate: '/translate',
   },
   {
-    name: 'Servidor local (uvicorn)',
-    url: 'http://127.0.0.1:8000',
+    name: 'Motor local optimitzat (CTranslate2)',
+    url: 'http://127.0.0.1:5001',
     health: '/health',
     translate: '/translate',
   },
@@ -45,11 +32,6 @@ let activeEndpoint = null;
 // S'usen exclusivament per a /tradueix-document, /desa-postedicio, /recompte-paraules.
 // Mai s'usa localhost:5001 (CTranslate2) per a operacions amb documents.
 const ENDPOINTS_AVANCATS = [
-  ...(_ORIGIN_XARXA ? [{
-    name: 'Servidor TANEU SLPL-UV (xarxa)',
-    url: _ORIGIN_XARXA,
-    health: '/health',
-  }] : []),
   {
     name: 'Servidor local uvicorn',
     url: 'http://127.0.0.1:8000',
