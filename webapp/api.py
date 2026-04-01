@@ -49,12 +49,14 @@ from system_prompts import (
     construeix_prompt_traduccio_es_va,
     construeix_prompt_traduccio_en_va,
     construeix_prompt_revisio,
+    construeix_prompt_revisio_document,
 )
 from format_preserving_editor import (
     DocxFormatPreservingEditor,
     PptxFormatPreservingEditor,
     processa_document_traduccio,
     processa_document_correccio,
+    processa_document_revisio,
 )
 
 # ─── python-dotenv: càrrega i persistència de claus API ──────────────────────
@@ -434,26 +436,150 @@ def _get_model():
     return _tokenizer, _model
 
 
+# ─── Preservació de puntuació i postedició lèxica post-AINA ──────────────────
+
+_PATRO_PUNTUACIO_FINAL = re.compile(r'([.,;:!?…¡¿»\"\'\)]+)\s*$')
+
+
+def _preserva_puntuacio(oracio_original: str, oracio_traduida: str) -> str:
+    """Assegura que la puntuació final de la traducció coincidisca
+    amb la de l'oració original en castellà.
+    """
+    oracio_original = oracio_original.rstrip()
+    oracio_traduida = oracio_traduida.rstrip()
+
+    if not oracio_original or not oracio_traduida:
+        return oracio_traduida
+
+    match_orig = _PATRO_PUNTUACIO_FINAL.search(oracio_original)
+
+    if not match_orig:
+        # L'original no acaba en puntuació → no tocar la traducció
+        return oracio_traduida
+
+    punt_original = match_orig.group(1)
+
+    # Eliminar qualsevol puntuació final de la traducció
+    oracio_neta = _PATRO_PUNTUACIO_FINAL.sub('', oracio_traduida).rstrip()
+
+    # Afegir la puntuació de l'original
+    return oracio_neta + punt_original
+
+
+# Diccionari de substitucions lèxiques post-AINA.
+# Clau: expressió regular (case-insensitive), Valor: reemplaçament.
+# IMPORTANT: word boundaries (\b) per a evitar substitucions parcials.
+_POSTEDICICIONS_AINA = [
+    # Protegir formes ja correctes (evitar doble substitució)
+    (re.compile(r'\bvesprades\b', re.IGNORECASE), 'vesprades'),
+    (re.compile(r'\bvesprada\b', re.IGNORECASE), 'vesprada'),
+    # "tarde/tardes" (part del dia) → "vesprada/vesprades"
+    (re.compile(r'\btardes\b', re.IGNORECASE), 'vesprades'),
+    (re.compile(r'\btarda\b', re.IGNORECASE), 'vesprada'),
+    # "esto" → "açò"
+    (re.compile(r'\besto\b', re.IGNORECASE), 'açò'),
+    # "aquello" → "allò" (ABANS de "eso" per a evitar match parcial)
+    (re.compile(r'\baquello\b', re.IGNORECASE), 'allò'),
+    # "eso" → "això"
+    (re.compile(r'\beso\b', re.IGNORECASE), 'això'),
+]
+
+
+def _postedita_aina(text_traduit: str) -> str:
+    """Aplica substitucions lèxiques obligatòries post-AINA.
+
+    Preserva la capitalització original del mot substituït:
+    - "Tarde" → "Vesprada"
+    - "TARDE" → "VESPRADA"
+    - "tarde" → "vesprada"
+    """
+    resultat = text_traduit
+    for patro, reemplacament in _POSTEDICICIONS_AINA:
+        def _preserva_caixa(match, _reempl=reemplacament):
+            original = match.group(0)
+            if original.isupper():
+                return _reempl.upper()
+            elif original[0].isupper():
+                return _reempl[0].upper() + _reempl[1:]
+            return _reempl
+        resultat = patro.sub(_preserva_caixa, resultat)
+    return resultat
+
+
+def _divideix_en_oracions(text: str) -> list[str]:
+    """Divideix un text en oracions individuals.
+
+    Respecta abreviatures comunes (Dr., Sr., Sra., etc.) per a no
+    tallar erròniament. Manté la puntuació final amb l'oració corresponent.
+    """
+    # Parteix per puntuació final seguida d'espai i majúscula/signe d'obertura
+    patro = re.compile(r'([.!?…]+)\s+(?=[A-ZÁÀÉÈÍÓÒÚÏÜÇÑ¿¡«"(])')
+
+    parts = patro.split(text)
+
+    oracions = []
+    i = 0
+    while i < len(parts):
+        if i + 1 < len(parts) and re.match(r'^[.!?…]+$', parts[i + 1]):
+            # Ajuntar el text amb la seua puntuació
+            oracions.append(parts[i] + parts[i + 1])
+            i += 2
+        else:
+            if parts[i].strip():
+                oracions.append(parts[i])
+            i += 1
+
+    return oracions if oracions else [text]
+
+
 def _tradueix_text(text: str) -> str:
-    """Tradueix un text castellà→català usant el servidor CTranslate2 (port 5001)."""
+    """Tradueix un text castellà→català usant el servidor CTranslate2 (port 5001).
+
+    Divideix el text en oracions individuals per a evitar l'omissió
+    sistemàtica de la primera oració pel model AINA.
+    Per a cada oració:
+      1. Tradueix amb CTranslate2 (AINA)
+      2. Preserva la puntuació final de l'original (_preserva_puntuacio)
+      3. Aplica postedició lèxica obligatòria (_postedita_aina)
+    """
     import requests as _req
+
     paragrafs = text.split("\n")
     resultats = []
     for paragraf in paragrafs:
-        paragraf = paragraf.strip()
-        if not paragraf:
+        paragraf_strip = paragraf.strip()
+        if not paragraf_strip:
             resultats.append("")
             continue
-        try:
-            resp = _req.post(
-                "http://127.0.0.1:5001/translate",
-                json={"text": paragraf, "src": "es", "tgt": "ca"},
-                timeout=60,
-            )
-            resp.raise_for_status()
-            resultats.append(resp.json().get("translation", paragraf))
-        except Exception:
-            resultats.append(paragraf)
+
+        # ── Dividir el paràgraf en oracions individuals ──────────────────
+        oracions = _divideix_en_oracions(paragraf_strip)
+
+        traduccions_oracio = []
+        for oracio in oracions:
+            oracio = oracio.strip()
+            if not oracio:
+                continue
+            try:
+                resp = _req.post(
+                    "http://127.0.0.1:5001/translate",
+                    json={"text": oracio, "src": "es", "tgt": "ca"},
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                traduccio = resp.json().get("translation", oracio)
+
+                # 1. Preservar la puntuació final de l'oració original
+                traduccio = _preserva_puntuacio(oracio, traduccio)
+                # 2. Postedició lèxica obligatòria
+                traduccio = _postedita_aina(traduccio)
+
+                traduccions_oracio.append(traduccio)
+            except Exception:
+                traduccions_oracio.append(oracio)
+
+        resultats.append(" ".join(traduccions_oracio))
+
     return "\n".join(resultats)
 
 def _compta_paraules(text: str) -> int:
@@ -3848,6 +3974,14 @@ async def _crida_claude_amb_cache(
 
     text_resposta = resposta.content[0].text
 
+    # Detectar truncament
+    if hasattr(resposta, 'stop_reason') and resposta.stop_reason == 'max_tokens':
+        log.warning(
+            "Claude ha arribat al límit de tokens (%d). "
+            "La resposta pot estar truncada.",
+            max_tokens
+        )
+
     # Neteja codificació UTF-8 mal interpretada
     if "Ã" in text_resposta or "â€" in text_resposta:
         try:
@@ -4387,17 +4521,24 @@ async def corregeix_document_v2(
     domini: str = Form(default="", description="Domini lingüístic per aplicar el glossari."),
 ):
     """
-    Corregeix un document preservant format:
-    1. Extrau text per paràgrafs
-    2. Envia a Claude per correcció (JSON estructurat)
-    3. Aplica correccions amb ressaltat groc (docx)
-    4. Retorna JSON amb el fitxer codificat en base64 + correccions + resum
+    Mode REVISIÓ de documents:
+    1. Extrau text per paràgrafs amb estimació de pàgina
+    2. Envia a Claude amb prompt de REVISIÓ (NO correcció automàtica)
+    3. Claude retorna llista JSON de correccions amb justificació normativa
+    4. Ressalta en groc els fragments afectats + afegeix comentaris de Word
+    5. Retorna JSON amb el fitxer + llista de correccions + resum per categories
     """
     import json as _json
 
     api_key = _obte_api_key_anthropic()
     if not api_key:
-        raise HTTPException(status_code=503, detail="Clau API d'Anthropic no configurada.")
+        log.error("Clau API d'Anthropic no trobada per a /corregeix-document-v2")
+        raise HTTPException(
+            status_code=503,
+            detail="La clau API d'Anthropic no està configurada. "
+                   "Configura-la a Configuració → Claus API."
+        )
+    log.info("Clau API Anthropic trobada (primeres 8 lletres: %s...)", api_key[:8])
 
     nom = fitxer.filename or "document"
     extensio = Path(nom).suffix.lower()
@@ -4420,21 +4561,48 @@ async def corregeix_document_v2(
             editor = PptxFormatPreservingEditor(contingut)
 
         paragrafs = editor.extrau_paragrafs()
+
+        # ── Estimació de pàgina per paràgraf ─────────────────────────────
+        # Heurística: ~300 paraules per pàgina A4 amb format estàndard.
+        # També detecta salts de pàgina explícits (<w:br w:type="page"/>).
+        pagina_actual = 1
+        paraules_acumulades = 0
+        PARAULES_PER_PAGINA = 300
+        mapa_pagines = {}  # index_paragraf → pàgina_aprox
+
+        for i, p in enumerate(paragrafs):
+            # Comprovar salt de pàgina explícit en l'element XML
+            element = p.get('_element')
+            if element is not None:
+                ns_w = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+                for br in element.iter(f'{ns_w}br'):
+                    if br.get(f'{ns_w}type') == 'page':
+                        pagina_actual += 1
+                        paraules_acumulades = 0
+
+            mapa_pagines[i] = pagina_actual
+            n_paraules = len(p['text'].split())
+            paraules_acumulades += n_paraules
+            if paraules_acumulades >= PARAULES_PER_PAGINA:
+                pagina_actual += 1
+                paraules_acumulades = 0
+
+        # ── Construir text numerat per paràgrafs ─────────────────────────
         text_complet = "\n\n".join(
             f"§{i+1}: {p['text']}" for i, p in enumerate(paragrafs) if p['text'].strip()
         )
 
-        # Enviar tot el text a Claude per correcció
-        system_blocks, prefix = construeix_prompt_correccio()
+        # ── Prompt de REVISIÓ (NO correcció automàtica) ──────────────────
+        system_blocks, prefix = construeix_prompt_revisio_document()
 
         # Si hi ha glossari del domini, afig-lo al prefix
         glossari_domini = carrega_glossari_com_diccionari(domini) if domini else {}
         if glossari_domini:
-            log.info("Aplicant glossari '%s' (%d termes) a la correcció de document",
+            log.info("Aplicant glossari '%s' (%d termes) a la revisió de document",
                      domini, len(glossari_domini))
             termes_str = "\n".join(f"  {es} → {va}" for es, va in glossari_domini.items())
             prefix += (
-                f"\n\nGLOSSARI D'ESPECIALITAT ({domini}):\n"
+                f"\nGLOSSARI D'ESPECIALITAT ({domini}):\n"
                 f"Si trobes algun d'aquests termes, assegura't que la forma "
                 f"valenciana correcta és la indicada:\n{termes_str}\n\n"
             )
@@ -4443,28 +4611,105 @@ async def corregeix_document_v2(
             system_blocks=system_blocks,
             missatge_usuari=prefix + text_complet,
             api_key=api_key,
+            max_tokens=16384,
         )
 
-        # Parsejar resposta
+        # ── Parsejar la llista JSON de correccions ───────────────────────
         correccions = []
-        resum = {}
-        text_corregit_complet = ""
 
         try:
             clean_json = resposta_text.strip()
+            # Eliminar blocs markdown si n'hi ha
             if clean_json.startswith("```"):
                 clean_json = re.sub(r'^```\w*\s*\n?', '', clean_json)
                 clean_json = re.sub(r'\n?```\s*$', '', clean_json)
-            dades = _json.loads(clean_json)
-            correccions = dades.get("correccions", [])
-            resum = dades.get("resum", {})
-            text_corregit_complet = dades.get("text_corregit", "")
-        except _json.JSONDecodeError:
-            log.warning("JSON no parsejable en correcció de document.")
 
-        # Aplicar correccions al document amb ressaltat
+            # Si Claude ha afegit text abans del JSON, intentar extraure l'array
+            if not clean_json.startswith('[') and not clean_json.startswith('{'):
+                match_json = re.search(r'(\[[\s\S]*\])', clean_json)
+                if match_json:
+                    clean_json = match_json.group(1)
+
+            parsed = _json.loads(clean_json)
+
+            if isinstance(parsed, list):
+                correccions = parsed
+            elif isinstance(parsed, dict):
+                correccions = parsed.get("correccions", parsed.get("corrections", []))
+
+        except _json.JSONDecodeError as e:
+            log.error(
+                "JSON no parsejable en revisió de document. "
+                "Error: %s. Resposta de Claude (primers 500 cars): %s",
+                e, resposta_text[:500]
+            )
+            # Intentar un parsing més agressiu: buscar qualsevol array JSON
+            try:
+                match_array = re.search(r'\[[\s\S]*\]', resposta_text)
+                if match_array:
+                    correccions = _json.loads(match_array.group(0))
+                    log.info("JSON recuperat amb parsing agressiu: %d correccions", len(correccions))
+            except Exception:
+                log.error("Parsing agressiu també ha fallat.")
+
+        # ── Normalitzar correccions i afegir info de pàgina ──────────────
+        correccions_normalitzades = []
+        for c in correccions:
+            idx_paragraf = c.get('paragraf', 1)
+            if isinstance(idx_paragraf, str):
+                m = re.search(r'(\d+)', idx_paragraf)
+                idx_paragraf = int(m.group(1)) if m else 1
+
+            pagina_aprox = mapa_pagines.get(idx_paragraf - 1, 1)
+
+            correccions_normalitzades.append({
+                "num": len(correccions_normalitzades) + 1,
+                "paragraf": f"§{idx_paragraf}",
+                "pagina_aprox": pagina_aprox,
+                "original": c.get('text_original', c.get('original', '')),
+                "correccio": c.get('proposta', c.get('correccio', '')),
+                "categoria": c.get('categoria', 'ORTO'),
+                "justificacio": c.get('justificacio', ''),
+            })
+
+        correccions = correccions_normalitzades
+
+        # ── Generar resum per categories ─────────────────────────────────
+        categories = {}
+        for c in correccions:
+            cat = c.get('categoria', 'ORTO').upper()
+            categories[cat] = categories.get(cat, 0) + 1
+
+        n_paraules_doc = sum(len(p['text'].split()) for p in paragrafs)
+        densitat = (
+            f"{len(correccions) / max(n_paraules_doc, 1) * 100:.1f} errors/100 paraules"
+            if correccions else "0"
+        )
+
+        parts_diag = [f"{v} {k}" for k, v in sorted(categories.items(), key=lambda x: -x[1])]
+        diagnostic = (
+            f"Document amb {len(correccions)} proposta/es de correcció: {', '.join(parts_diag)}"
+            if correccions
+            else "Cap error detectat. El document és correcte."
+        )
+
+        resum = {
+            "total_errors": len(correccions),
+            "per_categoria": categories,
+            "sint": categories.get("SINT", 0),
+            "morf": categories.get("MORF", 0),
+            "lex": categories.get("LÈX", categories.get("LEX", 0)),
+            "orto": categories.get("ORTO", 0),
+            "ortt": categories.get("ORTT", 0),
+            "estil": categories.get("ESTIL", 0),
+            "total_paraules": n_paraules_doc,
+            "densitat": densitat,
+            "diagnostic": diagnostic,
+        }
+
+        # ── Ressaltar + comentaris al document (mode revisió) ────────────
         if correccions:
-            resultat_bytes = processa_document_correccio(
+            resultat_bytes = processa_document_revisio(
                 contingut, ext, correccions
             )
         else:
@@ -4473,7 +4718,12 @@ async def corregeix_document_v2(
         editor.tanca()
 
         temps_ms = int((time.perf_counter() - inici) * 1000)
-        nom_sortida = genera_nom_arxiu(nom, domini=domini, sufix="CORR_VAL")
+        nom_sortida = genera_nom_arxiu(nom, domini=domini, sufix="REVISIO_VAL")
+
+        log.info(
+            "POST /corregeix-document-v2 — OK: %d correccions, %d ms",
+            len(correccions), temps_ms,
+        )
 
         # Retornar tot en JSON
         return {
@@ -4488,10 +4738,10 @@ async def corregeix_document_v2(
     except HTTPException:
         raise
     except Exception as exc:
-        log.exception("Error corregint document v2: %s", exc)
+        log.exception("Error en la revisió del document: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail=f"Error en la correcció del document: {exc}",
+            detail=f"Error en la revisió del document: {exc}",
         )
 
 

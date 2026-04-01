@@ -257,6 +257,72 @@ def construeix_prompt_traduccio_en_va(direccio: str = "en_va"):
     ], prefix
 
 
+# ═══════════════════════════════════════════════════════════════════
+# VARIANT 5 — REVISIÓ DE DOCUMENTS (ressaltat + comentaris, sense substituir)
+# ═══════════════════════════════════════════════════════════════════
+
+INSTRUCCIONS_REVISIO_DOCUMENT = """## Tasca
+Analitza el text següent de forma PROFUNDA i EXHAUSTIVA segons el corpus normatiu complet de les universitats valencianes. NO corregisques el text. En lloc d'això, genera una LLISTA JSON amb TOTES les correccions necessàries.
+
+IMPORTANT: El teu objectiu és fer una revisió tan exhaustiva i rigorosa com la que faria un lingüista professional. Has de detectar TOTS els errors i aspectes millorables, incloent-hi els més subtils: calcs del castellà, gerundis de posterioritat, possessius innecessaris, ordres inadequats del SN, lèxic no preferent pels Criteris, falta d'apostrofació/elisió, ortotipografia (majúscules, cometes, guions), estil i registre.
+
+## Format de sortida — CRÍTIC
+Respon EXCLUSIVAMENT amb un array JSON. RES MÉS. Cap text abans ni després del JSON.
+NO uses blocs markdown (```json). NO afegisques explicacions ni comentaris.
+La teua resposta ha de començar amb [ i acabar amb ].
+
+Estructura exacta de cada element:
+
+[
+  {
+    "paragraf": 3,
+    "text_original": "fragment EXACTE del text que conté l'error, copiat literalment",
+    "proposta": "fragment corregit proposat",
+    "categoria": "SINT",
+    "justificacio": "Gramàtica Zero UV 2016, §4.2: gerundi de posterioritat incorrecte"
+  }
+]
+
+## Categories permeses
+- SINT: Sintaxi (calcs estructurals, gerundis, passiva, ordre SN, règim verbal, dequeisme, per/per a + inf, possessiu abusiu, lo neutre, infinitiu discursiu)
+- MORF: Morfologia (demostratius, possessius -u-, incoatius -eix, participis regulars, sigut/estat, plurals, infinitius, numerals)
+- LÈX: Lèxic (castellanismes, doblets preferibles, calcs lèxics, terminologia)
+- ORTO: Ortografia (accentuació, diacrítics, grafies tl/tll, apostrofació/elisió obligatòria)
+- ORTT: Ortotipografia (majúscules/minúscules BTPL, cursiva, cometes angulars, guions, versaleta, xifres, espais)
+- ESTIL: Estil i registre (tractament vós/vostè, llenguatge igualitari, formalitat, redundàncies, naturalitat)
+
+## Regles obligatòries
+1. Analitza CADA oració, CADA mot, CADA construcció. Sigues EXHAUSTIU. No et limites als errors evidents.
+2. El camp "text_original" ha de contenir el FRAGMENT EXACTE tal com apareix al text, copiat literalment, perquè el sistema el puga localitzar automàticament dins del document.
+3. La justificació ha de ser CONCRETA i CITABLE: nom del document normatiu + secció/regla. Exemples:
+   · "Criteris lingüístics UV: demostratiu reforçat obligatori en registre formal"
+   · "Gramàtica Zero UV 2016, §4.2: gerundi de posterioritat incorrecte"
+   · "Gramàtica Zero UV 2016, §3.1: haver-hi sempre singular"
+   · "BTPL DGPL 2016, §2: càrrecs sempre en minúscula"
+   · "GIEC §3.2: elisió obligatòria de + vocal"
+   · "Criteris UV: participi de ser = sigut (no estat)"
+   · "Criteris UV: lèxic preferent servei (no servici)"
+4. El camp "paragraf" ha de ser el número de paràgraf tal com apareix al text numerat (el número després de §).
+5. Si no hi ha cap error, retorna un array JSON buit: []
+6. NO retornes text fora del JSON. Cap explicació, cap comentari, cap preàmbul. NOMÉS el JSON."""
+
+
+def construeix_prompt_revisio_document():
+    """Retorna (system_blocks, user_prefix) per a la revisió de documents
+    (mode ressaltat + comentaris, sense aplicar correccions)."""
+    return [
+        {
+            "type": "text",
+            "text": BASE_NORMATIVA,
+            "cache_control": {"type": "ephemeral"}
+        },
+        {
+            "type": "text",
+            "text": INSTRUCCIONS_REVISIO_DOCUMENT
+        }
+    ], "Analitza exhaustivament el text numerat per paràgrafs següent. Respon EXCLUSIVAMENT amb l'array JSON (comença amb [ i acaba amb ]). Cap text addicional:\n\n"
+
+
 def construeix_prompt_revisio(direccio: str = "es_va"):
     """Retorna (system_blocks, user_prefix) per a la segona passada de revisió."""
     if direccio == "en_va":
