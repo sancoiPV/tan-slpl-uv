@@ -50,6 +50,7 @@ from system_prompts import (
     construeix_prompt_traduccio_en_va,
     construeix_prompt_revisio,
     construeix_prompt_revisio_document,
+    construeix_prompt_alineament,
 )
 from format_preserving_editor import (
     DocxFormatPreservingEditor,
@@ -155,11 +156,16 @@ EXTENSIONS_OK   = {".docx", ".pptx"}
 DIR_GLOSSARIS = ARREL_PROJECTE / "glossaris"
 DIR_GLOSSARIS.mkdir(exist_ok=True)
 
+DIR_MEMORIES = ARREL_PROJECTE / "memories"
+DIR_MEMORIES.mkdir(exist_ok=True)
+
 DOMINIS = [
     "Art i Història de l'Art",
     "Astronomia",
     "Altres",
+    "Biblioteconomia i Llibres",
     "Biologia",
+    "Botànica",
     "Ciències Polítiques",
     "Comunicacions institucionals i discursos",
     "Convenis",
@@ -189,7 +195,26 @@ DOMINIS = [
     "Química",
     "Salut Laboral i Prevenció de Riscos",
     "Textos administratius",
+    "UVemprén",
 ]
+
+# Mapa de noms d'usuari → inicial del nom per a la nomenclatura de fitxers
+_INICIALS_TECNICS = {
+    "coitor": "S",             # Santiago Colomer
+    "ferran_bataller": "F",    # Ferran Bataller
+    "toni_beltran": "T",       # Toni Beltrán
+    "vicent_sanxis": "V",      # Vicent Sanxís
+    "manel_soler": "M",        # Manel Soler
+}
+
+# Mapa de noms d'usuari → nom curt per al glossari
+_NOMS_TECNICS = {
+    "coitor": "Santi",
+    "ferran_bataller": "Ferran",
+    "toni_beltran": "Toni",
+    "vicent_sanxis": "Vicent",
+    "manel_soler": "Manel",
+}
 
 # Mapa de noms de domini obsolets → nous (per a migració de fitxers TSV)
 _MIGRACIONS_DOMINIS = {
@@ -291,6 +316,139 @@ def desa_glossari(domini: str, entrades: list[dict]) -> None:
         writer.writerows(entrades)
 
 
+# ─── Memòries de traducció (TMX) ──────────────────────────────────────────────
+
+def nom_fitxer_memoria(domini: str) -> Path:
+    """Retorna la ruta del fitxer TMX per a un domini."""
+    nom = re.sub(r'[^\w\s-]', '', domini, flags=re.UNICODE)
+    nom = re.sub(r'\s+', '_', nom.strip())
+    return DIR_MEMORIES / f"{nom}.tmx"
+
+
+def _crea_tmx_buit():
+    """Crea un arbre TMX buit."""
+    import xml.etree.ElementTree as ET
+    tmx = ET.Element('tmx', version='1.4')
+    header = ET.SubElement(tmx, 'header')
+    header.set('creationtool', 'TANEU-SLPL')
+    header.set('datatype', 'PlainText')
+    header.set('segtype', 'sentence')
+    header.set('o-tmf', 'TANEU')
+    header.set('adminlang', 'ca')
+    header.set('srclang', 'es')
+    ET.SubElement(tmx, 'body')
+    return tmx
+
+
+def carrega_memoria(domini: str) -> list[dict]:
+    """
+    Carrega els segments d'una memòria de traducció des del disc.
+    Retorna una llista de dicts amb claus: es, ca, tecnic, data.
+    """
+    import xml.etree.ElementTree as ET
+
+    path = nom_fitxer_memoria(domini)
+    if not path.exists():
+        return []
+
+    try:
+        tree = ET.parse(str(path))
+        root = tree.getroot()
+    except (ET.ParseError, Exception) as e:
+        log.warning("Error parsejant TMX '%s': %s", path, e)
+        return []
+
+    segments = []
+    body = root.find('body')
+    if body is None:
+        return []
+
+    for tu in body.findall('tu'):
+        es_text = ""
+        ca_text = ""
+        for tuv in tu.findall('tuv'):
+            lang = tuv.get('{http://www.w3.org/XML/1998/namespace}lang', '')
+            seg = tuv.find('seg')
+            text = seg.text if seg is not None and seg.text else ""
+            if lang == 'es':
+                es_text = text
+            elif lang in ('ca', 'va'):
+                ca_text = text
+
+        if es_text and ca_text:
+            segments.append({
+                "es": es_text,
+                "ca": ca_text,
+                "tecnic": tu.get('creationid', ''),
+                "data": tu.get('creationdate', ''),
+            })
+
+    return segments
+
+
+def carrega_memoria_com_diccionari(domini: str) -> dict[str, str]:
+    """Retorna la memòria d'un domini com a diccionari {segment_es: segment_ca}."""
+    if not domini or domini not in DOMINIS:
+        return {}
+    segments = carrega_memoria(domini)
+    return {s["es"].strip(): s["ca"].strip() for s in segments if s["es"] and s["ca"]}
+
+
+def desa_memoria(domini: str, segments: list[dict]) -> None:
+    """Desa els segments d'una memòria de traducció al disc en format TMX."""
+    import xml.etree.ElementTree as ET
+
+    tmx = _crea_tmx_buit()
+    body = tmx.find('body')
+
+    for seg in segments:
+        tu = ET.SubElement(body, 'tu')
+        if seg.get('tecnic'):
+            tu.set('creationid', seg['tecnic'])
+        if seg.get('data'):
+            tu.set('creationdate', seg['data'])
+
+        tuv_es = ET.SubElement(tu, 'tuv')
+        tuv_es.set('{http://www.w3.org/XML/1998/namespace}lang', 'es')
+        seg_es = ET.SubElement(tuv_es, 'seg')
+        seg_es.text = seg.get('es', '')
+
+        tuv_ca = ET.SubElement(tu, 'tuv')
+        tuv_ca.set('{http://www.w3.org/XML/1998/namespace}lang', 'ca')
+        seg_ca = ET.SubElement(tuv_ca, 'seg')
+        seg_ca.text = seg.get('ca', '')
+
+    tree = ET.ElementTree(tmx)
+    ET.indent(tree, space='  ')
+    path = nom_fitxer_memoria(domini)
+    tree.write(str(path), encoding='unicode', xml_declaration=True)
+
+
+def cerca_coincidencies_tm(text_es: str, memoria: dict[str, str],
+                            llindar: float = 0.6) -> list[dict]:
+    """
+    Cerca segments similars a la memòria de traducció.
+    Retorna els parells amb una similitud >= llindar.
+    Usa SequenceMatcher per a fuzzy matching.
+    """
+    from difflib import SequenceMatcher
+    resultats = []
+    text_es_lower = text_es.lower().strip()
+
+    for seg_es, seg_ca in memoria.items():
+        ratio = SequenceMatcher(None, text_es_lower, seg_es.lower()).ratio()
+        if ratio >= llindar:
+            resultats.append({
+                "es": seg_es,
+                "ca": seg_ca,
+                "similitud": round(ratio * 100, 1),
+            })
+
+    # Ordenar per similitud descendent
+    resultats.sort(key=lambda x: x["similitud"], reverse=True)
+    return resultats[:10]  # Màxim 10 coincidències
+
+
 def genera_nom_traduit(nom_original: str) -> str:
     """
     Genera el nom del fitxer traduït afegint el sufix _VAL.
@@ -299,51 +457,49 @@ def genera_nom_traduit(nom_original: str) -> str:
     return genera_nom_arxiu(nom_original, sufix="VAL")
 
 
-def genera_nom_arxiu(nom_original: str, domini: str = "", sufix: str = "VAL") -> str:
+def genera_nom_arxiu(nom_original: str, domini: str = "", sufix: str = "VAL",
+                      username: str = "") -> str:
     """
     Genera el nom de l'arxiu traduït/corregit seguint la regla:
-    nom_sense_accents_DOMINI_SUFIX.ext
+    NomOriginal_Domini_XY_VAL.ext
 
-    - Elimina accents i caràcters especials
-    - Substitueix espais per guions baixos
-    - Afig el domini en majúscules (si n'hi ha)
-    - Afig el sufix (VAL per defecte)
+    On:
+    - NomOriginal: nom del fitxer sense extensió (amb espais → guions baixos)
+    - Domini: domini lingüístic seleccionat
+    - X: T (traducció) o C (correcció) — extret del sufix
+    - Y: inicial majúscula del nom del tècnic (S, F, T, V, M)
+    - VAL: indicador de llengua valenciana
 
     Exemples:
-      genera_nom_arxiu("Hàbitats de la papallona.pptx", "Biologia", "VAL")
-        → "Habitats_de_la_papallona_BIOLOGIA_VAL.pptx"
-      genera_nom_arxiu("Acta reunió.docx", "Textos administratius", "CORR_VAL")
-        → "Acta_reunio_TEXTOS_ADMINISTRATIUS_CORR_VAL.docx"
-      genera_nom_arxiu("Conferencia María.docx", "", "VAL")
-        → "Conferencia_Maria_VAL.docx"
+      genera_nom_arxiu("Hematología.docx", "Medicina", "VAL", "toni_beltran")
+        → "Hematología_Medicina_TT_VAL.docx"
+      genera_nom_arxiu("Reproducción celular.docx", "Biologia", "REVISIO_VAL", "vicent_sanxis")
+        → "Reproducción celular_Biologia_CV_VAL.docx"
+      genera_nom_arxiu("Acta reunió.docx", "", "VAL", "coitor")
+        → "Acta reunió_TS_VAL.docx"
     """
     path = Path(nom_original)
     nom_base = path.stem
     extensio = path.suffix
 
-    # Elimina accents: à→a, é→e, ñ→n, ç→c, etc.
-    nom_net = unicodedata.normalize('NFKD', nom_base)
-    nom_net = ''.join(c for c in nom_net if not unicodedata.combining(c))
+    # Substitueix espais múltiples per un sol espai i retalla
+    nom_base = re.sub(r'\s+', ' ', nom_base).strip()
 
-    # Substitueix caràcters especials per guió baix
-    nom_net = re.sub(r'[^a-zA-Z0-9]', '_', nom_net)
+    # Determinar la lletra d'operació (T=traducció, C=correcció)
+    if "REVISIO" in sufix.upper() or "CORR" in sufix.upper():
+        lletra_op = "C"
+    else:
+        lletra_op = "T"
 
-    # Elimina guions baixos múltiples
-    nom_net = re.sub(r'_+', '_', nom_net)
-
-    # Elimina guions baixos al principi i al final
-    nom_net = nom_net.strip('_')
+    # Determinar la inicial del tècnic
+    inicial_tecnic = _INICIALS_TECNICS.get(username, "X")
 
     # Construeix el nom final
-    parts = [nom_net]
+    parts = [nom_base]
     if domini:
-        domini_net = unicodedata.normalize('NFKD', domini.upper())
-        domini_net = ''.join(c for c in domini_net if not unicodedata.combining(c))
-        domini_net = re.sub(r'[^A-Z0-9]', '_', domini_net)
-        domini_net = re.sub(r'_+', '_', domini_net).strip('_')
-        parts.append(domini_net)
-    if sufix:
-        parts.append(sufix)
+        parts.append(domini)
+    parts.append(f"{lletra_op}{inicial_tecnic}")
+    parts.append("VAL")
 
     return '_'.join(parts) + extensio
 
@@ -599,7 +755,7 @@ _FRASES_CURTES_ES_CA = {
 }
 
 
-def _tradueix_text(text: str) -> str:
+def _tradueix_text(text: str, memoria: dict[str, str] | None = None) -> str:
     """Tradueix un text castellà→català usant el servidor CTranslate2 (port 5001).
 
     Divideix el text en oracions individuals per a evitar l'omissió
@@ -678,6 +834,12 @@ def _tradueix_text(text: str) -> str:
                 traduccio = _preserva_puntuacio(oracio, traduccio)
                 # 2. Postedició lèxica obligatòria
                 traduccio = _postedita_aina(traduccio)
+
+                # Aplicar memòria de traducció (si hi ha context de domini)
+                if memoria:
+                    coincidencies = cerca_coincidencies_tm(oracio, memoria, llindar=0.9)
+                    if coincidencies and coincidencies[0]["similitud"] >= 90:
+                        traduccio = coincidencies[0]["ca"]
 
                 # 3. Verificació: si la traducció és molt més llarga que
                 # l'original, probablement el model ha al·lucinat
@@ -809,6 +971,11 @@ def _valida_sessio(request: Request) -> str | None:
     if not token:
         token = request.query_params.get("token", "")
     return _sessions.get(token)
+
+
+def _obte_username(request: Request) -> str:
+    """Obté el username de la sessió actual, o 'desconegut' si no hi ha sessió."""
+    return _valida_sessio(request) or "desconegut"
 
 
 def _requereix_admin(request: Request) -> None:
@@ -1083,6 +1250,7 @@ async def tradueix(peticio: PeticioTradueix) -> RespostaTradueix:
     tags    = ["Traducció"],
 )
 async def tradueix_document(
+    request: Request,
     fitxer:  UploadFile = File(..., description="Fitxer .docx o .pptx (màx. 150 MB)."),
     mode:    str        = Form(default="traduccio", description="'traduccio' o 'correccio'"),
     domini:  str        = Form(default="", description="Domini lingüístic per aplicar el glossari."),
@@ -1156,7 +1324,8 @@ async def tradueix_document(
     _stats["paraules_avui"] += total_par
     _stats["fitxers_avui"]  += 1
 
-    nom_sortida = genera_nom_arxiu(nom_original, domini=domini, sufix="VAL")
+    nom_sortida = genera_nom_arxiu(nom_original, domini=domini, sufix="VAL",
+                                    username=_obte_username(request))
     log.info(
         "Document traduït en %d ms (%d paraules) → '%s'",
         temps_ms, total_par, nom_sortida,
@@ -1230,15 +1399,23 @@ def _tradueix_fitxer_xml(
                 except Exception:
                     pass
 
-    # ── Funció de traducció (amb glossari opcional) ───────────────────────────
+    # Carrega memòria de traducció del domini (si n'hi ha)
+    memoria_domini = carrega_memoria_com_diccionari(domini) if domini else {}
+    if memoria_domini:
+        log.info("Aplicant memòria TM '%s' (%d segments) al document AINA '%s'",
+                 domini, len(memoria_domini), nom_original)
+
+    # ── Funció de traducció (amb glossari i memòria opcionals) ────────────────
     if glossari:
         def _fn_tradueix_amb_glossari(text: str) -> str:
             # Pre-traducció: substitueix termes castellans pels valencians
             text_preprocessat = aplica_glossari_al_text(text, glossari)
-            return _tradueix_text(text_preprocessat)
+            return _tradueix_text(text_preprocessat, memoria=memoria_domini or None)
         fn_tradueix = _fn_tradueix_amb_glossari
     else:
-        fn_tradueix = _tradueix_text
+        def _fn_tradueix_amb_memoria(text: str) -> str:
+            return _tradueix_text(text, memoria=memoria_domini or None)
+        fn_tradueix = _fn_tradueix_amb_memoria if memoria_domini else _tradueix_text
 
     # ── Traducció preservant format ──────────────────────────────────────────
     resultat = _tradueix_document_xml(contingut, extensio, fn_tradueix)
@@ -1636,9 +1813,26 @@ class PeticioDesaGlossariMassiu(BaseModel):
     termes: List[Dict[str, Any]]  # [{"es": "...", "va": "..."}]
 
 
+# ─── Esquemes Pydantic — Memòries de traducció ──────────────────────────────
+
+class PeticioAlineaSegments(BaseModel):
+    text_original: str = Field(..., min_length=1, max_length=200_000)
+    text_traduccio: str = Field(..., min_length=1, max_length=200_000)
+    domini: str = Field(..., min_length=1)
+
+class PeticioEntradaMemoria(BaseModel):
+    es: str = Field(..., min_length=1)
+    ca: str = Field(..., min_length=1)
+    tecnic: str = Field(default="")
+
+class PeticioDesaMemoriaMassiu(BaseModel):
+    domini: str = Field(..., min_length=1)
+    segments: list[dict] = Field(..., min_length=1)
+
+
 @app.post("/glossari/desa-massiu", tags=["Glossari"],
           summary="Afig una llista de termes al glossari d'un domini")
-async def desa_glossari_massiu(peticio: PeticioDesaGlossariMassiu):
+async def desa_glossari_massiu(request: Request, peticio: PeticioDesaGlossariMassiu):
     """Afig una llista de termes al glossari d'un domini evitant duplicats."""
     log.info("DESA GLOSSARI: domini='%s', num_termes=%d, primer_terme=%s",
              peticio.domini, len(peticio.termes),
@@ -1663,7 +1857,7 @@ async def desa_glossari_massiu(peticio: PeticioDesaGlossariMassiu):
             entrades.append({
                 "es":     es,
                 "ca":     va,           # El camp del TSV és 'ca', no 'va'
-                "tecnic": "extracció automàtica",
+                "tecnic": _NOMS_TECNICS.get(_obte_username(request), "extracció automàtica"),
                 "data":   date.today().isoformat(),
                 "domini": peticio.domini,
             })
@@ -1927,6 +2121,177 @@ async def extreu_glossari(peticio: PeticioExtreuGlossari):
         raise HTTPException(status_code=500,
                             detail=f"Error en l'extracció del glossari: {exc}")
 
+
+# ─── Memòries de traducció ────────────────────────────────────────────────────
+
+@app.get("/memoria/{domini}", tags=["Memòria de traducció"],
+         summary="Obté els segments d'una memòria de traducció")
+async def obte_memoria(domini: str):
+    """Retorna tots els segments TMX d'un domini."""
+    if domini not in DOMINIS:
+        raise HTTPException(status_code=404, detail=f"Domini no trobat: {domini}")
+    segments = carrega_memoria(domini)
+    return {"domini": domini, "segments": segments, "total": len(segments)}
+
+
+@app.post("/memoria/{domini}", tags=["Memòria de traducció"],
+          summary="Afegeix un segment a la memòria de traducció")
+async def afegeix_segment_memoria(domini: str, peticio: PeticioEntradaMemoria):
+    """Afegeix un nou parell de segments o actualitza un existent."""
+    if domini not in DOMINIS:
+        raise HTTPException(status_code=404, detail=f"Domini no trobat: {domini}")
+
+    segments = carrega_memoria(domini)
+    # Comprovar si ja existeix
+    for s in segments:
+        if s["es"].strip().lower() == peticio.es.strip().lower():
+            s["ca"] = peticio.ca.strip()
+            s["tecnic"] = peticio.tecnic
+            s["data"] = date.today().isoformat()
+            desa_memoria(domini, segments)
+            return {"estat": "actualitzat"}
+
+    segments.append({
+        "es": peticio.es.strip(),
+        "ca": peticio.ca.strip(),
+        "tecnic": peticio.tecnic,
+        "data": date.today().isoformat(),
+    })
+    desa_memoria(domini, segments)
+    return {"estat": "afegit", "total": len(segments)}
+
+
+@app.delete("/memoria/{domini}/{segment_es:path}", tags=["Memòria de traducció"],
+            summary="Elimina un segment de la memòria de traducció")
+async def elimina_segment_memoria(domini: str, segment_es: str):
+    """Elimina un segment pel text en castellà."""
+    if domini not in DOMINIS:
+        raise HTTPException(status_code=404, detail=f"Domini no trobat: {domini}")
+    segments = carrega_memoria(domini)
+    abans = len(segments)
+    segments = [s for s in segments if s["es"].strip().lower() != segment_es.strip().lower()]
+    if len(segments) == abans:
+        raise HTTPException(status_code=404, detail="Segment no trobat")
+    desa_memoria(domini, segments)
+    return {"estat": "eliminat", "total": len(segments)}
+
+
+@app.post("/alinea-segments", tags=["Memòria de traducció"],
+          summary="Alinea segments ES↔VA usant Claude Sonnet")
+async def alinea_segments(peticio: PeticioAlineaSegments):
+    """
+    Rep un text original (ES) i la traducció (VA), els envia a Claude Sonnet
+    per a alinear-los en parells de segments, i retorna el JSON amb els parells.
+    """
+    api_key = _obte_api_key_anthropic()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Clau API d'Anthropic no configurada.")
+
+    if peticio.domini not in DOMINIS:
+        raise HTTPException(status_code=404, detail=f"Domini no trobat: {peticio.domini}")
+
+    inici = time.perf_counter()
+
+    system_blocks, prefix = construeix_prompt_alineament()
+
+    missatge = (
+        prefix +
+        f"DOMINI LINGÜÍSTIC: {peticio.domini}\n\n"
+        f"TEXT ORIGINAL (castellà):\n{peticio.text_original}\n\n"
+        f"TRADUCCIÓ (valencià):\n{peticio.text_traduccio}"
+    )
+
+    resposta = await _crida_claude_amb_cache(
+        system_blocks=system_blocks,
+        missatge_usuari=missatge,
+        api_key=api_key,
+        max_tokens=16384,
+    )
+
+    # Parsejar el JSON de segments alineats
+    segments = []
+    try:
+        clean = resposta.strip()
+        if clean.startswith("```"):
+            clean = re.sub(r'^```\w*\s*\n?', '', clean)
+            clean = re.sub(r'\n?```\s*$', '', clean)
+        if not clean.startswith('['):
+            match = re.search(r'(\[[\s\S]*\])', clean)
+            if match:
+                clean = match.group(1)
+        parsed = json.loads(clean)
+        if isinstance(parsed, list):
+            segments = parsed
+    except json.JSONDecodeError as e:
+        log.error("JSON no parsejable en alineament: %s. Resposta: %s", e, resposta[:500])
+
+    temps_ms = int((time.perf_counter() - inici) * 1000)
+    log.info("POST /alinea-segments — %d segments, %d ms", len(segments), temps_ms)
+
+    return {"segments": segments, "total": len(segments), "temps_ms": temps_ms}
+
+
+@app.post("/memoria/desa-massiu", tags=["Memòria de traducció"],
+          summary="Desa una llista de segments a la memòria d'un domini")
+async def desa_memoria_massiu(request: Request, peticio: PeticioDesaMemoriaMassiu):
+    """Afig una llista de segments a la memòria d'un domini evitant duplicats."""
+    if peticio.domini not in DOMINIS:
+        raise HTTPException(status_code=404, detail=f"Domini no trobat: {peticio.domini}")
+
+    segments_existents = carrega_memoria(peticio.domini)
+    existents = {s["es"].strip().lower() for s in segments_existents}
+
+    username = _obte_username(request)
+    nom_tecnic = _NOMS_TECNICS.get(username, username)
+
+    nous = 0
+    for seg in peticio.segments:
+        es = seg.get("es", "").strip()
+        ca = seg.get("ca", seg.get("va", "")).strip()
+        if es and ca and es.lower() not in existents:
+            segments_existents.append({
+                "es": es,
+                "ca": ca,
+                "tecnic": nom_tecnic,
+                "data": date.today().isoformat(),
+            })
+            existents.add(es.lower())
+            nous += 1
+
+    desa_memoria(peticio.domini, segments_existents)
+    log.info("Memòria '%s': %d segments nous (%d totals)", peticio.domini, nous, len(segments_existents))
+    return {"ok": True, "nous": nous, "total": len(segments_existents)}
+
+
+@app.get("/dominis-amb-memoria", tags=["Memòria de traducció"],
+         summary="Retorna els dominis que tenen memòria de traducció")
+async def dominis_amb_memoria():
+    """Retorna la llista de dominis amb el nombre de segments de cadascun."""
+    resultat = []
+    for dom in DOMINIS:
+        path = nom_fitxer_memoria(dom)
+        if path.exists():
+            segments = carrega_memoria(dom)
+            resultat.append({"domini": dom, "segments": len(segments)})
+    return resultat
+
+
+@app.get("/memoria/descarrega/{domini}", tags=["Memòria de traducció"],
+         summary="Descarrega la memòria de traducció en format TMX")
+async def descarrega_memoria_tmx(domini: str):
+    """Retorna el fitxer .tmx del domini per a descàrrega."""
+    if domini not in DOMINIS:
+        raise HTTPException(status_code=404, detail=f"Domini no trobat: {domini}")
+    path = nom_fitxer_memoria(domini)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Encara no hi ha memòria per a aquest domini.")
+    contingut = path.read_bytes()
+    nom_dom = re.sub(r'\s+', '_', domini)
+    return Response(
+        content=contingut,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="MT_{nom_dom}.tmx"'},
+    )
 
 
 # ─── Traducció d'imatges amb Gemini (Nano Banana Pro) ────────────────────────
@@ -3951,7 +4316,7 @@ async def _processa_pptx_correccio(fitxer_bytes: bytes, api_key: str) -> bytes:
     summary = "Corregeix un document DOCX o PPTX en valencià preservant el format",
     tags    = ["Correcció"],
 )
-async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
+async def corregeix_document(request: Request, fitxer: UploadFile = File(...)) -> Response:
     """
     Corregeix normativament un document .docx o .pptx en català/valencià
     preservant el format, la tipografia, els colors i l'estructura originals.
@@ -4020,7 +4385,8 @@ async def corregeix_document(fitxer: UploadFile = File(...)) -> Response:
 
         log.info("CORRECCIÓ DOC — FASE 7: Document reconstruït correctament")
         temps_ms    = int((time.perf_counter() - inici) * 1000)
-        nom_sortida = genera_nom_arxiu(nom, sufix="CORR_VAL")
+        nom_sortida = genera_nom_arxiu(nom, sufix="CORR_VAL",
+                                        username=_obte_username(request))
         log.info(
             "CORRECCIÓ DOC — FASE 8: Completat en %d ms → '%s' (%d bytes)",
             temps_ms, nom_sortida, len(resultat),
@@ -4218,6 +4584,7 @@ async def tradueix_claude(peticio: PeticioTradueixClaude):
     tags=["Traducció"],
 )
 async def tradueix_document_claude(
+    request: Request,
     fitxer: UploadFile = File(..., description="Fitxer .docx o .pptx"),
     domini: str = Form(default="", description="Domini lingüístic per aplicar el glossari."),
 ) -> Response:
@@ -4272,6 +4639,21 @@ async def tradueix_document_claude(
                 f"\n\nGLOSSARI OBLIGATORI del domini '{domini}':\n"
                 f"Has d'usar EXACTAMENT aquests termes en la traducció:\n"
                 f"{termes_str}\n\nTradueix el text següent:\n\n"
+            )
+
+        # Afegir memòria de traducció del domini al prompt (si n'hi ha)
+        memoria_domini = carrega_memoria_com_diccionari(domini) if domini else {}
+        if memoria_domini:
+            log.info("Aplicant memòria TM '%s' (%d segments) a la traducció Claude",
+                     domini, len(memoria_domini))
+            segments_str = "\n".join(
+                f"  ES: {es}\n  VA: {va}"
+                for es, va in list(memoria_domini.items())[:20]
+            )
+            prefix += (
+                f"\n\nMEMÒRIA DE TRADUCCIÓ ({domini}) — Usa aquestes traduccions "
+                f"anteriors validades com a referència per a mantindre la coherència:\n"
+                f"{segments_str}\n\n"
             )
 
         # Funció de traducció per lots (agrupats en blocs de ~800 paraules)
@@ -4442,7 +4824,8 @@ async def tradueix_document_claude(
             editor_ll.tanca()
 
         temps_ms = int((time.perf_counter() - inici) * 1000)
-        nom_sortida = genera_nom_arxiu(nom, domini=domini, sufix="VAL")
+        nom_sortida = genera_nom_arxiu(nom, domini=domini, sufix="VAL",
+                                        username=_obte_username(request))
 
         mime_types = {
             ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -4578,6 +4961,21 @@ async def corregeix_v2(peticio: PeticioCorreccioV2):
                     f"valenciana correcta és la indicada:\n{termes_str}\n\n"
                 )
 
+            # Afegir memòria de traducció del domini (si n'hi ha)
+            memoria_domini = carrega_memoria_com_diccionari(peticio.domini) if peticio.domini else {}
+            if memoria_domini:
+                log.info("Aplicant memòria TM '%s' (%d segments) a la correcció",
+                         peticio.domini, len(memoria_domini))
+                segments_str = "\n".join(
+                    f"  ES: {es}\n  VA: {va}"
+                    for es, va in list(memoria_domini.items())[:20]
+                )
+                prefix += (
+                    f"\n\nMEMÒRIA DE TRADUCCIÓ ({peticio.domini}) — Usa aquestes traduccions "
+                    f"anteriors validades com a referència per a mantindre la coherència:\n"
+                    f"{segments_str}\n\n"
+                )
+
             resposta_text = await _crida_claude_amb_cache(
                 system_blocks=system_blocks,
                 missatge_usuari=prefix + text_despres_lt,
@@ -4633,6 +5031,7 @@ async def corregeix_v2(peticio: PeticioCorreccioV2):
     tags=["Correcció"],
 )
 async def corregeix_document_v2(
+    request: Request,
     fitxer: UploadFile = File(..., description="Fitxer .docx o .pptx"),
     domini: str = Form(default="", description="Domini lingüístic per aplicar el glossari."),
 ):
@@ -4721,6 +5120,21 @@ async def corregeix_document_v2(
                 f"\nGLOSSARI D'ESPECIALITAT ({domini}):\n"
                 f"Si trobes algun d'aquests termes, assegura't que la forma "
                 f"valenciana correcta és la indicada:\n{termes_str}\n\n"
+            )
+
+        # Afegir memòria de traducció del domini (si n'hi ha)
+        memoria_domini = carrega_memoria_com_diccionari(domini) if domini else {}
+        if memoria_domini:
+            log.info("Aplicant memòria TM '%s' (%d segments) a la revisió de document",
+                     domini, len(memoria_domini))
+            segments_str = "\n".join(
+                f"  ES: {es}\n  VA: {va}"
+                for es, va in list(memoria_domini.items())[:20]
+            )
+            prefix += (
+                f"\n\nMEMÒRIA DE TRADUCCIÓ ({domini}) — Usa aquestes traduccions "
+                f"anteriors validades com a referència per a mantindre la coherència:\n"
+                f"{segments_str}\n\n"
             )
 
         resposta_text = await _crida_claude_amb_cache(
@@ -4834,7 +5248,8 @@ async def corregeix_document_v2(
         editor.tanca()
 
         temps_ms = int((time.perf_counter() - inici) * 1000)
-        nom_sortida = genera_nom_arxiu(nom, domini=domini, sufix="REVISIO_VAL")
+        nom_sortida = genera_nom_arxiu(nom, domini=domini, sufix="REVISIO_VAL",
+                                        username=_obte_username(request))
 
         log.info(
             "POST /corregeix-document-v2 — OK: %d correccions, %d ms",
@@ -4941,6 +5356,7 @@ async def tradueix_angles(peticio: PeticioTradueixAngles):
     tags=["Traducció"],
 )
 async def tradueix_document_angles(
+    request: Request,
     fitxer: UploadFile = File(..., description="Fitxer .docx o .pptx"),
     direccio: str = Form(default="en_va", description="'en_va' o 'va_en'"),
 ) -> Response:
@@ -5015,7 +5431,8 @@ async def tradueix_document_angles(
 
         temps_ms = int((time.perf_counter() - inici) * 1000)
         sufix = "EN_VA" if direccio == "en_va" else "VA_EN"
-        nom_sortida = genera_nom_arxiu(nom, sufix=sufix)
+        nom_sortida = genera_nom_arxiu(nom, sufix=sufix,
+                                        username=_obte_username(request))
 
         mime_types = {
             ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -372,3 +372,46 @@ def construeix_prompt_revisio(direccio: str = "es_va"):
             "text": INSTRUCCIONS_REVISIO
         }
     ], prefix
+
+
+# ═══════════════════════════════════════════════════════════════════
+# VARIANT 6 — ALINEAMENT DE SEGMENTS (per a memòries de traducció)
+# ═══════════════════════════════════════════════════════════════════
+
+INSTRUCCIONS_ALINEAMENT = """## Tasca
+Ets un expert en alineament de segments per a memòries de traducció (TMX).
+Rebràs un text original en castellà i la seua traducció al valencià.
+Has d'alinear els dos textos en PARELLS DE SEGMENTS (oracions o frases).
+
+## Format de sortida — CRÍTIC
+Respon EXCLUSIVAMENT amb un array JSON. Res més. Cap text addicional.
+La teua resposta ha de començar amb [ i acabar amb ].
+
+[
+  {
+    "es": "oració exacta en castellà",
+    "ca": "oració corresponent en valencià"
+  }
+]
+
+## Regles d'alineament
+1. Divideix els textos en oracions (per punts, signes d'interrogació/exclamació).
+2. Cada oració en castellà ha de correspondre a la seua traducció en valencià.
+3. Si una oració en castellà s'ha dividit en dues en valencià (o viceversa), unifica-les en un sol segment.
+4. Si una oració no té traducció (afegida o eliminada), omet-la.
+5. Preserva EXACTAMENT el text tal com apareix als documents originals (no corregisques, no modifiques).
+6. Cada segment ha de ser una oració completa o una unitat de sentit coherent.
+7. No fragments massa (cada segment ha de tenir almenys 3 paraules).
+8. Elimina segments buits, numeracions soltes, o capçaleres sense contingut.
+9. NO retornes text fora del JSON."""
+
+
+def construeix_prompt_alineament():
+    """Retorna (system_blocks, user_prefix) per a l'alineament de segments."""
+    return [
+        {
+            "type": "text",
+            "text": INSTRUCCIONS_ALINEAMENT,
+            "cache_control": {"type": "ephemeral"}
+        },
+    ], "Alinea els textos següents en parells de segments ES↔VA. Respon EXCLUSIVAMENT amb l'array JSON:\n\n"

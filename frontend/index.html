@@ -64,6 +64,7 @@
     <button class="nav-btn" onclick="mostra('correccio-docs',this)">Correcció/postedició de documents en valencià</button>
     <button class="nav-btn" onclick="mostra('imatges',this)">Traducció d'imatges amb text</button>
     <button class="tab-btn" data-tab="glossaris" onclick="activaTab('glossaris')">📚 Glossaris: creació i actualització</button>
+    <button class="tab-btn" data-tab="memories" onclick="activaTab('memories')">🧠 Memòries de traducció</button>
     <button class="tab-btn" data-tab="eines-llengua" onclick="activaTab('eines-llengua')">🔗 Eines de llengua en línia</button>
     <button class="tab-btn" data-tab="traduccio-angles" onclick="activaTab('traduccio-angles')">🌐 EN ↔ VA</button>
     <button class="tab-btn" data-tab="admin-usuaris" id="btn-tab-admin" onclick="activaTab('admin-usuaris')" style="display:none">👤 El meu compte</button>
@@ -220,7 +221,7 @@
   </div>
 
   <!-- Botó extracció i traducció d'imatges del document -->
-  <button onclick="extreuITradueIxImatges()" class="btn-secondary"
+  <button onclick="extreuITradueIxImatges()" class="btn-primary"
           id="btn-extreu-imatges-doc" style="display:none">
     🖼 Descarregar imatges amb text
   </button>
@@ -707,11 +708,11 @@
           <label for="terme-tecnic">Tècnic/a</label>
           <select id="terme-tecnic">
             <option value="">— Identifica't —</option>
-            <option value="Tècnic 1">Tècnic/a 1</option>
-            <option value="Tècnic 2">Tècnic/a 2</option>
-            <option value="Tècnic 3">Tècnic/a 3</option>
-            <option value="Tècnic 4">Tècnic/a 4</option>
-            <option value="Tècnic 5">Tècnic/a 5</option>
+            <option value="Ferran">Ferran</option>
+            <option value="Toni">Toni</option>
+            <option value="Vicent">Vicent</option>
+            <option value="Manel">Manel</option>
+            <option value="Santi">Santi</option>
           </select>
         </div>
         <div class="glossari-form-group glossari-form-submit">
@@ -749,6 +750,174 @@
       </table>
       <p id="glossari-buit" class="glossari-buit" style="display:none">
         Aquest domini no té entrades encara. Afegeix el primer terme!
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══ SECCIÓ 7b · Memòries de traducció ════════════════════════════════════ -->
+<div id="tab-memories" class="tab-content" style="display:none">
+  <div class="glossari-container">
+
+    <div class="glossari-header">
+      <h2>Memòries de traducció: creació i actualització</h2>
+      <p class="glossari-descripcio">
+        Gestió col·laborativa de les memòries de traducció (TMX) per a la Secció d'Assessorament Lingüístic.
+        Cada domini té una memòria mestra compartida per tots els tècnics.
+      </p>
+    </div>
+
+    <!-- ─── EXTRACCIÓ AUTOMÀTICA DE SEGMENTS ─── -->
+    <div style="background:var(--uv-fons-clar, #E4EBE9); border-radius:10px; padding:20px; margin-bottom:24px;">
+      <h4 style="color:var(--uv-blau-principal, #002E52); margin-bottom:12px;">
+        Creació automàtica de memòria de traducció
+      </h4>
+      <p style="font-size:13px; color:#364F74; margin-bottom:16px;">
+        Apugeu el text original en castellà i la traducció al valencià ja revisada.
+        Claude Sonnet alinearà automàticament els segments per a crear la memòria de traducció.
+      </p>
+
+      <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px;">
+        <div style="flex:1; min-width:250px;">
+          <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">
+            Text original (castellà)
+          </label>
+          <textarea id="tm-text-original" rows="6"
+            style="width:100%; border:1.5px solid #A6B3BD; border-radius:6px; padding:10px; font-size:13px; box-sizing:border-box; resize:vertical;"
+            placeholder="Enganxeu ací el text original en castellà..."></textarea>
+          <div style="margin-top:8px;">
+            <input type="file" id="tm-fitxer-original" accept=".docx,.pptx,.txt,.rtf"
+              style="display:none;"
+              onchange="carregaFitxerGlossari(this, 'tm-text-original')">
+            <button onclick="document.getElementById('tm-fitxer-original').click()"
+              class="btn-apujar" style="font-size:14px; padding:10px 20px; font-weight:600;">
+              📄 Apujar el text original en castellà
+            </button>
+          </div>
+        </div>
+
+        <div style="flex:1; min-width:250px;">
+          <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">
+            Traducció al valencià (revisada)
+          </label>
+          <textarea id="tm-text-traduccio" rows="6"
+            style="width:100%; border:1.5px solid #A6B3BD; border-radius:6px; padding:10px; font-size:13px; box-sizing:border-box; resize:vertical;"
+            placeholder="Enganxeu ací la traducció al valencià ja revisada..."></textarea>
+          <div style="margin-top:8px;">
+            <input type="file" id="tm-fitxer-traduccio" accept=".docx,.pptx,.txt,.rtf"
+              style="display:none;"
+              onchange="carregaFitxerGlossari(this, 'tm-text-traduccio')">
+            <button onclick="document.getElementById('tm-fitxer-traduccio').click()"
+              class="btn-apujar" style="font-size:14px; padding:10px 20px; font-weight:600;">
+              📄 Apujar la traducció al valencià
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <label style="font-size:13px; font-weight:600;">Domini:</label>
+        <select id="tm-domini-extraccio" style="padding:8px 12px; border:1.5px solid #A6B3BD; border-radius:6px; font-size:13px; min-width:200px;">
+          <option value="">— Selecciona un domini —</option>
+        </select>
+        <button onclick="alineaSegmentsTM()" class="btn-primary" id="btn-alinea-tm"
+          style="background: linear-gradient(135deg, #234E83, #426DA7);">
+          🧠 Alinear segments es↔va
+        </button>
+      </div>
+
+      <div id="tm-extraccio-resultat" style="display:none; margin-top:16px;">
+        <h5 style="margin-bottom:8px;">Segments alineats:</h5>
+        <div id="tm-extraccio-taula"></div>
+        <div style="margin-top:12px; display:flex; gap:10px;">
+          <button onclick="desaSegmentsTM()" class="btn-primary" style="font-size:13px;">
+            💾 Afegir a la memòria del domini
+          </button>
+          <button onclick="descarregaTMX()" class="btn-secondary" style="font-size:13px;">
+            ⬇ Descarregar TMX
+          </button>
+        </div>
+      </div>
+
+      <p id="tm-extraccio-msg" style="font-size:13px; margin-top:8px; display:none;"></p>
+    </div>
+
+    <hr style="border:none; border-top:2px solid var(--uv-blau-50, #6A7A9B); margin:24px 0;">
+    <h4 style="color:var(--uv-blau-principal, #002E52); margin-bottom:12px;">
+      Addició manual de segments a la memòria
+    </h4>
+    <p style="font-size:13px; color:#364F74; margin-bottom:16px;">
+      Afegiu parells de segments individualment a la memòria del domini seleccionat.
+    </p>
+
+    <div class="glossari-domini-selector">
+      <label for="tm-domini-select">Domini:</label>
+      <select id="tm-domini-select" onchange="carregaMemoria()">
+        <option value="">— Selecciona un domini —</option>
+      </select>
+      <span id="tm-total" class="glossari-badge" style="display:none"></span>
+    </div>
+
+    <div class="glossari-form" id="tm-form" style="display:none">
+      <h3>Afegir / corregir segment</h3>
+      <div class="glossari-form-row">
+        <div class="glossari-form-group">
+          <label for="tm-seg-es">Segment en castellà</label>
+          <input type="text" id="tm-seg-es" placeholder="Oració en castellà" autocomplete="off">
+        </div>
+        <div class="glossari-form-group">
+          <label for="tm-seg-ca">Traducció al valencià</label>
+          <input type="text" id="tm-seg-ca" placeholder="Oració en valencià" autocomplete="off">
+        </div>
+      </div>
+      <div class="glossari-form-row">
+        <div class="glossari-form-group">
+          <label for="tm-seg-tecnic">Tècnic/a</label>
+          <select id="tm-seg-tecnic">
+            <option value="">— Identifica't —</option>
+            <option value="Ferran">Ferran</option>
+            <option value="Toni">Toni</option>
+            <option value="Vicent">Vicent</option>
+            <option value="Manel">Manel</option>
+            <option value="Santi">Santi</option>
+          </select>
+        </div>
+        <div class="glossari-form-group glossari-form-submit">
+          <button onclick="afegeixSegmentTM()" class="btn-primary">
+            ➕ Afegir a la memòria
+          </button>
+        </div>
+      </div>
+      <div id="tm-missatge" class="glossari-missatge" style="display:none"></div>
+    </div>
+
+    <div class="glossari-taula-container" id="tm-taula-container" style="display:none">
+      <div class="glossari-taula-header">
+        <h3>Segments de la memòria</h3>
+        <div class="glossari-taula-accions">
+          <input type="text" id="tm-cerca" placeholder="🔍 Cerca un segment..."
+                 oninput="filtraMemoria()" class="glossari-cerca">
+          <button onclick="descarregaMemoriaTMX()" class="btn-descarrega-glossari"
+                  title="Descarrega la memòria en format TMX">
+            ⬇ Descarrega TMX
+          </button>
+        </div>
+      </div>
+      <table class="glossari-taula" id="tm-taula">
+        <thead>
+          <tr>
+            <th>Segment en castellà</th>
+            <th>Traducció valenciana</th>
+            <th>Tècnic/a</th>
+            <th>Data</th>
+            <th>Acció</th>
+          </tr>
+        </thead>
+        <tbody id="tm-tbody"></tbody>
+      </table>
+      <p id="tm-buit" class="glossari-buit" style="display:none">
+        Aquest domini no té segments encara. Afegeix el primer segment!
       </p>
     </div>
 

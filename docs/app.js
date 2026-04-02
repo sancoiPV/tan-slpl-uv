@@ -824,7 +824,9 @@ async function processaFitxerActual(mode) {
       endpoint = '/tradueix-document-claude';
     }
     const r = await fetch(await TAN.getUrlAvancada() + endpoint, {
-      method: 'POST', body: form
+      method: 'POST',
+      body: form,
+      headers: { 'Authorization': 'Bearer ' + (_authToken || '') },
     });
     if (!r.ok) throw new Error(await r.text());
 
@@ -954,6 +956,17 @@ async function inicialitzaGlossari() {
     if (selectorCorreccio) {
       selectorCorreccio.innerHTML = select.innerHTML;
     }
+    // Poblar selects de memòries de traducció
+    ['tm-domini-select', 'tm-domini-extraccio'].forEach(id => {
+      const sel = document.getElementById(id);
+      if (sel && sel.options.length <= 1) {
+        data.dominis.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d; opt.textContent = d;
+          sel.appendChild(opt);
+        });
+      }
+    });
   } catch (e) {
     console.warn('Glossari no disponible:', e.message);
   }
@@ -1917,6 +1930,7 @@ async function corregeixDocument() {
       method: 'POST',
       body:   formData,
       signal: _controladorAbort.signal,
+      headers: { 'Authorization': 'Bearer ' + (_authToken || '') },
     });
 
     clearTimeout(_timerAbort);
@@ -2501,7 +2515,11 @@ async function tradueixDocAngles() {
     const url = `${baseUrl}/tradueix-document-angles`;
     actualitzaProgress('angles', 40, 'Enviant al servidor...', '');
 
-    const resp = await fetch(url, { method: 'POST', body: formData });
+    const resp = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers: { 'Authorization': 'Bearer ' + (_authToken || '') },
+    });
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
@@ -3002,4 +3020,303 @@ function exportaGlossariTSV() {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MEMÒRIES DE TRADUCCIÓ (TMX)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _tmDominiActual = '';
+let _tmSegmentsExtrets = [];
+
+async function carregaMemoria() {
+  const select = document.getElementById('tm-domini-select');
+  _tmDominiActual = select.value;
+  const form = document.getElementById('tm-form');
+  const container = document.getElementById('tm-taula-container');
+  const badge = document.getElementById('tm-total');
+
+  if (!_tmDominiActual) {
+    form.style.display = 'none';
+    container.style.display = 'none';
+    return;
+  }
+  form.style.display = 'block';
+
+  try {
+    const url = await TAN.getUrlAvancada();
+    const resp = await fetch(`${url}/memoria/${encodeURIComponent(_tmDominiActual)}`);
+    const data = await resp.json();
+    container.style.display = 'block';
+    renderitzaTaulaMemoria(data.segments || []);
+    badge.textContent = `${data.total} segment${data.total !== 1 ? 's' : ''}`;
+    badge.style.display = data.total > 0 ? 'inline' : 'none';
+  } catch (e) {
+    console.error('Error carregant memòria:', e);
+  }
+}
+
+function renderitzaTaulaMemoria(segments) {
+  const tbody = document.getElementById('tm-tbody');
+  const buit = document.getElementById('tm-buit');
+  tbody.innerHTML = '';
+  if (segments.length === 0) { buit.style.display = 'block'; return; }
+  buit.style.display = 'none';
+  segments.forEach(s => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${_esc(s.es)}</td>
+      <td><strong>${_esc(s.ca)}</strong></td>
+      <td>${_esc(s.tecnic || '—')}</td>
+      <td>${_esc(s.data || '—')}</td>
+      <td>
+        <button class="btn-eliminar-terme"
+                onclick="eliminaSegmentTM('${_esc(s.es).replace(/'/g, "\\'")}')">
+          🗑
+        </button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function filtraMemoria() {
+  const cerca = document.getElementById('tm-cerca').value.toLowerCase();
+  const files = document.querySelectorAll('#tm-tbody tr');
+  files.forEach(tr => {
+    const text = tr.textContent.toLowerCase();
+    tr.style.display = text.includes(cerca) ? '' : 'none';
+  });
+}
+
+async function afegeixSegmentTM() {
+  const es = document.getElementById('tm-seg-es').value.trim();
+  const ca = document.getElementById('tm-seg-ca').value.trim();
+  const tecnic = document.getElementById('tm-seg-tecnic').value;
+  const msgEl = document.getElementById('tm-missatge');
+
+  if (!es || !ca) {
+    msgEl.textContent = 'Cal omplir el segment en castellà i la traducció valenciana.';
+    msgEl.className = 'glossari-missatge glossari-missatge-error';
+    msgEl.style.display = 'block';
+    return;
+  }
+  if (!_tmDominiActual) {
+    msgEl.textContent = 'Selecciona un domini primer.';
+    msgEl.className = 'glossari-missatge glossari-missatge-error';
+    msgEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const url = await TAN.getUrlAvancada();
+    const resp = await fetch(
+      `${url}/memoria/${encodeURIComponent(_tmDominiActual)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ es, ca, tecnic }),
+      }
+    );
+    if (!resp.ok) throw new Error(`Error ${resp.status}`);
+    const data = await resp.json();
+    const accio = data.estat === 'actualitzat' ? 'actualitzat' : 'afegit';
+    msgEl.textContent = `✓ Segment ${accio} correctament.`;
+    msgEl.className = 'glossari-missatge glossari-missatge-ok';
+    msgEl.style.display = 'block';
+    document.getElementById('tm-seg-es').value = '';
+    document.getElementById('tm-seg-ca').value = '';
+    await carregaMemoria();
+  } catch (e) {
+    msgEl.textContent = `Error: ${e.message}`;
+    msgEl.className = 'glossari-missatge glossari-missatge-error';
+    msgEl.style.display = 'block';
+  }
+}
+
+async function eliminaSegmentTM(segmentEs) {
+  if (!confirm(`Eliminar el segment "${segmentEs.substring(0, 50)}..."?`)) return;
+  try {
+    const url = await TAN.getUrlAvancada();
+    await fetch(
+      `${url}/memoria/${encodeURIComponent(_tmDominiActual)}/${encodeURIComponent(segmentEs)}`,
+      { method: 'DELETE' }
+    );
+    await carregaMemoria();
+  } catch (e) {
+    alert('Error eliminant: ' + e.message);
+  }
+}
+
+async function alineaSegmentsTM() {
+  const textOrig = document.getElementById('tm-text-original').value.trim();
+  const textTrad = document.getElementById('tm-text-traduccio').value.trim();
+  const domini = document.getElementById('tm-domini-extraccio').value;
+  const btn = document.getElementById('btn-alinea-tm');
+  const msgEl = document.getElementById('tm-extraccio-msg');
+  const resultatDiv = document.getElementById('tm-extraccio-resultat');
+
+  if (!textOrig || !textTrad) {
+    msgEl.textContent = 'Cal introduir tant el text original com la traducció.';
+    msgEl.style.color = '#d32f2f'; msgEl.style.display = 'block';
+    return;
+  }
+  if (!domini) {
+    msgEl.textContent = 'Seleccioneu un domini lingüístic.';
+    msgEl.style.color = '#d32f2f'; msgEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Alineant segments...';
+  msgEl.style.display = 'none';
+  resultatDiv.style.display = 'none';
+
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/alinea-segments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (_authToken || ''),
+      },
+      body: JSON.stringify({
+        text_original: textOrig,
+        text_traduccio: textTrad,
+        domini: domini,
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error del servidor');
+    }
+
+    const dades = await resp.json();
+    _tmSegmentsExtrets = dades.segments || [];
+    _renderitzaTaulaSegmentsTM();
+    resultatDiv.style.display = 'block';
+    msgEl.textContent = _tmSegmentsExtrets.length + ' segments alineats per al domini "' + domini + '".';
+    msgEl.style.color = '#27500A'; msgEl.style.display = 'block';
+  } catch (e) {
+    msgEl.textContent = 'Error: ' + e.message;
+    msgEl.style.color = '#d32f2f'; msgEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🧠 Alinear segments es↔va';
+  }
+}
+
+function _renderitzaTaulaSegmentsTM() {
+  const taulaDiv = document.getElementById('tm-extraccio-taula');
+  const segs = _tmSegmentsExtrets.filter(s => s !== null);
+  if (segs.length === 0) {
+    taulaDiv.innerHTML = '<p style="color:#6A7A9B;">No s\'han trobat segments per a alinear.</p>';
+    return;
+  }
+  let html = '<table style="width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed;">';
+  html += '<colgroup><col style="width:5%"><col style="width:43%"><col style="width:43%"><col style="width:9%"></colgroup>';
+  html += '<tr style="background:#002E52; color:white;">'
+       + '<th style="padding:8px; text-align:center;">#</th>'
+       + '<th style="padding:8px; text-align:left;">Castellà</th>'
+       + '<th style="padding:8px; text-align:left;">Valencià</th>'
+       + '<th style="padding:8px; text-align:center;">✗</th></tr>';
+  let num = 0;
+  for (let i = 0; i < _tmSegmentsExtrets.length; i++) {
+    const s = _tmSegmentsExtrets[i];
+    if (s === null) continue;
+    num++;
+    html += '<tr style="border-bottom:1px solid #ddd;" id="tm-seg-row-' + i + '">';
+    html += '<td style="padding:6px 8px; text-align:center; color:#6A7A9B;">' + num + '</td>';
+    html += '<td style="padding:6px 8px;">' + _esc(s.es || '') + '</td>';
+    html += '<td style="padding:6px 8px;"><input type="text" value="' + (s.ca || '').replace(/"/g, '&quot;') + '" '
+         + 'onchange="_tmSegmentsExtrets[' + i + '].ca = this.value" '
+         + 'style="width:100%; padding:4px 6px; border:1px solid #ccc; border-radius:3px; font-size:13px; box-sizing:border-box;"></td>';
+    html += '<td style="padding:6px 8px; text-align:center;">'
+         + '<button onclick="eliminaSegmentExtretTM(' + i + ')" style="background:none; border:none; color:#d32f2f; cursor:pointer; font-size:16px;" title="Eliminar">✗</button>'
+         + '</td></tr>';
+  }
+  html += '</table>';
+  taulaDiv.innerHTML = html;
+}
+
+function eliminaSegmentExtretTM(index) {
+  _tmSegmentsExtrets[index] = null;
+  _renderitzaTaulaSegmentsTM();
+}
+
+async function desaSegmentsTM() {
+  const domini = document.getElementById('tm-domini-extraccio').value;
+  const msgEl = document.getElementById('tm-extraccio-msg');
+  const segsValids = (_tmSegmentsExtrets || []).filter(s => s !== null && s !== undefined);
+
+  if (segsValids.length === 0) {
+    msgEl.textContent = 'No hi ha segments per a desar.';
+    msgEl.style.color = '#d32f2f'; msgEl.style.display = 'block';
+    return;
+  }
+  if (!domini) {
+    msgEl.textContent = 'Seleccioneu un domini.';
+    msgEl.style.color = '#d32f2f'; msgEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const baseUrl = await TAN.getUrlAvancada();
+    const resp = await fetch(baseUrl + '/memoria/desa-massiu', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (_authToken || ''),
+      },
+      body: JSON.stringify({ domini: domini, segments: segsValids }),
+    });
+    const dades = await resp.json();
+    msgEl.textContent = `✓ ${dades.nous} segments nous afegits a la memòria de "${domini}" (${dades.total} totals).`;
+    msgEl.style.color = '#27500A'; msgEl.style.display = 'block';
+  } catch (e) {
+    msgEl.textContent = 'Error: ' + e.message;
+    msgEl.style.color = '#d32f2f'; msgEl.style.display = 'block';
+  }
+}
+
+async function descarregaMemoriaTMX() {
+  if (!_tmDominiActual) return;
+  try {
+    const url = await TAN.getUrlAvancada();
+    const resp = await fetch(`${url}/memoria/descarrega/${encodeURIComponent(_tmDominiActual)}`);
+    if (!resp.ok) throw new Error('No hi ha memòria per a aquest domini.');
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `MT_${_tmDominiActual.replace(/\s+/g, '_')}.tmx`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+function descarregaTMX() {
+  const domini = document.getElementById('tm-domini-extraccio').value;
+  if (!domini) { alert('Seleccioneu un domini.'); return; }
+  // Generar TMX localment a partir dels segments extrets
+  const segs = (_tmSegmentsExtrets || []).filter(s => s !== null);
+  if (segs.length === 0) { alert('No hi ha segments.'); return; }
+  let tmx = '<?xml version="1.0" encoding="UTF-8"?>\n<tmx version="1.4">\n';
+  tmx += '  <header creationtool="TANEU-SLPL" datatype="PlainText" segtype="sentence" o-tmf="TANEU" adminlang="ca" srclang="es"/>\n';
+  tmx += '  <body>\n';
+  segs.forEach(s => {
+    tmx += '    <tu>\n';
+    tmx += '      <tuv xml:lang="es"><seg>' + _esc(s.es) + '</seg></tuv>\n';
+    tmx += '      <tuv xml:lang="ca"><seg>' + _esc(s.ca) + '</seg></tuv>\n';
+    tmx += '    </tu>\n';
+  });
+  tmx += '  </body>\n</tmx>';
+  const blob = new Blob([tmx], { type: 'application/xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `MT_${domini.replace(/\s+/g, '_')}.tmx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
