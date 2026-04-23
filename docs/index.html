@@ -69,10 +69,44 @@
     <button class="tab-btn" data-tab="traduccio-angles" onclick="activaTab('traduccio-angles')">🌐 EN ↔ VA</button>
     <button class="tab-btn" data-tab="admin-usuaris" id="btn-tab-admin" onclick="activaTab('admin-usuaris')" style="display:none">👤 El meu compte</button>
     <button class="tab-btn" data-tab="gestio-usuaris" id="btn-tab-gestio" onclick="activaTab('gestio-usuaris')" style="display:none">⚙️ Gestió d'usuaris</button>
+    <button class="tab-btn teams-tab-btn" id="teamsTabBtn" onclick="toggleTeamsPanel()">
+      <span class="teams-dot-nav"></span> Xat SLPL
+    </button>
   </nav>
 </header>
 
 <div class="tan-main">
+
+<!-- ── PANELL TEAMS (Xat SLPL) ─────────────────── -->
+<div class="teams-overlay" id="teamsOverlay" onclick="toggleTeamsPanel()"></div>
+<div class="teams-panel" id="teamsPanel">
+  <div class="teams-panel-cap">
+    <div class="teams-panel-titol">
+      <span class="teams-logo-mini">T</span>
+      Xat SLPL &middot; Microsoft Teams
+    </div>
+    <button class="teams-panel-tanca" onclick="toggleTeamsPanel()" title="Tanca">&#10005;</button>
+  </div>
+  <div class="teams-panel-cos">
+    <div class="teams-avis">
+      <span class="teams-avis-ico">&#9888;</span>
+      <span class="teams-avis-text">Microsoft no permet incrustar Teams en aplicacions externes. Feu clic al botó per obrir Teams Web directament al vostre canal.</span>
+    </div>
+    <div class="teams-canal-card">
+      <div class="teams-canal-label">Canal connectat</div>
+      <div class="teams-canal-nom"># Assessorament</div>
+      <div class="teams-canal-equip">Secci&oacute; d&rsquo;Assessorament Ling&uuml;&iacute;stic &middot; SLPL</div>
+    </div>
+    <button class="teams-btn-obri" onclick="obreTeamsWeb()">
+      &#8599; Obrir a Teams Web
+    </button>
+    <button class="teams-btn-copia" id="teamsBtnCopia" onclick="copiaEnllacTeams()">
+      &#9634; Copiar l&rsquo;enlla&ccedil; del canal
+    </button>
+    <hr class="teams-separador">
+    <p class="teams-peu-text">Teams s&rsquo;obrira en una finestra lateral posicionada a la dreta, de manera que podeu usar TANEU i Teams alhora.</p>
+  </div>
+</div>
 
 <!-- Barra d'estat global (sota nav) -->
 <div class="status-bar">

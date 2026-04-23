@@ -2703,3 +2703,32 @@ body { font-family: var(--sans); background: var(--uv-gris); color: var(--uv-txt
   line-height: 1.6;
   border-left: 4px solid #234E83;
 }
+
+/* ── TEAMS PANEL ─────────────────────────────── */
+.teams-tab-btn { display:flex; align-items:center; gap:5px; }
+.teams-dot-nav { width:7px; height:7px; border-radius:50%; background:#6264A7; display:inline-block; flex-shrink:0; }
+.teams-tab-btn.teams-actiu { color:#a5a7e0 !important; border-bottom-color:#6264A7 !important; background:rgba(98,100,167,.15) !important; }
+.teams-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:900; }
+.teams-overlay.visible { display:block; }
+.teams-panel { position:fixed; top:0; right:0; width:320px; height:100vh; background:#fff; box-shadow:-4px 0 20px rgba(0,0,0,.15); z-index:901; display:flex; flex-direction:column; transform:translateX(100%); transition:transform .25s ease; }
+.teams-panel.obert { transform:translateX(0); }
+.teams-panel-cap { background:#6264A7; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+.teams-panel-titol { color:#fff; font-size:13px; font-weight:500; display:flex; align-items:center; gap:7px; }
+.teams-logo-mini { width:18px; height:18px; background:#fff; border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#6264A7; flex-shrink:0; }
+.teams-panel-tanca { background:none; border:none; color:rgba(255,255,255,.8); font-size:14px; cursor:pointer; padding:2px 4px; line-height:1; }
+.teams-panel-tanca:hover { color:#fff; }
+.teams-panel-cos { flex:1; padding:16px; display:flex; flex-direction:column; gap:14px; overflow-y:auto; }
+.teams-avis { background:#fffbe6; border:1px solid #f0d060; border-radius:6px; padding:10px 12px; display:flex; gap:8px; align-items:flex-start; }
+.teams-avis-ico { font-size:13px; flex-shrink:0; margin-top:1px; }
+.teams-avis-text { font-size:11px; color:#7a6000; line-height:1.5; }
+.teams-canal-card { background:#f5f5f5; border:1px solid #e0e0e0; border-radius:6px; padding:10px 12px; }
+.teams-canal-label { font-size:10px; color:#888; text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; }
+.teams-canal-nom { font-size:13px; font-weight:500; color:#1a1a1a; }
+.teams-canal-equip { font-size:11px; color:#666; margin-top:2px; }
+.teams-btn-obri { background:#6264A7; color:#fff; border:none; border-radius:6px; padding:11px 16px; font-size:13px; font-weight:500; cursor:pointer; width:100%; transition:background .15s; }
+.teams-btn-obri:hover { background:#4f5195; }
+.teams-btn-copia { background:none; border:1px solid #d0d0d0; border-radius:6px; padding:9px 16px; font-size:12px; color:#666; cursor:pointer; width:100%; transition:all .15s; }
+.teams-btn-copia:hover { background:#f5f5f5; color:#1a1a1a; }
+.teams-btn-copia.copiat { border-color:#3a9e6f; color:#3a9e6f; }
+.teams-separador { border:none; border-top:1px solid #e8e8e8; margin:0; }
+.teams-peu-text { font-size:11px; color:#999; text-align:center; line-height:1.5; }

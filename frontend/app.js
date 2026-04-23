@@ -3320,3 +3320,32 @@ function descarregaTMX() {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+
+/* ── TEAMS PANEL ─────────────────────────────── */
+const TEAMS_URL_SLPL = "https://teams.cloud.microsoft/l/channel/19%3Aro_u7f8OqiS8lpx9_buuB-7idjc7ewPbyR0y8x6DVos1%40thread.tacv2/Assessorament?groupId=261c0657-64fa-48cf-847c-cbbb036db8ef&tenantId=c33ca6e9-8630-4c88-8af7-5cd0db91028b";
+let teamsPanelObert = false;
+function toggleTeamsPanel() {
+  teamsPanelObert = !teamsPanelObert;
+  document.getElementById('teamsPanel').classList.toggle('obert', teamsPanelObert);
+  document.getElementById('teamsOverlay').classList.toggle('visible', teamsPanelObert);
+  document.getElementById('teamsTabBtn').classList.toggle('teams-actiu', teamsPanelObert);
+}
+function obreTeamsWeb() {
+  const ampla = 480;
+  const alta = Math.round(screen.height * 0.85);
+  const esquerra = screen.width - ampla - 20;
+  const dalt = Math.round((screen.height - alta) / 2);
+  window.open(TEAMS_URL_SLPL, 'TeamsXatSLPL',
+    `width=${ampla},height=${alta},left=${esquerra},top=${dalt},toolbar=0,location=0,menubar=0,status=0`);
+}
+function copiaEnllacTeams() {
+  navigator.clipboard.writeText(TEAMS_URL_SLPL).then(() => {
+    const btn = document.getElementById('teamsBtnCopia');
+    btn.classList.add('copiat');
+    btn.textContent = '\u2713 Enlla\u00e7 copiat';
+    setTimeout(() => {
+      btn.classList.remove('copiat');
+      btn.innerHTML = '&#9634; Copiar l\'enlla\u00e7 del canal';
+    }, 2500);
+  }).catch(() => { alert('No s\'ha pogut copiar. URL: ' + TEAMS_URL_SLPL); });
+}
